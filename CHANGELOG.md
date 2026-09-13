@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.6.1 — 2026-09-13
+
+- Replace the full-width column panel and repeated table instructions with a compact Columns menu. Remove visible field counts and duplicate ranking-direction text.
+- Move higher/lower-is-better guidance into the Rank by menu.
+- Drag optional table headings horizontally, or use the column menu's vertical drag handles. Checkboxes, reset, keyboard ordering and shared local preferences remain available.
+- Show a lifted drag preview and insertion marker; support cancellation, edge scrolling, focus retention and phone-sized menus. Dragging leaves financial ranks and source records intact.
+
 ## 0.6.0 — 2026-09-13
 
 - Align chart/index metric labels and values in compact tiles; pair long settings on one edge and stack them on phones. Match library metric baselines and numeric table headings throughout the dashboard.

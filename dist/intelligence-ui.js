@@ -10,6 +10,74 @@ const measures={calmar:{label:'Calmar',kind:'number',direction:'Higher is better
 const nameOf=x=>x.run.name||x.run.id;
 const num=(value,kind='number',signed=false)=>cell(value,kind,signed).text;
 function disclosure(title,id){const d=el('details');d.id=id;d.append(el('summary',title));return d;}
+function picker(title,id){
+ const d=disclosure(title,id);d.className='compact-picker';const summary=d.firstChild;summary.id=id+'-toggle';
+ d.onkeydown=e=>{if(e.key==='Escape'){e.preventDefault();d.open=false;summary.focus({preventScroll:true});}};
+ d.onfocusout=e=>{if(e.relatedTarget&&!d.contains(e.relatedTarget))d.open=false;};
+ d.addEventListener('toggle',()=>{
+  if(!d.open)return;const panel=d.querySelector('.picker-panel'),r=summary.getBoundingClientRect(),below=innerHeight-r.bottom-16,above=r.top-16;
+  const upward=below<Math.min(panel.scrollHeight,420)&&above>below;panel.classList.toggle('opens-up',upward);panel.style.setProperty('--menu-room',Math.max(140,upward?above:below)+'px');
+ });
+ return d;
+}
+document.addEventListener('pointerdown',e=>{document.querySelectorAll('.compact-picker[open]').forEach(d=>{if(!d.contains(e.target))d.open=false;});});
+function grip(){
+ // Lucide grip-vertical, ISC; attribution is included in LICENSE.
+ const svg=document.createElementNS('http://www.w3.org/2000/svg','svg');
+ for(const [k,v] of Object.entries({viewBox:'0 0 24 24',width:20,height:20,fill:'none',stroke:'currentColor','stroke-width':2,'stroke-linecap':'round','stroke-linejoin':'round','aria-hidden':'true'}))svg.setAttribute(k,v);
+ for(const [x,y] of [[9,12],[9,5],[9,19],[15,12],[15,5],[15,19]]){const c=document.createElementNS(svg.namespaceURI,'circle');c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r','1');svg.append(c);}return svg;
+}
+let cancelColumnDrag=null;
+function columnDrag(handle,{key,axis,peers,scroller,commit}){
+ let suppressClick=false;
+ handle.addEventListener('click',e=>{if(suppressClick){suppressClick=false;if(e.detail>0){e.preventDefault();e.stopImmediatePropagation();}}},true);
+ handle.onpointerdown=e=>{
+  if(e.button!==0||e.isPrimary===false||(axis==='x'&&e.pointerType==='touch'))return;
+  cancelColumnDrag?.();suppressClick=false;
+  const controller=new AbortController(),options={signal:controller.signal},source=peers().find(n=>n.dataset.column===key),start={x:e.clientX,y:e.clientY};
+  let active=false,ghost=null,marker=null,frame=0,last=e,before=undefined,valid=false;
+  const rect=()=>scroller.getBoundingClientRect(),coordinate=p=>axis==='x'?p.clientX:p.clientY;
+  const clean=()=>{controller.abort();if(frame)cancelAnimationFrame(frame);ghost?.remove();marker?.remove();source.classList.remove('column-drag-source');document.body.classList.remove('column-dragging');if(scroller.hasPointerCapture?.(e.pointerId))scroller.releasePointerCapture(e.pointerId);cancelColumnDrag=null;};
+  const finish=(save=false)=>{
+   const changed=active&&valid,anchor=before;clean();
+   if(active)suppressClick=true;
+   if(save&&changed)commit(anchor);
+  };
+  cancelColumnDrag=()=>finish();
+  function position(){
+   if(!active)return;
+   const bounds=rect(),p=coordinate(last),nodes=peers().filter(n=>n!==source),cross=axis==='x'?last.clientY:last.clientX;
+   const hit=axis==='x'?source.getBoundingClientRect():bounds;
+   valid=cross>=(axis==='x'?hit.top:hit.left)-24&&cross<=(axis==='x'?hit.bottom:hit.right)+24&&p>=(axis==='x'?bounds.left:bounds.top)-40&&p<=(axis==='x'?bounds.right:bounds.bottom)+40;
+   const target=nodes.find(n=>{const r=n.getBoundingClientRect();return p<(axis==='x'?r.left+r.width/2:r.top+r.height/2);});
+   before=target?.dataset.column||null;
+   const edge=(target||nodes.at(-1))?.getBoundingClientRect();marker.hidden=!valid||!edge;
+   if(edge){const at=target?(axis==='x'?edge.left:edge.top):(axis==='x'?edge.right:edge.bottom);Object.assign(marker.style,axis==='x'?{left:at+'px',top:source.getBoundingClientRect().top+'px',height:source.getBoundingClientRect().height+'px',width:'3px'}:{left:bounds.left+'px',top:at+'px',width:bounds.width+'px',height:'3px'});}
+   ghost.style.left=Math.min(Math.max(8,last.clientX-(axis==='x'?30:ghost.offsetWidth-22)),innerWidth-ghost.offsetWidth-8)+'px';ghost.style.top=(last.clientY-22)+'px';
+  }
+  function autoScroll(){
+   if(!active)return;
+   const r=rect(),p=coordinate(last),lo=axis==='x'?r.left:r.top,hi=axis==='x'?r.right:r.bottom;
+   const speed=valid?(p<lo+32?-Math.min(14,(lo+32-p)/3):p>hi-32?Math.min(14,(p-hi+32)/3):0):0;
+   if(speed){if(axis==='x')scroller.scrollLeft+=speed;else scroller.scrollTop+=speed;position();}
+   frame=requestAnimationFrame(autoScroll);
+  }
+  window.addEventListener('pointermove',p=>{
+   if(p.pointerId!==e.pointerId)return;last=p;
+   if(!active&&Math.hypot(p.clientX-start.x,p.clientY-start.y)<7)return;
+   if(!active){active=true;scroller.setPointerCapture?.(e.pointerId);source.classList.add('column-drag-source');document.body.classList.add('column-dragging');
+    ghost=el('div',source.textContent,'column-drag-ghost');ghost.setAttribute('aria-hidden','true');ghost.style.width=(axis==='x'?Math.max(120,source.getBoundingClientRect().width):source.getBoundingClientRect().width)+'px';
+    marker=el('div',undefined,'column-drop-marker');marker.setAttribute('aria-hidden','true');document.body.append(ghost,marker);frame=requestAnimationFrame(autoScroll);
+   }
+   p.preventDefault();position();
+  },{...options,passive:false});
+  window.addEventListener('pointerup',p=>{if(p.pointerId===e.pointerId){last=p;if(active){p.preventDefault();position();}finish(true);}},{...options,passive:false});
+  window.addEventListener('pointercancel',p=>{if(p.pointerId===e.pointerId)finish();},options);
+  scroller.addEventListener('lostpointercapture',()=>finish(),options);
+  window.addEventListener('blur',()=>finish(),options);
+  document.addEventListener('keydown',p=>{if(p.key==='Escape'){p.preventDefault();p.stopImmediatePropagation();finish();}}, {...options,capture:true});
+ };
+}
 const tableColumns=[
  {key:'rank',label:'Rank',numeric:true,value:r=>r.rank,kind:'count',required:true},
  {key:'strategy',label:'Strategy & test conditions',value:r=>nameOf(r.item),required:true},
@@ -33,35 +101,30 @@ function tablePreferences(value){
  const visible=Array.isArray(value?.visible)?value.visible.filter(k=>keys.includes(k)):defaultColumns;
  return {order,visible:[...new Set(['rank','strategy',...visible])]};
 }
-function strategyTable({ordered,basis,all=false,showAll,onOpen,onGroup,onMore,leaders=[],canLead=false,state,onChange}){
+function strategyTable({ordered,basis,all=false,showAll,onOpen,onGroup,onMore,leaders=[],canLead=false,state,onChange,toolbar}){
  const container=el('div',undefined,'strategy-table-tools'),prefs=state.preferences,m=measures[basis],name=all?'All runs ranking':'Strategy ranking';
  const columns=prefs.order.map(key=>tableColumns.find(c=>c.key===key)),shown=columns.filter(c=>prefs.visible.includes(c.key));
- const config=disclosure('Columns · '+shown.length+' of '+columns.length,'strategy-columns');
- config.append(el('p','Choose columns for both comparison views. Move a checked column left or right. Rank and strategy stay visible. '+(state.demo?'Demo choices last until reload.':'Choices are saved on this browser.'),'mini'));
+ const config=picker('Columns','strategy-columns'),panel=el('div',undefined,'picker-panel column-panel');
+ const help=el('p','Drag to reorder. With a handle focused, use Arrow Up or Arrow Down. Rank and strategy stay first.','sr-only');help.id='column-drag-help';panel.append(help);
  const list=el('div',undefined,'column-options');
+ function move(key,before,focusId){
+  const order=prefs.order.filter(k=>k!==key),index=before?order.indexOf(before):order.length;order.splice(Math.max(2,index),0,key);
+  if(order.join()===prefs.order.join())return;
+  prefs.order=order;state.announcement=tableColumns.find(c=>c.key===key).label+' moved.';onChange(focusId,true);
+ }
  columns.filter(c=>!c.required).forEach(c=>{
-  const row=el('div',undefined,'column-option'),label=el('label'),check=el('input');check.type='checkbox';check.id='column-'+c.key;check.checked=prefs.visible.includes(c.key);
+  const row=el('div',undefined,'column-option'),label=el('label'),check=el('input');row.dataset.column=c.key;check.type='checkbox';check.id='column-'+c.key;check.checked=prefs.visible.includes(c.key);
   check.onchange=()=>{prefs.visible=check.checked?[...prefs.visible,c.key]:prefs.visible.filter(k=>k!==c.key);if(!check.checked&&state.sort?.key===c.key)state.sort=null;onChange(check.id,true);};
   label.append(check,el('span',c.label));row.append(label);
-  const index=shown.findIndex(x=>x.key===c.key);
-  for(const [step,text] of [[-1,'Left'],[1,'Right']]){
-   const move=button(text,()=>{
-    const neighbor=shown[index+step].key,a=prefs.order.indexOf(c.key),b=prefs.order.indexOf(neighbor);[prefs.order[a],prefs.order[b]]=[prefs.order[b],prefs.order[a]];
-    onChange('column-'+c.key,true);
-   },'quiet column-move');
-   move.id='column-'+c.key+'-'+text.toLowerCase();move.setAttribute('aria-label','Move '+c.label+' '+text.toLowerCase());
-   move.disabled=index<2||index+step<2||index+step>=shown.length;row.append(move);
-  }
+  const handle=button(undefined,()=>{},'quiet column-grip');handle.id='column-grip-'+c.key;handle.setAttribute('aria-label','Reorder '+c.label);handle.setAttribute('aria-describedby',help.id);handle.append(grip());
+  handle.onkeydown=e=>{const keys=prefs.order.slice(2),i=keys.indexOf(c.key),dest=e.key==='ArrowUp'?i-1:e.key==='ArrowDown'?i+1:e.key==='Home'?0:e.key==='End'?keys.length-1:null;if(dest===null)return;e.preventDefault();if(dest<0||dest>=keys.length||dest===i)return;const rest=keys.filter(k=>k!==c.key);move(c.key,rest[dest]||null,handle.id);};
+  columnDrag(handle,{key:c.key,axis:'y',peers:()=>[...list.children],scroller:list,commit:before=>move(c.key,before,handle.id)});row.append(handle);
   list.append(row);
  });
- config.append(list);const reset=button('Reset columns',()=>{state.preferences=tablePreferences(null);state.sort=null;onChange('columns-reset',true);},'quiet');reset.id='columns-reset';config.append(reset);
- container.append(config);
- const status=el('div',undefined,'table-order'),description=el('p',undefined,'mini');description.id='strategy-table-order';description.setAttribute('role','status');
+ panel.append(list);const reset=button('Reset columns',()=>{state.preferences=tablePreferences(null);state.sort=null;onChange('columns-reset',true);},'quiet');reset.id='columns-reset';panel.append(reset);config.append(panel);toolbar.append(config);
+ const description=el('p',undefined,'sr-only');description.id='strategy-table-order';description.setAttribute('role','status');
  const sortedColumn=tableColumns.find(c=>c.key===state.sort?.key);
- description.textContent=sortedColumn?'Display: '+sortedColumn.label+' · '+state.sort.direction+'. Ranks still use '+m.label+'.':'Display: ranking order · '+m.label+'. Click a column heading to sort.';
- status.append(description);
- if(state.sort){const resetSort=button('Ranking order',()=>{state.sort=null;onChange('strategy-sort-rank');},'quiet');status.append(resetSort);}
- container.append(status,el('p','Scroll sideways for more columns. Missing values stay last.','mini table-scroll-hint'));
+ description.textContent=(state.announcement||'')+' '+(sortedColumn?'Sorted by '+sortedColumn.label+', '+state.sort.direction+'. Ranks use '+m.label+'.':'Ranking order.');state.announcement='';container.append(description);
  const wrap=el('div',undefined,'table-wrap');wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label',name+' · scrollable table');
  const t=el('table',undefined,'rank-table'+(all?' all-runs-table':''));t.setAttribute('aria-label',name);t.setAttribute('aria-describedby','strategy-table-order');t.dataset.basis=basis;
  t.style.minWidth=((all?320:240)+Math.max(0,shown.length-2)*(all?125:90))+'px';
@@ -71,6 +134,7 @@ function strategyTable({ordered,basis,all=false,showAll,onOpen,onGroup,onMore,le
   const active=state.sort?.key===c.key;th.setAttribute('aria-sort',active?state.sort.direction:!state.sort&&c.key==='rank'?'ascending':'none');
   const sort=button(c.label,()=>{state.sort={key:c.key,direction:active&&state.sort.direction==='ascending'?'descending':'ascending'};onChange('strategy-sort-'+c.key,false,true);},'table-sort');
   sort.id='strategy-sort-'+c.key;sort.setAttribute('aria-label',c.label);sort.title=c.label+' · click to sort '+(active&&state.sort.direction==='ascending'?'descending':'ascending');th.append(sort);tr.append(th);
+  if(!c.required){th.classList.add('movable-column');columnDrag(sort,{key:c.key,axis:'x',peers:()=>[...tr.children].filter(n=>!['rank','strategy'].includes(n.dataset.column)),scroller:wrap,commit:before=>move(c.key,before,sort.id)});}
  });head.append(tr);t.append(head);
  // Display sorting never recomputes financial ranks, leaders or chart order.
  const display=sortedColumn?[...ordered].sort((a,b)=>P.compareValues(sortedColumn.value(a),sortedColumn.value(b),state.sort.direction)):ordered;
@@ -214,8 +278,8 @@ function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,tabl
  target.append(el('p','Every run in this comparison is included. Use a matched group for a fairer ranking. Results are never added or averaged into a combined portfolio.'+(limit!==null?' Drawdown ceiling: '+num(limit,'percent')+'.':''),'ranking-caution'));
  if(o.mixedData)target.append(el('p','Fictional runs are visible but excluded from ordering alongside real research.','issues'));
  const grid=el('div',undefined,'ranking-grid all-runs-grid'),board=el('section',undefined,'rank-board reveal'),head=el('div',undefined,'panel-heading');
- head.append(el('h3','All strategies, together'),el('span',m.label+' · '+m.direction.toLowerCase(),'mini'));board.append(head);
- board.append(strategyTable({ordered,basis,all:true,showAll,onOpen,onGroup,onMore,state:tableState,onChange:onTableChange}));
+ head.append(el('h3','All strategies, together'));board.append(head);
+ board.append(strategyTable({ordered,basis,all:true,showAll,onOpen,onGroup,onMore,state:tableState,onChange:onTableChange,toolbar:head}));
  board.append(el('p','Equal values share a rank. Review flags, repeats, missing values and ceiling failures stay unranked.','mini'));
  const plotted=o.items.filter(x=>x.rankEligible&&Number.isFinite(x.returns)&&Number.isFinite(x.drawdown)),chart=riskChart({items:plotted},[],b,{all:true,state:chartState,onOpen});
  chart.append(el('p',plotted.length+' of '+o.total+' saved runs plotted. Review flags, repeated results and mixed fictional data are omitted. Different periods make this an exploratory map.','mini'));
@@ -240,11 +304,13 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
  let preferenceWrite=Promise.resolve(),hasRendered=false;
  function onTableChange(focusId,persist=false,sorted=false){
   tableState.scrollLeft=target.querySelector('.rank-table')?.parentElement.scrollLeft||0;
+  tableState.columnScrollTop=target.querySelector('.column-options')?.scrollTop||0;
   if(sorted)showAll=true;
   if(persist){const snapshot=JSON.parse(JSON.stringify(tableState.preferences));preferenceWrite=preferenceWrite.then(()=>store.putTablePreferences?.(snapshot)).catch(()=>onNotice('Column choices apply for this visit, but could not be saved on this browser.',true));}
   draw(focusId);
  }
  function draw(focusId){
+  cancelColumnDrag?.();
   target.classList.toggle('analysis-updated',hasRendered);hasRendered=true;
   target.querySelectorAll('details[id]').forEach(d=>{if(d.open)openDetails.add(d.id);else openDetails.delete(d.id);});
   const a=I.analyze(runs,{drawdownLimit:limit});if(groupKey!=='all'&&!a.groups.some(g=>g.key===groupKey))groupKey=[...a.groups].sort((x,y)=>y.items.length-x.items.length)[0]?.key||'all';
@@ -252,7 +318,15 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
   target.replaceChildren();const head=el('div',undefined,'comparison-intro'),heading=el('div');heading.append(el('p','STRATEGY INTELLIGENCE','eyebrow'),el('h2','Find your front-runner.'));head.append(heading,button('Back to library',onExit));target.append(head);
   const toolbar=el('div',undefined,'ranking-toolbar'),groupLabel=el('label','Compare within'),groupSelect=el('select');groupSelect.id='ranking-group';groupSelect.setAttribute('aria-label','Comparison group');
   a.groups.forEach((x,i)=>groupSelect.append(new Option('Group '+(i+1)+' · '+x.controls['Momentum chart']+' · '+x.items.length+(x.items.length===1?' run':' runs')+' · '+x.controls.From.slice(0,4),x.key)));groupSelect.append(new Option('All runs · '+runs.length+' · exploratory','all'));if(!groupKey)groupKey='all';groupSelect.value=groupKey;groupSelect.disabled=!runs.length;groupSelect.onchange=()=>{groupKey=groupSelect.value;showAll=false;tableState.sort=null;draw('ranking-group');};groupLabel.append(groupSelect);toolbar.append(groupLabel);
-  const by=el('div',undefined,'rank-by');by.append(el('span','Rank by','control-label'));const choices=el('div',undefined,'rank-switch');choices.setAttribute('role','group');choices.setAttribute('aria-label','Rank strategies by');for(const [key,m] of Object.entries(measures)){const choose=button(m.label,()=>{basis=key;showAll=false;tableState.sort=null;draw('rank-'+key);},'quiet');choose.id='rank-'+key;choose.setAttribute('aria-pressed',String(key===basis));choices.append(choose);}by.append(choices);toolbar.append(by);target.append(toolbar);
+  const by=el('div',undefined,'rank-by');by.append(el('span','Rank by','control-label'));
+  const rankPicker=picker(measures[basis].label,'ranking-picker'),choices=el('div',undefined,'picker-panel ranking-choices');choices.setAttribute('role','group');choices.setAttribute('aria-label','Rank strategies by');
+  for(const [key,m] of Object.entries(measures)){
+   const choose=button(undefined,()=>{rankPicker.open=false;basis=key;showAll=false;tableState.sort=null;draw('ranking-picker-toggle');},'quiet');choose.id='rank-'+key;choose.setAttribute('aria-label',m.label);choose.setAttribute('aria-pressed',String(key===basis));choose.append(el('span',m.label),el('small',m.direction));choices.append(choose);
+  }
+  rankPicker.firstChild.setAttribute('aria-label','Rank by '+measures[basis].label);
+  rankPicker.firstChild.onkeydown=e=>{if(e.key==='ArrowDown'){e.preventDefault();rankPicker.open=true;document.getElementById('rank-'+basis).focus();}};
+  choices.onkeydown=e=>{const buttons=[...choices.children],index=buttons.indexOf(document.activeElement);if(index<0)return;const next=e.key==='ArrowDown'?(index+1)%buttons.length:e.key==='ArrowUp'?(index+buttons.length-1)%buttons.length:null;if(next!==null){e.preventDefault();buttons[next].focus();}};
+  rankPicker.append(choices);by.append(rankPicker);toolbar.append(by);target.append(toolbar);
   target.append(el('p',runs.length+' runs · '+a.groups.length+' separate groups · '+a.blocked.length+' for review'+(a.duplicates.length?' · '+a.duplicates.length+' repeated results':''),'ranking-scope'));
   if(all&&runs.length){
    drawOverview({target,o,basis,b,limit,showAll,onOpen,table,chartState,tableState,onTableChange,onGroup:key=>{groupKey=key;showAll=false;tableState.sort=null;draw('ranking-group');},onMore:()=>{showAll=!showAll;draw('rank-more');}});
@@ -269,11 +343,11 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
    else{title=nameOf(lead);why=basis==='drawdown'?'Lowest reported drawdown among '+valid.length+' comparable runs.':'Highest '+(basis==='calmar'?'derived Calmar':'reported gross return')+' among '+valid.length+' comparable runs.';
     if(g.items.every(x=>x===lead||lead.returns>=x.returns&&lead.drawdown<=x.drawdown)&&g.items.some(x=>x!==lead&&(lead.returns>x.returns||lead.drawdown<x.drawdown)))why+=' No peer has more return or less drawdown.';if(lead.returns<=0)why+=' Its return is not positive.';}
    message.append(el('h3',title),el('p',why));hero.append(message);
-   if(lead){const score=el('div',undefined,'hero-score');score.append(el('span',m.label),el('strong',num(lead[basis],m.kind,basis!=='drawdown')),el('small',m.direction));hero.append(score);
+   if(lead){const score=el('div',undefined,'hero-score');score.append(el('span',m.label),el('strong',num(lead[basis],m.kind,basis!=='drawdown')));hero.append(score);
     const stats=el('div',undefined,'hero-facts');for(const [label,value,signed] of [['Gross return',lead.returns,true],['Max drawdown',lead.drawdown,false]]){const s=el('span');s.append(el('small',label),el('strong',num(value,'percent',signed)));stats.append(s);}stats.append(button('Inspect this run',()=>onOpen(lead.run),'quiet'));hero.append(stats);}
    target.append(hero,el('p','Provisional ranking · costs and execution assumptions remain unverified.','ranking-caution'));
-   const grid=el('div',undefined,'ranking-grid'),board=el('section',undefined,'rank-board reveal'),boardHead=el('div',undefined,'panel-heading');boardHead.append(el('h3','The leaderboard'),el('span',m.label+' · '+m.direction.toLowerCase(),'mini'));board.append(boardHead);
-   board.append(strategyTable({ordered,basis,showAll,onOpen,leaders,canLead,state:tableState,onChange:onTableChange,onMore:()=>{showAll=!showAll;draw('rank-more');}}),el('p','Ranks stay within this group. Equal values share a rank.','mini'));
+   const grid=el('div',undefined,'ranking-grid'),board=el('section',undefined,'rank-board reveal'),boardHead=el('div',undefined,'panel-heading');boardHead.append(el('h3','The leaderboard'));board.append(boardHead);
+   board.append(strategyTable({ordered,basis,showAll,onOpen,leaders,canLead,state:tableState,onChange:onTableChange,toolbar:boardHead,onMore:()=>{showAll=!showAll;draw('rank-more');}}),el('p','Ranks stay within this group. Equal values share a rank.','mini'));
    grid.append(board,riskChart(g,canLead?leaders:[],b,{state:chartState,onOpen}));target.append(grid);
    const reference=el('section',undefined,'benchmark-brief reveal');reference.append(el('span','BUY & HOLD','eyebrow'));
    if(!bm.available)reference.append(el('h3','Add Nifty to the picture.'),el('p',bm.reason||'Choose a benchmark in Filters & benchmark.','muted'));
@@ -313,7 +387,7 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
    }
    const rows=[['Group','Run','Aligned controls','Gross return (%)','Source CAGR (%)','Max drawdown (%)','Derived Calmar','Drawdown ceiling met','Dominated by','Reference','Reference basis','Reference source','Benchmark from','Benchmark to','Benchmark return (%)','Excess gross return (pp)','Benchmark caveats','Evidence']];a.groups.forEach((group,i)=>{const ref=I.benchmarkFor(group.items[0],b);group.items.forEach(x=>rows.push([i+1,nameOf(x),Object.entries(group.controls).map(([k,v])=>k+': '+v).join('; '),x.returns,x.cagr,x.drawdown,x.calmar,x.withinLimit,x.dominatedBy.join('; '),b?.name||'',b?.kind||'',b?.source||'',ref.from||'',ref.to||'',ref.returns??'',ref.available?x.returns-ref.returns:'',ref.cautions?.join('; ')||ref.reason||'',x.cautions.join('; ')]));});download('strategy-analysis.csv',root.Vault.csv(rows.map(row=>row.map(v=>typeof v==='number'?Number(v.toFixed(6)):v))),'text/csv;charset=utf-8');
   },'quiet');exportButton.disabled=all?!runs.length:!a.groups.length;target.append(exportButton,el('span',all?'Exports every run, status and setting in this comparison.':'Exports all comparison groups.','mini export-scope'));
-  target.querySelectorAll('details[id]').forEach(d=>{d.open=openDetails.has(d.id);});const tableWrap=target.querySelector('.rank-table')?.parentElement;if(tableWrap)tableWrap.scrollLeft=tableState.scrollLeft||0;if(focusId)document.getElementById(focusId)?.focus({preventScroll:true});
+  target.querySelectorAll('details[id]').forEach(d=>{d.open=openDetails.has(d.id);});const tableWrap=target.querySelector('.rank-table')?.parentElement;if(tableWrap)tableWrap.scrollLeft=tableState.scrollLeft||0;const columnList=target.querySelector('.column-options');if(columnList)columnList.scrollTop=tableState.columnScrollTop||0;if(focusId){const focused=document.getElementById(focusId);focused?.focus({preventScroll:true});if(focused?.classList.contains('column-grip')&&columnList){const r=focused.getBoundingClientRect(),bounds=columnList.getBoundingClientRect();if(r.top<bounds.top)columnList.scrollTop+=r.top-bounds.top;else if(r.bottom>bounds.bottom)columnList.scrollTop+=r.bottom-bounds.bottom;}}
  }
  draw();
 }

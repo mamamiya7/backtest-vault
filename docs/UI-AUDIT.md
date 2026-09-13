@@ -1,5 +1,11 @@
 # UI / UX audit
 
+## Compact controls and drag ordering — v0.6.1
+
+The user's follow-up screenshot identified unnecessary column counts, sorting instructions and repeated ranking-direction labels. Removed them from the table surface. Columns is now a compact menu with visibility checkboxes and vertical drag handles. Ranking directions appear inside the Rank by menu. Optional headings can also be dragged directly across the table; fixed identity columns remain first.
+
+Verified real mouse drags in Chrome for both a vertical menu move and a horizontal header move, with unchanged financial ranks and no accidental sort. At 390 × 844, the column menu fitted the viewport and a vertical mouse drag worked without page overflow. The menu chooses above or below its control according to available room. Automated tests cover touch-pointer handling, cancellation, short-click sorting, hidden-column ordering, keyboard moves, shared preferences and source immutability. Touch events in these tests are simulated; a real touch device and screen reader were not exercised. Existing metric alignment and reduced-motion behavior remain unchanged.
+
 ## Alignment and table controls — v0.6.0
 
 **Date:** 2026-09-13. **Goal:** keep each label visibly attached to its value and let readers organize strategy comparisons without changing the underlying ranking.

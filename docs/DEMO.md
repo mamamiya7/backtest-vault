@@ -1,6 +1,6 @@
 # Three-minute demo
 
-**New table controls:** in All runs, click the Return column heading twice. The display switches ascending then descending while Calmar ranks remain unchanged. Open Columns, enable Win ratio, hide a metric and move CAGR / annualized left. Choose a matched group to show that the same columns follow you. Reset columns restores six defaults. On a phone, swipe the table sideways. Demo layout choices disappear on reload; real-library choices are local to the browser.
+**New table controls:** in All runs, click the Return column heading twice. The display switches ascending then descending while Calmar ranks remain unchanged. Drag the Calmar heading before Return. Open Columns, enable Win ratio, hide a metric and drag the CAGR / annualized handle upward. Open Rank by to show the higher/lower-is-better guidance. Choose a matched group to show that the same columns follow you. Reset columns restores six defaults. On a phone, swipe the table sideways. Demo layout choices disappear on reload; real-library choices are local to the browser.
 
 Start `npm run preview` and open the printed URL ending in `?demo=1`. The purple banner and record labels identify fictional data.
 

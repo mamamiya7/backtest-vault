@@ -7,7 +7,7 @@ function app(saved={},demo=false,analysis=false){
  w.chrome={storage:{local:{get:async()=>{durable++;return structuredClone(saved);},set:async data=>{durable++;Object.assign(saved,structuredClone(data));}}}};
  w.Blob=Blob;w.URL.createObjectURL=blob=>{downloads.push(blob);return 'blob:test';};w.URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){};w.HTMLElement.prototype.scrollIntoView=function(){};
  for(const f of files)w.eval(fs.readFileSync(path.join(base,f),'utf8'));
- return {w,d,saved,downloads,close:()=>w.close(),durable:()=>durable,click:text=>{const b=[...d.querySelectorAll('button')].find(b=>b.textContent===text);assert.ok(b,'Missing button: '+text);b.click();}};
+ return {w,d,saved,downloads,close:()=>w.close(),durable:()=>durable,click:text=>{const b=[...d.querySelectorAll('button')].find(b=>b.textContent===text||b.getAttribute('aria-label')===text);assert.ok(b,'Missing button: '+text);b.click();}};
 }
 const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:[{size:1,text:async()=>JSON.stringify(data)}],value:'test'}});
 (async()=>{const demos=app({},true);let real,restored;try{
@@ -50,7 +50,7 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  demos.d.getElementById('analysis-all-settings').open=true;demos.click('Return');assert.equal(demos.d.getElementById('ranking-group').value,'all');assert.equal(demos.d.getElementById('analysis-all-settings').open,true);
  demos.d.getElementById('analysis-risk').value='0';demos.click('Apply ceiling');assert.match(demos.d.querySelector('.ranking-hero').textContent,/Not enough eligible/);assert.ok([...demos.d.querySelectorAll('.rank-place')].every(x=>x.textContent==='—'));
  demos.d.getElementById('analysis-risk').value='';demos.click('Apply ceiling');demos.click('Group 1 · compare matched runs');assert.equal(demos.d.getElementById('ranking-group').value,firstGroup);assert.equal(demos.d.querySelector('.all-runs-table'),null);
- demos.d.getElementById('analysis-options').open=true;demos.click('Return');assert.equal(demos.d.activeElement.id,'rank-returns');assert.equal(demos.d.getElementById('analysis-options').open,true);assert.equal(demos.d.getElementById('rank-returns').getAttribute('aria-pressed'),'true');
+ demos.d.getElementById('analysis-options').open=true;demos.click('Return');assert.equal(demos.d.activeElement.id,'ranking-picker-toggle');assert.equal(demos.d.getElementById('analysis-options').open,true);assert.equal(demos.d.getElementById('rank-returns').getAttribute('aria-pressed'),'true');
  demos.click('Drawdown');assert.equal(demos.d.querySelector('.hero-score strong').textContent,'2.50%');assert.equal(demos.d.querySelector('.rank-table').dataset.basis,'drawdown');
  demos.click('Inspect this run');assert.equal(demos.d.body.classList.contains('analysis-mode'),false);demos.click('Analyze strategies');await tick();
  const ceiling=demos.d.querySelector('.intelligence-controls input');ceiling.value='0';demos.click('Apply ceiling');assert.match(demos.d.querySelector('#detail').textContent,/No run meets your drawdown ceiling/);
@@ -113,11 +113,40 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
   click('strategy-sort-strategy');assert.equal(rows()[0].querySelector('.rank-name').textContent,'Holdout sample');
   d.getElementById('strategy-columns').open=true;click('column-win');click('column-drawdown');
   assert.ok(headers().includes('win'));assert.ok(!headers().includes('drawdown'));assert.equal(d.getElementById('strategy-columns').open,true);
-  click('column-growth-left');assert.ok(headers().indexOf('growth')<headers().indexOf('calmar'));assert.equal(d.activeElement.id,'column-growth');
+  d.getElementById('column-grip-growth').dispatchEvent(new tableApp.w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));assert.ok(headers().indexOf('growth')<headers().indexOf('calmar'));assert.equal(d.activeElement.id,'column-grip-growth');
   const chosen=headers();await tick();tableApp.click('Back to library');tableApp.click('Analyze strategies');await tick();assert.deepEqual(headers(),chosen);
   tableApp.click('Back up all');const backup=JSON.parse(await tableApp.downloads.at(-1).text());assert.equal(JSON.stringify(backup.runs),original);assert.equal(backup.preferences,undefined);assert.equal(tableApp.durable(),0);
   const all=d.getElementById('ranking-group');all.value='all';all.onchange();click('strategy-sort-growth');tableApp.click('Export analysis CSV');assert.equal((await tableApp.downloads.at(-1).text()).trim().split('\r\n').length,7);
   click('columns-reset');assert.deepEqual(headers(),['rank','strategy','returns','drawdown','calmar','growth']);
+  assert.equal(d.querySelector('#strategy-columns summary').textContent,'Columns');assert.equal(d.querySelector('.column-move'),null);assert.equal(d.querySelector('.table-scroll-hint'),null);assert.equal(d.querySelector('.table-order'),null);
+  assert.ok([...d.querySelectorAll('.ranking-choices small')].every(n=>/^(Higher|Lower) is better$/.test(n.textContent)));
+  assert.ok(![...d.querySelectorAll('.rank-board>.panel-heading,.hero-score')].some(n=>/is better/.test(n.textContent)));
+  d.getElementById('ranking-picker').open=true;click('rank-drawdown');assert.equal(d.getElementById('ranking-picker').open,false);assert.equal(d.activeElement.id,'ranking-picker-toggle');
+  d.getElementById('strategy-columns').open=true;d.dispatchEvent(new tableApp.w.MouseEvent('pointerdown',{bubbles:true}));assert.equal(d.getElementById('strategy-columns').open,false);
+  d.getElementById('strategy-columns').open=true;d.getElementById('column-grip-returns').dispatchEvent(new tableApp.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));assert.equal(d.getElementById('strategy-columns').open,false);assert.equal(d.activeElement.id,'strategy-columns-toggle');
+  // Pointer geometry is synthetic here; actual mouse drags are checked separately in Chrome.
+  tableApp.w.requestAnimationFrame=()=>1;tableApp.w.cancelAnimationFrame=()=>{};
+  const pointer=(node,type,x,y,extra={})=>{const e=new tableApp.w.MouseEvent(type,{clientX:x,clientY:y,button:0,bubbles:true,cancelable:true});Object.defineProperties(e,{pointerId:{value:7},pointerType:{value:extra.pointerType||'mouse'},isPrimary:{value:true}});node.dispatchEvent(e);return e;};
+  const box=(x,y,w,h)=>({left:x,top:y,right:x+w,bottom:y+h,width:w,height:h});
+  function geometry(axis){
+   const nodes=[...d.querySelectorAll(axis==='x'?'.rank-table th.movable-column':'.column-option')],scroll=axis==='x'?d.querySelector('.rank-table').parentElement:d.querySelector('.column-options');
+   scroll.getBoundingClientRect=()=>box(0,0,axis==='x'?600:300,axis==='x'?500:600);scroll.setPointerCapture=()=>{};scroll.hasPointerCapture=()=>false;
+   nodes.forEach((n,i)=>n.getBoundingClientRect=()=>axis==='x'?box(100+i*100,100,100,50):box(0,i*48,300,48));
+  }
+  const dragRanks=()=>rows().map(r=>[r.dataset.runId,r.querySelector('.rank-place').textContent]);
+  const ranksBeforeDrag=dragRanks();geometry('x');
+  pointer(d.getElementById('strategy-sort-growth'),'pointerdown',450,125);pointer(tableApp.w,'pointermove',110,125);assert.ok(d.querySelector('.column-drag-ghost'));pointer(tableApp.w,'pointerup',110,125);
+  assert.deepEqual(headers(),['rank','strategy','growth','returns','drawdown','calmar']);assert.deepEqual(dragRanks(),ranksBeforeDrag);assert.equal(d.querySelector('[aria-sort=ascending]').dataset.column,'rank');assert.equal(d.querySelector('.column-drag-ghost'),null);
+  // A cancelled drag commits nothing; dragging is distinct from a short click / sort.
+  geometry('x');const cancelledOrder=headers();pointer(d.getElementById('strategy-sort-calmar'),'pointerdown',450,125);pointer(tableApp.w,'pointermove',110,125);d.dispatchEvent(new tableApp.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true,cancelable:true}));pointer(tableApp.w,'pointerup',110,125);assert.deepEqual(headers(),cancelledOrder);assert.equal(d.querySelector('.column-drop-marker'),null);
+  geometry('x');pointer(d.getElementById('strategy-sort-calmar'),'pointerdown',450,125);pointer(tableApp.w,'pointermove',448,125);pointer(tableApp.w,'pointerup',448,125);click('strategy-sort-calmar');assert.equal(d.querySelector('th[data-column=calmar]').getAttribute('aria-sort'),'ascending');
+  // Handles accept touch pointers and move hidden as well as visible columns.
+  d.getElementById('strategy-columns').open=true;geometry('y');
+  pointer(d.getElementById('column-grip-trades'),'pointerdown',275,264,{pointerType:'touch'});pointer(tableApp.w,'pointermove',275,5,{pointerType:'touch'});pointer(tableApp.w,'pointerup',275,5,{pointerType:'touch'});
+  assert.equal(d.querySelector('.column-option').dataset.column,'trades');assert.ok(!headers().includes('trades'));click('column-trades');assert.equal(headers()[2],'trades');assert.equal(d.getElementById('strategy-columns').open,true);
+  geometry('y');const beforeCancel=[...d.querySelectorAll('.column-option')].map(n=>n.dataset.column);pointer(d.getElementById('column-grip-trades'),'pointerdown',275,24);pointer(tableApp.w,'pointermove',275,230);pointer(tableApp.w,'pointercancel',275,230);assert.deepEqual([...d.querySelectorAll('.column-option')].map(n=>n.dataset.column),beforeCancel);
+  geometry('y');pointer(d.getElementById('column-grip-trades'),'pointerdown',275,24);pointer(tableApp.w,'pointermove',900,230);pointer(tableApp.w,'pointerup',900,230);assert.deepEqual([...d.querySelectorAll('.column-option')].map(n=>n.dataset.column),beforeCancel);
+  assert.equal(JSON.stringify(await tableApp.w.VaultStore.all()),original);assert.equal(tableApp.durable(),0);
   // Trade sorting uses original numbers and chronological dates, with missing cells last.
   tableApp.click('Back to library');tableApp.click('Trades');const trade=d.querySelector('.trades-table'),by=name=>[...trade.querySelectorAll('th button')].find(b=>b.textContent===name).click();
   by('G/L %');assert.match(trade.tBodies[0].rows[0].textContent,/-2.50%/);by('G/L %');assert.match(trade.tBodies[0].rows[0].textContent,/\+4.60%/);

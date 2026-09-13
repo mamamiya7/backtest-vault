@@ -4,9 +4,9 @@ Choose **Analyze strategies** to analyze the full library, or **Explain comparis
 
 ## Table controls
 
-Column headings toggle ascending/descending display order across the current scope; sorting reveals all rows. Missing values stay last. Rank numbers and leader explanations still use the chosen Calmar/Return/Drawdown basis. A flagged result can appear early in a numeric or alphabetical display sort while retaining its unranked status. **Ranking order** restores the financial order.
+Column headings toggle ascending/descending display order across the current scope; sorting reveals all rows. Missing values stay last. Rank numbers and leader explanations still use the chosen Calmar/Return/Drawdown basis. A flagged result can appear early in a numeric or alphabetical display sort while retaining its unranked status. Selecting the current **Rank by** measure again restores the default order. The ranking menu contains the higher/lower-is-better guidance.
 
-**Columns** offers 14 fields, six shown by default. Checkboxes select visible metrics; Left/Right moves visible optional columns. Rank and strategy stay first. Both comparison modes use the same local choices; demo keeps them only in memory. Reset restores defaults. Layout choices are separate from research records and exports. The graph and index continue to follow their selected run, independently of table sorting.
+**Columns** offers 14 fields, six shown by default. Checkboxes select visible metrics. Drag optional table headings horizontally, or drag the dotted handles in Columns vertically. Handles also accept Arrow Up / Down and Home / End; Escape cancels a drag. Rank and strategy stay first. Both comparison modes use the same local choices; demo keeps them only in memory. Reset restores defaults. Layout choices are separate from research records and exports. The graph and index continue to follow their selected run, independently of table sorting.
 
 ## Read the visual ranking
 
