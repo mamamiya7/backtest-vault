@@ -1,0 +1,31 @@
+{
+  "manifest_version": 3,
+  "name": "Definedge Backtest Vault",
+  "version": "0.4.2",
+  "description": "Save momentum backtest settings, portfolio statistics, charts and trades to a local research archive.",
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
+  "content_scripts": [
+    {
+      "matches": [
+        "https://zone.definedgesecurities.com/*"
+      ],
+      "js": [
+        "core.js",
+        "capture.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "Open Backtest Vault"
+  },
+  "content_security_policy": {
+    "extension_pages": "script-src 'self'; object-src 'none'; connect-src 'none'; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'"
+  }
+}

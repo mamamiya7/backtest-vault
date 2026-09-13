@@ -1,0 +1,271 @@
+# Backtest Vault
+
+**Keep the evidence behind every backtest.**
+
+A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Save the settings behind a result, compare matching runs, and understand why a strategy leads.
+
+[![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
+**v0.4.2 preview** · Chrome · Local storage · MIT · No cloud account
+
+![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
+
+**All screenshots and demo records are fictional.** They illustrate the product, not investment performance.
+
+[Try it](#try-the-demo) · [Install](#install-the-extension) · [Compare strategies](#how-the-ranking-works) · [Understand the numbers](#cagr-or-annualized-return) · [Backups](#where-your-data-lives) · [Develop](#development)
+
+## From a backtest to a research record
+
+```mermaid
+flowchart LR
+    A["1 · Run strategy<br/>Settings recorded at submission"]
+    B["2 · Run portfolio<br/>Capital and limits recorded"]
+    C["3 · Save backtest<br/>Complete report checked"]
+    D["4 · Compare runs<br/>Matching assumptions first"]
+    E["5 · Back up all<br/>Keep an independent JSON copy"]
+    A --> B --> C --> D --> E
+    style C fill:#b2f7dc,stroke:#247456,color:#122b22
+```
+
+Definedge calculates the backtest. Vault records the completed report and the settings submitted before it. Editing a form afterwards does not rewrite an earlier run's settings.
+
+| Inside a saved run | What you can inspect |
+| --- | --- |
+| Strategy and portfolio settings | Periods, weights, EMA/TMA, Relative Strength, rules, chart settings, capital and position limits |
+| Original statistics | Report labels and source values, including missing metrics |
+| Every trade page | All captured rows, including zero-quantity trades |
+| Chart snapshots | Sanitized SVG graphics; underlying price series and hover data are not included |
+| Research context | Capture warnings, submission linkage, editable run name and notes |
+
+## Try the demo
+
+Requires **Node.js 24 or newer**. The demo needs no dependency installation or Definedge login.
+
+```sh
+git clone https://github.com/mamamiya7/backtest-vault.git
+cd backtest-vault
+npm run preview
+```
+
+Open the [visual leaderboard](http://127.0.0.1:8767/?demo=1&view=analysis) or the [run library](http://127.0.0.1:8767/?demo=1).
+
+Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, notes and a capture warning. Demo changes stay in memory and reset on reload; imports are disabled. Demo exports use a `demo-` filename prefix and retain each record's `demo: true` marker.
+
+| Inspect the settings | Use the ranking on a phone |
+| --- | --- |
+| ![Numbered periods, EMA and strategy settings in the fictional demo](docs/images/02-settings.png) | <img src="docs/images/09-leaderboard-mobile.png" width="260" alt="Mobile ranking showing fictional strategies, a leading-run explanation and the chosen metric"> |
+
+[Three-minute demo walkthrough](docs/DEMO.md)
+
+## Install the extension
+
+```text
+backtest-vault/
+├── dist/                 ← Select THIS folder in Chrome
+│   ├── manifest.json
+│   ├── index.html
+│   └── capture.js
+├── docs/
+└── README.md
+```
+
+1. Clone the repository, or download and extract its ZIP.
+2. Open Chrome's Extensions page and enable **Developer mode**.
+3. Choose **Load unpacked → dist**. The manifest is inside that folder.
+4. Open Definedge and refresh its page. Complete both the momentum and portfolio backtests.
+5. Click **Save backtest** and wait for the saved confirmation.
+6. Open Vault from the extension toolbar, then choose **Back up all**.
+
+For a dashboard-only update, refresh or reopen Vault. When capture code changes, reload the same extension and refresh Definedge before submitting new runs. Back up any pending recovery before refreshing. Keep the existing extension installed to preserve its local archive. [Setup and troubleshooting](docs/INSTALL.md)
+
+## How the ranking works
+
+```mermaid
+flowchart TD
+    A["Saved runs"] --> B{"Capture complete<br/>and settings usable?"}
+    B -->|"No"| C["Keep in library<br/>Explain why excluded"]
+    B -->|"Yes"| D["Count repeated evidence once"]
+    D --> E["Separate matching comparison groups"]
+    E --> F["Choose Calmar, Return or Drawdown"]
+    F --> G["Apply optional drawdown ceiling"]
+    G --> H["Show ranks, reasons and trade-offs"]
+    style E fill:#b2f7dc,stroke:#247456,color:#122b22
+```
+
+Choose **Analyze strategies** for the whole library, or **Explain comparison** for selected runs. The first view opens the group with the most comparable runs and shows a leading-run explanation, top-five table and return/drawdown plot.
+
+| Must match within a group | Can vary as the strategy experiment |
+| --- | --- |
+| Universe, market and timeframe | Periods and weights |
+| Submitted start and end dates | EMA and TMA filters |
+| Initial capital and allocation method | Relative Strength and selected rules |
+| Maximum positions and enabled daily limit | Entry and exit conditions |
+| Momentum/execution chart types and execution price mode | Other recorded strategy parameters |
+| Real or fictional data status | Run name and research notes |
+
+Matching recorded controls does not establish identical costs, dividends, cash flows, leverage, historical universe membership or valuation frequency. Those assumptions remain unverified.
+
+| Ranking choice | What leads | How to read it |
+| --- | --- | --- |
+| **Return** | Highest reported gross total return | More historical gain within this group |
+| **Drawdown** | Lowest reported maximum drawdown | A smaller reported fall from a previous peak |
+| **Calmar** | Highest source CAGR ÷ positive maximum drawdown | More compounded yearly growth per unit of worst reported drawdown |
+
+**Reading the plot:** higher means more reported return; further left means less reported drawdown. Mint identifies leaders, amber flags ceiling failures, and a square marks the optional index reference. Labels, ranks and exact table values supplement colour. The plot shows aggregate measures, not an equity curve.
+
+Ties share ranks, such as **1, 1, 3**. Missing values and ceiling failures stay unranked; a single eligible run is not named a winner. An incomplete group gets no leader takeaway. There is no global score across unlike groups.
+
+![Side-by-side fictional runs with labelled growth measures and source performance statistics](docs/images/03-compare.png)
+
+[Full comparison method, exclusions and evidence rules](docs/INTELLIGENCE.md)
+
+## CAGR or annualized return?
+
+The overview, yearly-return sort and side-by-side comparison use this preference:
+
+```mermaid
+flowchart LR
+    A{"Numeric source<br/>CAGR available?"}
+    A -->|"Yes, including zero or negative"| B["Show CAGR<br/>Keep its CAGR label"]
+    A -->|"No"| C{"Numeric source<br/>Annualized Returns available?"}
+    C -->|"Yes"| D["Show Annualized return<br/>Keep its own label"]
+    C -->|"No"| E["Show unavailable<br/>Never invent a value"]
+    style B fill:#b2f7dc,stroke:#247456,color:#122b22
+```
+
+Both original fields remain in the saved record. Summary CSV includes the selected value, its measure name and separate source columns. The fallback is a display preference: **Calmar still requires source CAGR** and positive maximum drawdown.
+
+| Illustrative inputs | Overview | Derived Calmar |
+| --- | --- | --- |
+| CAGR 12%, Annualized Returns 15%, MDD 8% | **+12.00% · CAGR** | **1.50** = 12 ÷ 8 |
+| CAGR unavailable, Annualized Returns 15%, MDD 8% | **+15.00% · Annualized return** | Unavailable |
+| CAGR 0%, Annualized Returns 15%, MDD 8% | **0.00% · CAGR** | **0.00** |
+| CAGR 12%, MDD 0% | **+12.00% · CAGR** | Undefined |
+
+Calmar is a ratio, not a percentage. Vault does not replace the source's separately labelled “Calmer Ratio.” Numbers use right alignment, Indian digit grouping, decimal measures, explicit signs and source units. Arrow annotations never become minus signs.
+
+## Compare against Nifty buy and hold
+
+```mermaid
+flowchart LR
+    A["Your index-history CSV<br/>Price or total-return basis"]
+    B["Check index, dates<br/>and observation coverage"]
+    C["Use the strategy period<br/>and starting capital"]
+    D["Compare return and ending capital<br/>Show source and effective dates"]
+    A --> B --> C --> D
+    style D fill:#b2f7dc,stroke:#247456,color:#122b22
+```
+
+Open **Filters & benchmark → Add Nifty benchmark data**. Supply your own index-history CSV and identify whether it is a price index or total-return index. Price excludes dividends; TRI includes their reinvestment. Review the strategy's own cost/dividend treatment too.
+
+**Actual Nifty data is not bundled or automatically fetched.** The demo benchmark is explicitly fictional. Poor date coverage can block comparison; sparse observations withhold benchmark drawdown and Calmar. Gross excess return is descriptive, not risk-adjusted alpha.
+
+[CSV format, data sources and coverage rules](docs/INTELLIGENCE.md#nifty-buy-and-hold)
+
+## Where your data lives
+
+```mermaid
+flowchart LR
+    A["Definedge report"] --> B["Chrome extension<br/>Local archive"]
+    B -->|"Back up all"| C["JSON backup file<br/>Runs and imported benchmarks"]
+    C -->|"Import runs"| B
+    C -->|"Import runs"| D["Standalone viewer<br/>Separate local archive"]
+    D -->|"Back up all"| C
+    E["Fictional demo"] --> F["Temporary memory<br/>Resets on reload"]
+    style C fill:#b2f7dc,stroke:#247456,color:#122b22
+```
+
+The extension and standalone viewer have separate libraries. Transfer records with JSON export/import; they do not synchronize automatically. Existing run and benchmark IDs are kept when importing duplicates.
+
+| Export | Use it for | Complete backup? |
+| --- | --- | --- |
+| **Back up all · JSON** | Restore the library, including imported benchmarks | Yes |
+| **Export run · JSON** | Move one complete run | That run only |
+| **Library / selected / analysis CSV** | Review values and settings in a spreadsheet | No |
+| **Trades CSV** | Inspect trade rows | No |
+| **Chart SVG** | Save a static graphic | No |
+
+The extension has no cloud account, telemetry or research upload service. Its capture access is limited to the Definedge domain. **Browser-local storage needs an independent backup.** [Privacy](PRIVACY.md)
+
+## If a save fails
+
+```mermaid
+flowchart TD
+    A["Click Save backtest"] --> B{"All report trades captured?"}
+    B -->|"No"| C["Stop the save<br/>Explain incomplete capture"]
+    B -->|"Yes"| D{"Local storage write succeeds?"}
+    D -->|"Yes"| E["Saved confirmation"]
+    D -->|"No"| F["Keep captured run in this tab"]
+    F --> G["Download recovery backup<br/>Verify the file before refreshing"]
+    F --> H["Retry captured run<br/>Reuse the same record and ID"]
+    style G fill:#b2f7dc,stroke:#247456,color:#122b22
+```
+
+A pending recovery exists only in that tab's memory. Refreshing or closing the tab loses it. Download and verify the recovery JSON first; after restoring the extension connection, use **Import runs** in Vault. A recovery file contains the pending run, not the entire library.
+
+[Recovery steps and common errors](docs/INSTALL.md#recovering-a-failed-storage-write)
+
+## Scope and validation
+
+| Supported | Limits to keep visible |
+| --- | --- |
+| Manual report saving and local research comparison | No order execution or automatic batch backtest runner |
+| Settings recorded at submission | Named rules may not expose their underlying numerical definition |
+| Static report chart snapshots | No underlying price-series or hover-data capture |
+| Separate, comparable strategy groups | No promised future winner or combined-portfolio performance from averaged summaries |
+| Candle, P&F and Renko display adapters | Unknown layouts retain individual fields rather than guessed labels |
+| Brief animations respecting reduced motion | Financial values display immediately, without animated counting |
+
+**Validation evidence:** all six local test suites passed for v0.4.2. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
+
+Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. The current dashboard was checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
+
+Definedge's Renko execution form can select **Close Only** and **High & Low** simultaneously. Vault preserves both and flags the ambiguous source state. [Known limitations](docs/LIMITATIONS.md)
+
+## Development
+
+Plain HTML, CSS and JavaScript live directly in `dist/`. There is no build step or runtime package dependency.
+
+```sh
+npm ci
+npm test
+npm run check
+npm run preview
+```
+
+`jsdom` runs isolated tests; the lockfile pins its dependency tree. GitHub Actions runs the same tests, runtime checks and public-package preparation.
+
+<details>
+<summary><strong>Code map</strong></summary>
+
+| File | Responsibility |
+| --- | --- |
+| `dist/capture.js` | Submission snapshots, report collection, save and recovery controls |
+| `dist/background.js` | Extension dashboard entry point |
+| `dist/storage.js` | Extension storage, standalone IndexedDB and isolated demo memory |
+| `dist/core.js` | Validation, metric selection, CSV and SVG sanitation |
+| `dist/presentation.js` | Number formatting and verified form adapters |
+| `dist/intelligence.js` | Comparable groups, rankings and local index calculations |
+| `dist/intelligence-ui.js` | Leaderboard, plot and explanations |
+| `dist/dashboard.js` | Library, report views, comparison, imports and exports |
+| `dist/demo.js` | Deterministic fictional fixtures |
+| `tests/` | Six capture, dashboard, presentation, demo and intelligence suites |
+
+</details>
+
+The diagrams use [GitHub's native Mermaid support](https://docs.github.com/en/get-started/writing-on-github/working-with-advanced-formatting/creating-diagrams). Their text source lives in this README.
+
+Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/UI-AUDIT.md) and [Publication guide](docs/PUBLICATION.md).
+
+### Prepare a distributable source copy
+
+```sh
+npm run package:public
+```
+
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.4.2-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+
+## License and affiliation
+
+[MIT](LICENSE). Definedge and its marks belong to their respective owners. This is an independent project, not affiliated with or endorsed by Definedge. User-owned reports and third-party data are not relicensed by this repository.
+
+Historical backtests do not guarantee future returns.
