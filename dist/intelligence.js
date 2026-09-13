@@ -77,9 +77,32 @@ function analyze(runs,{drawdownLimit=null}={}){
 // Competition ranks preserve ties; missing values and ceiling failures stay unranked.
 function ranking(group,basis='calmar'){
  if(!['calmar','returns','drawdown'].includes(basis))throw Error('Unknown ranking measure.');
- const valid=group.items.filter(x=>x.withinLimit&&Number.isFinite(x[basis])).sort((a,b)=>(basis==='drawdown'?a[basis]-b[basis]:b[basis]-a[basis])||String(a.run.name||a.run.id).localeCompare(String(b.run.name||b.run.id)));
+ const valid=group.items.filter(x=>x.rankEligible!==false&&x.withinLimit&&Number.isFinite(x[basis])).sort((a,b)=>(basis==='drawdown'?a[basis]-b[basis]:b[basis]-a[basis])||String(a.run.name||a.run.id).localeCompare(String(b.run.name||b.run.id)));
  const ranked=valid.map((item,i)=>({item,rank:valid.length<2?null:valid.findIndex(x=>Math.abs(x[basis]-item[basis])<1e-9)+1}));
  return [...ranked,...group.items.filter(x=>!valid.includes(x)).map(item=>({item,rank:null}))];
+}
+// Exploratory ordering spans groups; it never changes strict groups or pools returns.
+function overview(analysis){
+ const accepted=new Map(),items=[];
+ analysis.groups.forEach((g,i)=>g.items.forEach(x=>{const item={...x,groupKey:g.key,groupNumber:i+1,rankEligible:true,status:'Reviewed capture'};accepted.set(x.run,item);items.push(item);}));
+ for(const x of analysis.blocked)items.push({...x,controls:x.controls||{},rows:x.rows||new Map(),metrics:x.metrics||{},returns:x.metrics?.returns??null,drawdown:x.metrics?.drawdown??null,cagr:x.cagr??null,calmar:x.calmar??null,rankEligible:false,withinLimit:false,status:'Needs review',cautions:x.cautions||[]});
+ for(const x of analysis.duplicates){const original=accepted.get(x.original);items.push({...original,run:x.run,rankEligible:false,status:'Repeated result',duplicateOf:x.original.name||x.original.id});}
+ const mixedData=items.some(x=>x.run.demo===true)&&items.some(x=>x.run.demo!==true);
+ if(mixedData)for(const x of items)if(x.run.demo===true){x.rankEligible=false;x.fictionalExcluded=true;}
+ const conditionKeys=[...new Set(items.flatMap(x=>Object.keys(x.controls)))];
+ const conditions=conditionKeys.map(key=>{const values=items.map(x=>x.controls[key]??'Not captured');return {key,label:key,values,different:new Set(values.map(v=>typeof v==='string'?norm(v):v)).size>1};});
+ const settingKeys=[...new Set(items.flatMap(x=>[...x.rows.keys()]))];
+ const settings=settingKeys.map(key=>{const values=items.map(x=>x.rows.has(key)?P.settingText(x.rows.get(key)):'Not captured');return {key,label:items.find(x=>x.rows.has(key)).rows.get(key).label,values,different:new Set(values).size>1};});
+ const reports=items.map(x=>{
+  try{V.validate(x.run);}catch{return new Map();}
+  const map=new Map(),sections=new Map();
+  for(const section of [{title:'Quick stats',rows:(x.run.quickStats||[]).map(s=>[s.label,s.value])},...(x.run.statistics||[])]){
+   const occurrence=(sections.get(section.title)||0)+1;sections.set(section.title,occurrence);const labels=new Map();
+   for(const row of section.rows){const n=(labels.get(row[0])||0)+1;labels.set(row[0],n);const key=JSON.stringify([section.title,occurrence,row[0],n]);map.set(key,{label:section.title+(occurrence>1?' '+occurrence:'')+' · '+row[0]+(n>1?' ('+n+')':''),metricLabel:row[0],values:row.slice(1)});}
+  }return map;
+ });
+ const reportKeys=[...new Set(reports.flatMap(m=>[...m.keys()]))],statistics=reportKeys.map(key=>({key,...reports.find(m=>m.has(key)).get(key),values:reports.map(m=>m.get(key)?.values??null)}));
+ return {...analysis,items,conditions,settings,statistics,mixedData};
 }
 function csvRows(text){
  if(typeof text!=='string'||text.length>20*1024*1024)throw Error('Benchmark CSV must be smaller than 20 MB.');
@@ -127,6 +150,6 @@ function benchmarkFor(item,b){
  if(sparse)cautions.push('Sparse observations or long gaps: benchmark drawdown and Calmar are withheld.');
  return {available:true,benchmark:b,from:first.date,to:last.date,points:points.length,returns,cagr,drawdown:sparse?null:dd,calmar:!sparse&&dd>0&&cagr!==null?cagr/dd:null,excess:item.metrics.returns-returns,endingCapital:item.metrics.capital*ratio,shifted,sparse,cautions};
 }
-const api={date,days,inspect,analyze,ranking,parseBenchmark,validateBenchmark,benchmarkFor};
+const api={date,days,inspect,analyze,ranking,overview,parseBenchmark,validateBenchmark,benchmarkFor};
 if(typeof module!=='undefined')module.exports=api;root.VaultIntelligence=api;
 })(typeof window!=='undefined'?window:globalThis);

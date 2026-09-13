@@ -10,9 +10,9 @@ const measures={calmar:{label:'Calmar',kind:'number',direction:'Higher is better
 const nameOf=x=>x.run.name||x.run.id;
 const num=(value,kind='number',signed=false)=>cell(value,kind,signed).text;
 function disclosure(title,id){const d=el('details');d.id=id;d.append(el('summary',title));return d;}
-function riskChart(group,leaders,bm){
+function riskChart(group,leaders,bm,all=false){
  const figure=el('figure',undefined,'risk-map reveal'),head=el('div',undefined,'panel-heading');head.append(el('h3','Return vs. drawdown'),el('span','Higher + further left is better','mini'));figure.append(head);
- const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 540 290');svg.setAttribute('role','img');svg.setAttribute('aria-label','Return versus drawdown in the selected group. Exact values are available in the ranking and benchmark details.');
+ const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 540 290');svg.setAttribute('role','img');svg.setAttribute('aria-label',all?'Return versus drawdown across different test conditions. Exploratory, not a matched comparison. Exact values are in the all-runs table.':'Return versus drawdown in the selected group. Exact values are available in the ranking and benchmark details.');
  const add=(tag,attrs,text)=>{const e=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;svg.append(e);return e;};
  add('title',{},'Higher return with less drawdown is toward the upper left.');
  const ref=bm.available&&bm.drawdown!==null?bm:null,values=[...group.items.map(x=>({ret:x.returns,dd:x.drawdown})),...(ref?[{ret:ref.returns,dd:ref.drawdown}]:[])];
@@ -24,7 +24,67 @@ function riskChart(group,leaders,bm){
  group.items.forEach((x,i)=>{const tone=!x.withinLimit?'limit':leaders.includes(x)?'lead':'peer',dot=add('circle',{cx:px(x.drawdown),cy:py(x.returns),r:tone==='lead'?8:6,class:'map-dot '+tone,style:'--order:'+Math.min(i,5)}),title=document.createElementNS(ns,'title');title.textContent=nameOf(x)+' · return '+num(x.returns,'percent',true)+' · drawdown '+num(x.drawdown,'percent')+(x.withinLimit?'':' · above ceiling');dot.append(title);
  if(leaders.length===1&&leaders.includes(x)){const anchor=px(x.drawdown)>335?'end':'start';add('text',{x:px(x.drawdown)+(anchor==='end'?-13:13),y:py(x.returns)-13,'text-anchor':anchor,class:'map-leader-label'},nameOf(x).length>22?nameOf(x).slice(0,20)+'…':nameOf(x));}});
  if(ref){const dot=add('rect',{x:px(ref.drawdown)-5,y:py(ref.returns)-5,width:10,height:10,rx:1,class:'map-reference'}),title=document.createElementNS(ns,'title');title.textContent=ref.benchmark.name+' · return '+num(ref.returns,'percent',true)+' · observed-close drawdown '+num(ref.drawdown,'percent');dot.append(title);add('text',{x:px(ref.drawdown)-12,y:py(ref.returns)+20,'text-anchor':'end',class:'map-axis'},'Index reference');}
- figure.append(svg);const legend=el('figcaption',undefined,'map-legend');[['lead','Leader'],['peer','Other run'],['limit','Above ceiling'],...(ref?[['reference','Index · closing values']]:[])].forEach(([tone,label])=>{const text=el('span',label);text.prepend(el('i',undefined,tone));legend.append(text);});figure.append(legend);return figure;
+ figure.append(svg);const legend=el('figcaption',undefined,'map-legend');[...(!all?[['lead','Leader']]:[]),['peer',all?'Reviewed run':'Other run'],['limit','Above ceiling'],...(ref?[['reference','Index · closing values']]:[])].forEach(([tone,label])=>{const text=el('span',label);text.prepend(el('i',undefined,tone));legend.append(text);});figure.append(legend);return figure;
+}
+
+function overviewStatus(x,basis){
+ if(x.status==='Needs review')return 'Needs review · unranked';
+ if(x.status==='Repeated result')return 'Repeated result · '+x.duplicateOf;
+ if(x.fictionalExcluded)return 'Fictional · excluded from real ordering';
+ if(!x.withinLimit)return 'Above ceiling · unranked';
+ if(!Number.isFinite(x[basis]))return 'Missing '+measures[basis].label+' · unranked';
+ return 'Exploratory · different conditions may apply';
+}
+function overviewReference(x,b){
+ return x.rankEligible?I.benchmarkFor(x,b):{available:false,reason:x.fictionalExcluded?'Fictional data excluded from real comparison.':x.status+'; review the original before comparing a benchmark.'};
+}
+function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,table}){
+ const ordered=I.ranking(o,basis),eligible=ordered.filter(({item:x})=>x.rankEligible&&x.withinLimit&&Number.isFinite(x[basis])),m=measures[basis];
+ const top=eligible[0]?.item,ties=top?eligible.filter(({item:x})=>Math.abs(x[basis]-top[basis])<1e-9):[];
+ const hero=el('section',undefined,'ranking-hero reveal'+(eligible.length>=2&&ties.length===1?'':' neutral'));
+ hero.setAttribute('aria-label','All runs takeaway');
+ const message=el('div',undefined,'hero-message');message.append(el('span','ALL RUNS · EXPLORATORY','leader-kicker'));
+ message.append(el('h3',eligible.length<2?'Not enough eligible values to rank.':ties.length>1?ties.length+' runs share the '+(basis==='drawdown'?'lowest':'highest')+' available '+m.label.toLowerCase()+'.':nameOf(top)));
+ message.append(el('p',eligible.length>=2?(basis==='drawdown'?'Lowest':'Highest')+' available '+m.label.toLowerCase()+' across '+eligible.length+' eligible runs. Different dates, universes and sizing can change this order.':'Every saved run remains visible below. Check review flags, missing values or your ceiling.'));
+ hero.append(message);
+ if(eligible.length>=2&&ties.length===1){const score=el('div',undefined,'hero-score');score.append(el('span',m.label),el('strong',num(top[basis],m.kind,basis!=='drawdown')),el('small','Across different test conditions'));hero.append(score);}
+ const facts=el('div',undefined,'hero-facts');facts.append(el('span',o.total+' saved runs'),el('span',o.groups.length+' matched groups'),el('span',eligible.length+' with eligible '+m.label),el('span',o.items.length-eligible.length+' unranked'));hero.append(facts);target.append(hero);
+ target.append(el('p','Every run in this comparison is included. Use a matched group for a fairer ranking. Results are never added or averaged into a combined portfolio.'+(limit!==null?' Drawdown ceiling: '+num(limit,'percent')+'.':''),'ranking-caution'));
+ if(o.mixedData)target.append(el('p','Fictional runs are visible but excluded from ordering alongside real research.','issues'));
+ const grid=el('div',undefined,'ranking-grid all-runs-grid'),board=el('section',undefined,'rank-board reveal'),head=el('div',undefined,'panel-heading');
+ head.append(el('h3','All strategies, together'),el('span',m.label+' · '+m.direction.toLowerCase(),'mini'));board.append(head);
+ const wrap=el('div',undefined,'table-wrap');wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','All runs ranking · scrollable table');
+ const t=el('table',undefined,'rank-table all-runs-table');t.setAttribute('aria-label','All runs ranking');t.dataset.basis=basis;
+ const thead=el('thead'),headers=el('tr');['Rank','Strategy & test conditions','Return','Drawdown','Calmar','CAGR / annualized'].forEach((title,i)=>{const th=el('th',title);th.scope='col';if(i>1)th.className='numeric';headers.append(th);});thead.append(headers);t.append(thead);
+ const body=el('tbody');
+ for(const {item:x,rank} of showAll?ordered:ordered.slice(0,5)){
+  const row=el('tr',undefined,!x.rankEligible||!x.withinLimit?'rank-limited':'');row.dataset.runId=x.run.id;
+  const place=el('td');place.append(el('span',rank===null?'—':String(rank),'rank-place'));
+  const identity=el('td');identity.append(button(nameOf(x),()=>onOpen(x.run),'rank-name'),el('small',overviewStatus(x,basis),'rank-status'));
+  const c=x.controls;identity.append(el('small',[c.Universe||'Universe not captured',c['Momentum chart']||'Chart not captured',c.From&&c.To?c.From+' — '+c.To:'Dates not verified',c['Initial capital']!==undefined?num(c['Initial capital'])+' capital':'Capital not captured'].join(' · '),'run-conditions'));
+  if(x.groupKey)identity.append(button('Group '+x.groupNumber+' · compare matched runs',()=>onGroup(x.groupKey),'quiet group-shortcut'));
+  row.append(place,identity);
+  for(const [key,kind,signed] of [['returns','percent',true],['drawdown','percent',false],['calmar','number',true]])row.append(el('td',num(x[key],kind,signed),'numeric'+(key===basis?' ranked-value':'')));
+  const growth=el('td',num(x.metrics.growth,'percent',true),'numeric');if(x.metrics.growth!==null&&x.metrics.growth!==undefined)growth.append(el('small',x.metrics.growthLabel,'growth-basis'));row.append(growth);body.append(row);
+ }
+ t.append(body);wrap.append(t);board.append(wrap);
+ if(ordered.length>5){const more=button(showAll?'Show top 5':'Show all '+ordered.length+' runs',onMore,'quiet');more.id='rank-more';board.append(more);}
+ board.append(el('p','Equal values share a rank. Review flags, repeats, missing values and ceiling failures stay unranked.','mini'));
+ const plotted=o.items.filter(x=>x.rankEligible&&Number.isFinite(x.returns)&&Number.isFinite(x.drawdown)),chart=riskChart({items:plotted},[],{available:false},true);
+ chart.append(el('p',plotted.length+' of '+o.total+' saved runs plotted. Review flags, repeated results and mixed fictional data are omitted. Different periods make this an exploratory map.','mini'));
+ grid.append(board,chart);target.append(grid);
+ const detail=disclosure('Compare all conditions & strategy settings','analysis-all-settings');
+ detail.append(el('p','Submitted settings are shown below. “Different” marks a changed value or a missing capture. Identical labels do not verify costs, execution or capture quality. Unverified current inputs remain available inside each run.'));
+ const names=o.items.map(x=>nameOf(x)+(x.groupNumber?' · G'+x.groupNumber:' · review'));
+ detail.append(el('h3','Test conditions'),table(['Condition',...names],o.conditions.map(r=>[r.label+(r.different?' · Different':''),...r.values.map(v=>typeof v==='number'?cell(v,['Maximum open trades','Daily stock limit'].includes(r.key)?'count':'number'):v)]),{className:'comparison-table',name:'All run conditions'}));
+ detail.append(el('h3','Captured strategy settings'),table(['Setting',...names],o.settings.map(r=>[r.key.split('.')[0]+' · '+r.label+(r.different?' · Different':''),...r.values]),{className:'comparison-table',name:'All strategy settings'}));target.append(detail);
+ const statistics=disclosure('Compare all reported statistics','analysis-all-statistics');statistics.append(el('p','Original source measures remain separate, including CAGR and Annualized Returns. Values from runs needing review are shown as evidence, not endorsed as comparable.'),table(['Source measure',...names],o.statistics.map(r=>[r.label,...r.values.map(values=>values===null?'Not provided by source':values.length===1?P.metric(r.metricLabel,values[0]):values.join(' · '))]),{className:'comparison-table',name:'All reported statistics'}));target.append(statistics);
+ const reference=disclosure('Buy & hold for each run’s own period','analysis-all-benchmarks');
+ reference.append(el('p','Each eligible run uses its own dates and initial capital. There is no shared-period index point on the all-runs chart. Gross excess is descriptive; strategy cost and dividend treatment remain unverified.'));
+ if(b){reference.append(el('p',(b.demo?'FICTIONAL REFERENCE · ':'')+b.name+' · '+(b.kind==='total-return'?'Total return · dividends reinvested':'Price only · no dividends')+' · Source: '+b.source,'mini'));
+  reference.append(table(['Run','Requested period','Reference period','Reference return','Gross excess (pp)','Buy & hold ending capital','Coverage & caveats'],o.items.map(x=>{const ref=overviewReference(x,b);return [nameOf(x),x.from&&x.to?x.from+' — '+x.to:'Not verified',ref.available?ref.from+' — '+ref.to:'Unavailable',cell(ref.returns,'percent',true),cell(ref.excess,'number',true),cell(ref.endingCapital),ref.available?ref.cautions.join(' '):ref.reason];}),{className:'comparison-table',name:'Per-run buy and hold'}));
+ }else reference.append(el('p','Choose or import a reference in Filters & benchmark. Real Nifty history is not bundled.'));
+ target.append(reference);
 }
 
 function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,onBenchmarksChanged,download}){
@@ -32,14 +92,16 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
  const openDetails=new Set();
  function draw(focusId){
   target.querySelectorAll('details[id]').forEach(d=>{if(d.open)openDetails.add(d.id);else openDetails.delete(d.id);});
-  const a=I.analyze(runs,{drawdownLimit:limit});if(!a.groups.some(g=>g.key===groupKey))groupKey=[...a.groups].sort((x,y)=>y.items.length-x.items.length)[0]?.key||'';
-  const g=a.groups.find(g=>g.key===groupKey),b=benchmarks.find(b=>b.id===benchmarkId),bm=g?I.benchmarkFor(g.items[0],b):{available:false};
+  const a=I.analyze(runs,{drawdownLimit:limit});if(groupKey!=='all'&&!a.groups.some(g=>g.key===groupKey))groupKey=[...a.groups].sort((x,y)=>y.items.length-x.items.length)[0]?.key||'all';
+  const g=a.groups.find(g=>g.key===groupKey),all=groupKey==='all',o=all?I.overview(a):null,b=benchmarks.find(b=>b.id===benchmarkId),bm=g?I.benchmarkFor(g.items[0],b):{available:false};
   target.replaceChildren();const head=el('div',undefined,'comparison-intro'),heading=el('div');heading.append(el('p','STRATEGY INTELLIGENCE','eyebrow'),el('h2','Find your front-runner.'));head.append(heading,button('Back to library',onExit));target.append(head);
   const toolbar=el('div',undefined,'ranking-toolbar'),groupLabel=el('label','Compare within'),groupSelect=el('select');groupSelect.id='ranking-group';groupSelect.setAttribute('aria-label','Comparison group');
-  a.groups.forEach((x,i)=>groupSelect.append(new Option('Group '+(i+1)+' · '+x.controls['Momentum chart']+' · '+x.items.length+(x.items.length===1?' run':' runs')+' · '+x.controls.From.slice(0,4),x.key)));groupSelect.value=groupKey;groupSelect.disabled=!g;groupSelect.onchange=()=>{groupKey=groupSelect.value;showAll=false;draw('ranking-group');};groupLabel.append(groupSelect);toolbar.append(groupLabel);
+  a.groups.forEach((x,i)=>groupSelect.append(new Option('Group '+(i+1)+' · '+x.controls['Momentum chart']+' · '+x.items.length+(x.items.length===1?' run':' runs')+' · '+x.controls.From.slice(0,4),x.key)));groupSelect.append(new Option('All runs · '+runs.length+' · exploratory','all'));if(!groupKey)groupKey='all';groupSelect.value=groupKey;groupSelect.disabled=!runs.length;groupSelect.onchange=()=>{groupKey=groupSelect.value;showAll=false;draw('ranking-group');};groupLabel.append(groupSelect);toolbar.append(groupLabel);
   const by=el('div',undefined,'rank-by');by.append(el('span','Rank by','control-label'));const choices=el('div',undefined,'rank-switch');choices.setAttribute('role','group');choices.setAttribute('aria-label','Rank strategies by');for(const [key,m] of Object.entries(measures)){const choose=button(m.label,()=>{basis=key;showAll=false;draw('rank-'+key);},'quiet');choose.id='rank-'+key;choose.setAttribute('aria-pressed',String(key===basis));choices.append(choose);}by.append(choices);toolbar.append(by);target.append(toolbar);
   target.append(el('p',runs.length+' runs · '+a.groups.length+' separate groups · '+a.blocked.length+' for review'+(a.duplicates.length?' · '+a.duplicates.length+' repeated results':''),'ranking-scope'));
-  if(g){
+  if(all&&runs.length){
+   drawOverview({target,o,basis,b,limit,showAll,onOpen,table,onGroup:key=>{groupKey=key;showAll=false;draw('ranking-group');},onMore:()=>{showAll=!showAll;draw('rank-more');}});
+  }else if(g){
    target.append(el('p',g.controls.Universe+' · '+g.controls.From+' — '+g.controls.To+' · '+g.controls.Allocation+' · '+num(g.controls['Initial capital'])+' capital'+(limit!==null?' · ceiling '+num(limit,'percent'):''),'ranking-context'));
    const ordered=I.ranking(g,basis),valid=ordered.filter(x=>x.item.withinLimit&&Number.isFinite(x.item[basis])),leaders=valid.filter(x=>Math.abs(x.item[basis]-valid[0].item[basis])<1e-9).map(x=>x.item),complete=valid.length===g.eligible.length,canLead=valid.length>=2&&complete,lead=canLead&&leaders.length===1?leaders[0]:null,m=measures[basis];
    const hero=el('section',undefined,'ranking-hero reveal'+(lead?'':' neutral'));hero.setAttribute('aria-label','Comparison takeaway');const message=el('div',undefined,'hero-message');message.append(el('span',lead?'LEADS THIS GROUP':'COMPARISON STATUS','leader-kicker'));
@@ -91,7 +153,17 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
   method.append(el('p',a.groups.length+' comparison groups · '+a.blocked.length+' blocked · '+a.duplicates.length+' duplicate results excluded','analysis-count'),el('p','Peers share recorded dates, universe, market, timeframe, capital, allocation, limits and chart models. Strategy settings may differ. Costs, dividends, cash flows, leverage, universe history and equity valuation frequency are unverified. Rankings are provisional.'),el('p','Calmar = source CAGR ÷ positive maximum drawdown for the same run. Missing CAGR or zero drawdown leaves it undefined. Annualized Returns and the source Calmer Ratio stay separate. Each ranking uses one named measure; there is no opaque weighted score.'),el('p','A dominated run has a peer with at least as much return and no more drawdown, with one strictly better. Short periods, small samples, zero quantities and parameter-search bias weaken the evidence. Results are never added across runs: combined portfolios require synchronized equity curves and explicit weights.'),link('NSE: price versus total-return indices','https://www.niftyindices.com/resources/index-concepts/total-return-index'));
   if(a.blocked.length){method.append(el('h3','Excluded from ranking'));for(const x of a.blocked)method.append(button(x.run.name||x.run.id,()=>onOpen(x.run)),el('p',x.errors.join(' '),'issues'));}
   if(a.duplicates.length){method.append(el('h3','Repeated results are not independent evidence'));a.duplicates.forEach(x=>method.append(el('p',x.run.name+' repeats '+x.original.name+'. Kept in the library, counted once.')));}target.append(method);
-  const exportButton=button('Export analysis CSV',()=>{const rows=[['Group','Run','Aligned controls','Gross return (%)','Source CAGR (%)','Max drawdown (%)','Derived Calmar','Drawdown ceiling met','Dominated by','Reference','Reference basis','Reference source','Benchmark from','Benchmark to','Benchmark return (%)','Excess gross return (pp)','Benchmark caveats','Evidence']];a.groups.forEach((group,i)=>{const ref=I.benchmarkFor(group.items[0],b);group.items.forEach(x=>rows.push([i+1,nameOf(x),Object.entries(group.controls).map(([k,v])=>k+': '+v).join('; '),x.returns,x.cagr,x.drawdown,x.calmar,x.withinLimit,x.dominatedBy.join('; '),b?.name||'',b?.kind||'',b?.source||'',ref.from||'',ref.to||'',ref.returns??'',ref.available?x.returns-ref.returns:'',ref.cautions?.join('; ')||ref.reason||'',x.cautions.join('; ')]));});download('strategy-analysis.csv',root.Vault.csv(rows.map(row=>row.map(v=>typeof v==='number'?Number(v.toFixed(6)):v))),'text/csv;charset=utf-8');},'quiet');exportButton.disabled=!a.groups.length;target.append(exportButton,el('span','Exports all comparison groups.','mini export-scope'));
+  const exportButton=button('Export analysis CSV',()=>{
+   if(all){
+    const rows=[['Scope','Rank basis','Exploratory rank','Run','Matched group','Status','Recorded controls','Gross return (%)','Source CAGR (%)','Source Annualized Returns (%)','Preferred growth (%)','Growth basis','Max drawdown (%)','Derived Calmar','Reference','Reference basis','Reference source','Benchmark from','Benchmark to','Benchmark return (%)','Excess gross return (pp)','Buy-and-hold ending capital','Benchmark caveats','Evidence','Captured settings','Original statistics JSON']];
+    for(const {item:x,rank} of I.ranking(o,basis)){
+     const ref=overviewReference(x,b);
+     rows.push(['All runs · exploratory',measures[basis].label,rank??'',nameOf(x),x.groupNumber??'',overviewStatus(x,basis),Object.entries(x.controls).map(([k,v])=>k+': '+(v??'Not captured')).join('; '),x.returns,x.cagr,x.metrics.annualized,x.metrics.growth,x.metrics.growthLabel,x.drawdown,x.calmar,b?.name||'',b?.kind||'',b?.source||'',ref.from||'',ref.to||'',ref.returns??'',ref.available?ref.excess:'',ref.endingCapital??'',ref.cautions?.join('; ')||ref.reason||'',(x.errors||[]).concat(x.cautions||[]).join('; '),[...x.rows].map(([key,r])=>key+': '+P.settingText(r)).join('; '),JSON.stringify({quickStats:x.run.quickStats||[],statistics:x.run.statistics||[]})]);
+    }
+    download('all-runs-analysis.csv',root.Vault.csv(rows.map(row=>row.map(v=>typeof v==='number'?Number(v.toFixed(6)):v??''))),'text/csv;charset=utf-8');return;
+   }
+   const rows=[['Group','Run','Aligned controls','Gross return (%)','Source CAGR (%)','Max drawdown (%)','Derived Calmar','Drawdown ceiling met','Dominated by','Reference','Reference basis','Reference source','Benchmark from','Benchmark to','Benchmark return (%)','Excess gross return (pp)','Benchmark caveats','Evidence']];a.groups.forEach((group,i)=>{const ref=I.benchmarkFor(group.items[0],b);group.items.forEach(x=>rows.push([i+1,nameOf(x),Object.entries(group.controls).map(([k,v])=>k+': '+v).join('; '),x.returns,x.cagr,x.drawdown,x.calmar,x.withinLimit,x.dominatedBy.join('; '),b?.name||'',b?.kind||'',b?.source||'',ref.from||'',ref.to||'',ref.returns??'',ref.available?x.returns-ref.returns:'',ref.cautions?.join('; ')||ref.reason||'',x.cautions.join('; ')]));});download('strategy-analysis.csv',root.Vault.csv(rows.map(row=>row.map(v=>typeof v==='number'?Number(v.toFixed(6)):v))),'text/csv;charset=utf-8');
+  },'quiet');exportButton.disabled=all?!runs.length:!a.groups.length;target.append(exportButton,el('span',all?'Exports every run, status and setting in this comparison.':'Exports all comparison groups.','mini export-scope'));
   target.querySelectorAll('details[id]').forEach(d=>{d.open=openDetails.has(d.id);});if(focusId)document.getElementById(focusId)?.focus({preventScroll:true});
  }
  draw();

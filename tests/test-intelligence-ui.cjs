@@ -20,6 +20,18 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  assert.match(demos.d.querySelector('.ranking-hero').textContent,/A peer is needed/);assert.equal(demos.d.querySelector('.rank-place').textContent,'—');
  demos.click('Export analysis CSV');assert.match(await demos.downloads.at(-1).text(),/Momentum core/); // Export still includes other groups.
  const changed=demos.d.getElementById('ranking-group');changed.value=firstGroup;changed.onchange();
+ // All-runs scope includes the review-needed Renko and uses each run's own reference dates.
+ const allChoice=demos.d.getElementById('ranking-group');allChoice.value='all';allChoice.onchange();
+ assert.match(demos.d.querySelector('.ranking-hero').textContent,/ALL RUNS · EXPLORATORY/);assert.equal(demos.d.querySelectorAll('.all-runs-table tbody tr').length,5);assert.equal(demos.d.querySelectorAll('.risk-map .map-dot').length,5);
+ demos.click('Show all 6 runs');assert.equal(demos.d.querySelectorAll('.all-runs-table tbody tr').length,6);assert.match(demos.d.querySelector('.all-runs-table').textContent,/Needs review · unranked/);
+ assert.match(demos.d.getElementById('analysis-all-settings').textContent,/Different/);assert.match(demos.d.getElementById('analysis-all-settings').textContent,/Period 1/);
+ assert.match(demos.d.getElementById('analysis-all-statistics').textContent,/Quick stats · CAGR/);assert.match(demos.d.getElementById('analysis-all-statistics').textContent,/Quick stats · Annualized Returns/);
+ assert.match(demos.d.getElementById('analysis-all-benchmarks').textContent,/2025-12-31/);assert.match(demos.d.getElementById('analysis-all-benchmarks').textContent,/2024-12-31/);
+ assert.equal(demos.d.querySelectorAll('.risk-map .map-reference').length,0);
+ demos.click('Export analysis CSV');const allCsv=await demos.downloads.at(-1).text();assert.match(allCsv,/All runs · exploratory/);assert.match(allCsv,/Needs review/);assert.match(allCsv,/Captured settings/);assert.match(allCsv,/Growth basis/);assert.equal(allCsv.trim().split('\r\n').length,7);
+ demos.d.getElementById('analysis-all-settings').open=true;demos.click('Return');assert.equal(demos.d.getElementById('ranking-group').value,'all');assert.equal(demos.d.getElementById('analysis-all-settings').open,true);
+ demos.d.getElementById('analysis-risk').value='0';demos.click('Apply ceiling');assert.match(demos.d.querySelector('.ranking-hero').textContent,/Not enough eligible/);assert.ok([...demos.d.querySelectorAll('.rank-place')].every(x=>x.textContent==='—'));
+ demos.d.getElementById('analysis-risk').value='';demos.click('Apply ceiling');demos.click('Group 1 · compare matched runs');assert.equal(demos.d.getElementById('ranking-group').value,firstGroup);assert.equal(demos.d.querySelector('.all-runs-table'),null);
  demos.d.getElementById('analysis-options').open=true;demos.click('Return');assert.equal(demos.d.activeElement.id,'rank-returns');assert.equal(demos.d.getElementById('analysis-options').open,true);assert.equal(demos.d.getElementById('rank-returns').getAttribute('aria-pressed'),'true');
  demos.click('Drawdown');assert.equal(demos.d.querySelector('.hero-score strong').textContent,'2.50%');assert.equal(demos.d.querySelector('.rank-table').dataset.basis,'drawdown');
  demos.click('Inspect this run');assert.equal(demos.d.body.classList.contains('analysis-mode'),false);demos.click('Analyze strategies');await tick();
@@ -49,5 +61,14 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  const empty=app({},false,true);try{await tick();assert.match(empty.d.querySelector('.ranking-hero').textContent,/No runs have enough verified/);assert.equal(empty.d.querySelector('.rank-table'),null);}finally{empty.close();}
  const partial=D.create().slice(0,2);partial[1].quickStats=partial[1].quickStats.filter(s=>s.label!=='CAGR');partial.forEach(r=>{r.demo=false;r.charts=[];});const missing=app(Object.fromEntries(partial.map(r=>['run:'+r.id,r])),false,true);
  try{await tick();assert.match(missing.d.querySelector('.ranking-hero').textContent,/comparison is incomplete/);assert.equal(missing.d.querySelectorAll('.rank-leader').length,0);missing.click('Return');assert.equal(missing.d.querySelector('.hero-message h3').textContent,'Momentum core');}finally{missing.close();}
+ const entire=D.create();entire.forEach(r=>{r.demo=false;r.charts=[];});const again=structuredClone(entire[0]);again.id='repeat-for-ui';again.name='=Repeated evidence';entire.push(again);
+ const entireSaved=Object.fromEntries(entire.map(r=>['run:'+r.id,r])),entireBefore=JSON.stringify(entireSaved),allApp=app(entireSaved,false,true);
+ try{await tick();const select=allApp.d.getElementById('ranking-group');select.value='all';select.onchange();allApp.click('Show all 7 runs');
+ assert.equal(allApp.d.querySelectorAll('.all-runs-table tbody tr').length,7);assert.equal(allApp.d.querySelectorAll('.risk-map .map-dot').length,5);
+ const repeated=allApp.d.querySelector('[data-run-id="repeat-for-ui"]');assert.equal(repeated.querySelector('.rank-place').textContent,'—');assert.match(repeated.textContent,/Repeated result/);
+ allApp.click('Export analysis CSV');const exportAll=await allApp.downloads.at(-1).text();assert.match(exportAll,/'=Repeated evidence/);assert.equal(exportAll.trim().split('\r\n').length,8);assert.equal(JSON.stringify(entireSaved),entireBefore);
+ }finally{allApp.close();}
+ const blockedOnly=structuredClone(entire[0]);blockedOnly.provenance='unverified';const blockedApp=app({['run:'+blockedOnly.id]:blockedOnly},false,true);
+ try{await tick();assert.equal(blockedApp.d.getElementById('ranking-group').value,'all');assert.equal(blockedApp.d.querySelectorAll('.all-runs-table tbody tr').length,1);assert.match(blockedApp.d.querySelector('.all-runs-table').textContent,/Needs review/);blockedApp.click('Export analysis CSV');assert.match(await blockedApp.downloads.at(-1).text(),/Needs review/);}finally{blockedApp.close();}
  console.log('PASS: analysis UI, drawdown controls, text safety, demo benchmark isolation, CSV precision/provenance, immediate benchmark backup, JSON roundtrip, duplicate IDs and invalid-import staging.');
  }finally{demos.close();real?.close();restored?.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

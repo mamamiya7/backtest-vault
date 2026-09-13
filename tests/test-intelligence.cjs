@@ -40,6 +40,18 @@ assert.deepEqual(I.ranking(rankGroup,'drawdown').map(x=>x.item.run.id),['e','a',
 assert.equal(I.ranking({items:[rankItems[0],rankItems[3],rankItems[4]]})[0].rank,null);
 assert.deepEqual(I.ranking({items:[]}),[]);assert.throws(()=>I.ranking(rankGroup,'score'),/Unknown/);
 assert.equal(JSON.stringify(rankItems),rankBefore);
+// All-runs overview keeps every record while ordering only reviewed, unique evidence.
+const allInput=[...copy(runs),copy(repeat),{id:'broken',name:'Broken record',demo:true}],allBefore=JSON.stringify(allInput),strict=I.analyze(allInput),strictBefore=JSON.stringify(strict);
+const all=I.overview(strict);assert.equal(all.items.length,allInput.length);assert.equal(all.groups.length,4);assert.equal(all.items.filter(x=>x.rankEligible).length,5);
+assert.equal(all.items.find(x=>x.run.id==='copy').status,'Repeated result');assert.equal(all.items.find(x=>x.run.id==='broken').returns,null);
+assert.equal(I.ranking(all,'returns').filter(x=>x.rank!==null).length,5);assert.ok(I.ranking(all).filter(x=>!x.item.rankEligible).every(x=>x.rank===null));
+assert.ok(all.conditions.find(x=>x.key==='From').different);assert.ok(all.conditions.find(x=>x.key==='Momentum chart').different);assert.ok(all.settings.some(x=>x.key==='momentum.period.1'&&x.different));
+assert.ok(all.statistics.some(x=>x.label==='Quick stats · CAGR'));assert.ok(all.statistics.some(x=>x.label==='Quick stats · Annualized Returns'));assert.equal(all.statistics[0].values.length,allInput.length);
+assert.equal(JSON.stringify(strict),strictBefore);assert.equal(JSON.stringify(allInput),allBefore);
+const realRun=copy(runs[0]);realRun.demo=false;realRun.id='real';const mixed=I.overview(I.analyze([...copy(runs),realRun]));assert.ok(mixed.mixedData);assert.ok(mixed.items.filter(x=>x.run.demo).every(x=>!x.rankEligible));assert.equal(I.ranking(mixed,'returns')[0].rank,null);
+const allZero=I.overview(I.analyze([zero,noCagr]));assert.ok(I.ranking(allZero).every(x=>x.rank===null));assert.equal(I.ranking(allZero,'returns').filter(x=>x.rank!==null).length,2);
+const allCeiling=I.overview(I.analyze(runs,{drawdownLimit:0}));assert.ok(I.ranking(allCeiling,'returns').every(x=>x.rank===null));
+assert.deepEqual(I.ranking(I.overview(I.analyze([runs[0],tied]))).map(x=>x.rank),[1,1]);assert.equal(I.overview(I.analyze([])).items.length,0);
 const losses=runs.slice(0,2).map(copy);for(const [i,r] of losses.entries()){stat(r,'Gross Total Returns( % )',-5-i);stat(r,'CAGR',-5-i);}assert.match(I.analyze(losses).groups[0].verdict,/negative/);
 const csv='\uFEFF"Date","Total Returns Index"\r\n"03-Jan-2025","1,100.00"\r\n"01-Jan-2025","1,000.00"\r\n"02-Jan-2025","900.00"\r\n';
 const benchmark=I.parseBenchmark(csv,{id:'b',demo:true});assert.equal(benchmark.points[0].date,'2025-01-01');assert.equal(benchmark.points[0].value,1000);assert.equal(benchmark.points.length,3);

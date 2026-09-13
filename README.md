@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Save the settings behind a result, compare matching runs, and understand why a strategy leads.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.4.2 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.5.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
@@ -93,6 +93,32 @@ flowchart TD
 
 Choose **Analyze strategies** for the whole library, or **Explain comparison** for selected runs. The first view opens the group with the most comparable runs and shows a leading-run explanation, top-five table and return/drawdown plot.
 
+### One group or every run?
+
+Use **Compare within → All runs · exploratory** to see all strategies together, across Candle, P&F, Renko and different periods. When opened from a selection, “All runs” includes that selection; **Analyze strategies** includes the whole library.
+
+```mermaid
+flowchart LR
+    A["Compare within"] --> B["Matched group<br/>Same recorded test conditions"]
+    A --> C["All runs · exploratory<br/>Every run in this comparison"]
+    B --> D["Who leads among comparable peers?"]
+    C --> E["Which reported numbers stand out?<br/>Calmar · Return · Drawdown"]
+    E --> F["Inspect dates, settings and source statistics"]
+    F --> G["Open a matched group<br/>for a fairer comparison"]
+    style C fill:#b2f7dc,stroke:#247456,color:#122b22
+```
+
+| In the all-runs view | What it tells you |
+| --- | --- |
+| Overall table and return/drawdown map | Where eligible reported numbers stand, even across different test conditions |
+| **Show all** and status labels | Every record stays visible; repeated saves and review-needed runs stay unranked |
+| **Compare all conditions & strategy settings** | Dates, universe, sizing, chart models and submitted parameters; differences are marked |
+| **Compare all reported statistics** | Original source measures side by side, including separate CAGR and Annualized Returns |
+| **Buy & hold for each run’s own period** | One reference calculation per eligible run, with its own dates, capital and coverage caveats |
+| **Group … · compare matched runs** | Jump from an interesting result to peers with the same recorded controls |
+
+The all-runs order is **exploratory**, not a universal strategy winner. Longer periods, different universes and different sizing can change the order. It does not pool or average strategy summaries into portfolio performance. Fictional records mixed into a real archive remain visible but are excluded from the real ordering. Its CSV includes every run, status, recorded settings and original statistics; the matched-group CSV keeps its existing scope.
+
 | Must match within a group | Can vary as the strategy experiment |
 | --- | --- |
 | Universe, market and timeframe | Periods and weights |
@@ -112,7 +138,7 @@ Matching recorded controls does not establish identical costs, dividends, cash f
 
 **Reading the plot:** higher means more reported return; further left means less reported drawdown. Mint identifies leaders, amber flags ceiling failures, and a square marks the optional index reference. Labels, ranks and exact table values supplement colour. The plot shows aggregate measures, not an equity curve.
 
-Ties share ranks, such as **1, 1, 3**. Missing values and ceiling failures stay unranked; a single eligible run is not named a winner. An incomplete group gets no leader takeaway. There is no global score across unlike groups.
+Ties share ranks, such as **1, 1, 3**. Missing values and ceiling failures stay unranked; a single eligible run is not named a winner. An incomplete matched group gets no leader takeaway. All-runs ordering uses the selected measure directly; there is no weighted global score across unlike groups.
 
 ![Side-by-side fictional runs with labelled growth measures and source performance statistics](docs/images/03-compare.png)
 
@@ -215,7 +241,7 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 | Candle, P&F and Renko display adapters | Unknown layouts retain individual fields rather than guessed labels |
 | Brief animations respecting reduced motion | Financial values display immediately, without animated counting |
 
-**Validation evidence:** all six local test suites passed for v0.4.2. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
+**Validation evidence:** all six local test suites passed for v0.5.0. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
 
 Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. The current dashboard was checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
 
@@ -262,7 +288,7 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/U
 npm run package:public
 ```
 
-This copies an explicit public-file allowlist into `releases/backtest-vault-0.4.2-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.5.0-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
 
 ## License and affiliation
 

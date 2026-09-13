@@ -4,7 +4,7 @@ Choose **Analyze strategies** to analyze the full library, or **Explain comparis
 
 ## Read the visual ranking
 
-The first view opens the group with the most comparable runs. Choose another group using **Compare within**. Groups remain separate; no global winner is calculated.
+The first view opens the group with the most comparable runs. Choose another group or **All runs · exploratory** using **Compare within**. Strict matching remains the default; the all-runs view offers a descriptive ordering across different conditions without declaring a universal winner.
 
 1. Read the leading-run takeaway and its reason. Switch **Calmar**, **Return** or **Drawdown** to rank by that single measure. Higher Calmar/return or lower drawdown leads.
 2. Scan the first five table rows and the return/drawdown plot. Higher and further left means more reported return with less reported drawdown. Mint marks leaders, amber marks runs above the ceiling, and an index reference uses a square. Names, ranks, status text and exact table values supplement colour. **Show all** reveals longer groups; on phones the table shows the selected measure, with full metrics available through the run.
@@ -12,9 +12,21 @@ The first view opens the group with the most comparable runs. Choose another gro
 
 Equal values share competition ranks (1, 1, 3). Ceiling failures and missing values remain unranked. A single eligible measured run gets no rank; an incomplete group gets no leader takeaway. Where two or more values are available but another is missing, numeric ranks describe only the available values. Negative leaders retain their signs and an explicit non-positive-return explanation.
 
-**Export analysis CSV** includes all analyzed groups, regardless of which is visible. The return/drawdown plot contains actual reported aggregate measures and, when available, index closing-observation measures; it is not an equity curve. Animations are brief, values never count up, and reduced-motion preferences disable the added entrance effects.
+In matched-group mode, **Export analysis CSV** includes all analyzed groups, regardless of which is visible. The matched-group return/drawdown plot contains actual reported aggregate measures and, when available, index closing-observation measures; it is not an equity curve. Animations are brief, values never count up, and reduced-motion preferences disable the added entrance effects.
 
 ## Comparable groups
+
+### All-runs overview
+
+**Analyze strategies** includes the whole library. **Explain comparison** from selected runs limits the scope to those runs. All-runs mode includes every record in that scope, including review-needed and repeated results. It sorts reviewed unique results by the selected Calmar, Return or Drawdown measure and applies the current ceiling. Ties share ranks; fewer than two eligible measured runs produces no numeric rank. Missing values, repeated evidence, review flags and ceiling failures remain visible but unranked. When real and fictional records coexist, fictional records are also unranked. This mode does not alter the original runs or strict group analysis.
+
+The takeaway names the highest or lowest **available** measure among eligible runs, explicitly labelled exploratory. It is not evidence that different date ranges, universes, chart models or sizing have equal difficulty. The return/drawdown map shows reviewed unique runs, including marked ceiling failures, and explains omissions. There is no common-period index point on this map.
+
+Three disclosures hold the detail: all submitted conditions/settings (with differences and missing capture marked), all original quick/detailed statistics, and a per-run buy-and-hold table. Unverified current inputs remain inside the individual record. Each benchmark calculation uses that run's dates and capital; source, price/TRI basis, effective dates, unavailable coverage and caveats remain attached. A **Group** shortcut restores the matched view.
+
+In all-runs mode, **Export analysis CSV** exports every run in the current scope, exploratory rank/basis/status, recorded controls/settings, preferred growth with its basis, separate source CAGR/Annualized Returns, original statistics JSON, and per-run benchmark evidence. This includes records hidden by **Show top 5**. CSV remains a review snapshot, not a full backup. Nothing is averaged into combined-portfolio returns or drawdown.
+
+### Matching controls
 
 A group requires the same recorded universe, market, timeframe, submitted start/end dates, initial capital, fixed/reinvestment allocation, maximum open positions, enabled daily stock limit, momentum chart type, execution chart type, execution price mode, and real/fictional status. An unchecked daily limit is treated as Off regardless of its inactive input.
 
@@ -76,7 +88,7 @@ Index references are stored locally, separately from run records. **Back up all*
 
 Automated checks cover cohort controls, evidence exclusion, duplicate detection, missing/invalid CAGR, zero drawdown, ties, negative leaders, return/drawdown math, CSV parsing, missing edges, sparse series, fictional/real separation, text rendering, immediate backup after CSV import, JSON roundtrip and duplicate/malformed imports.
 
-The feature was exercised in the standalone Chrome demo: analysis groups, leader/exclusion text, source labels and the drawdown ceiling passed. The new narrow-screen check was interrupted by browser-control timeouts and remains unverified. The installed extension dashboard and actual Chrome file-picker import remain unverified because browser automation cannot access those surfaces in this environment. Official Nifty history availability is not guaranteed by the tests. The local source tests use synthetic series.
+Version 0.5.0 passed all six local test suites and runtime checks. Chrome demo checks covered the all-runs selector, switching measures, showing all six records, review exclusions, the conditions/settings matrix, and the 390-pixel phone layout with the selected numeric column and no page overflow. The browser console reported no warnings or errors during this check. Automated cases cover repeats, missing measures, ties, ceilings, per-run reference dates, all-row exports and original-record preservation. The installed extension dashboard and actual Chrome file-picker import remain unverified because browser automation cannot access those surfaces in this environment. Official Nifty history availability is not guaranteed by the tests. The local source tests use synthetic series.
 
 ## Method references
 

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.0 — 2026-09-13
+
+- Add **Compare within → All runs · exploratory** alongside the default matched groups, with Calmar/Return/Drawdown ordering, a return/drawdown map and shortcuts back to each matched group.
+- Keep review-needed runs, repeated results, missing measures and ceiling failures visible but unranked. Fictional records mixed into real research are excluded from the real ordering.
+- Add collapsed comparisons of all submitted settings and original statistics, and buy-and-hold calculations for each eligible run's own dates and capital.
+- Export every run in the overview scope with rank/basis/status, settings, original statistics and per-run benchmark evidence. Preserve original archives, strict group calculations and CAGR-only Calmar.
+- Extend the graphical README and demo walkthrough with the two comparison modes.
+
 ## 0.4.2 — 2026-09-13
 
 - Prefer source CAGR in the overview, using Annualized Returns only when CAGR is unavailable, with the correct measure label.
