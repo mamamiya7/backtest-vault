@@ -27,7 +27,25 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  assert.match(demos.d.getElementById('analysis-all-settings').textContent,/Different/);assert.match(demos.d.getElementById('analysis-all-settings').textContent,/Period 1/);
  assert.match(demos.d.getElementById('analysis-all-statistics').textContent,/Quick stats · CAGR/);assert.match(demos.d.getElementById('analysis-all-statistics').textContent,/Quick stats · Annualized Returns/);
  assert.match(demos.d.getElementById('analysis-all-benchmarks').textContent,/2025-12-31/);assert.match(demos.d.getElementById('analysis-all-benchmarks').textContent,/2024-12-31/);
- assert.equal(demos.d.querySelectorAll('.risk-map .map-reference').length,0);
+ assert.equal(demos.d.querySelectorAll('.risk-map .map-reference').length,1);
+ // Chart selection is local UI state; each index point follows that run's actual dates.
+ const pointFor=name=>[...demos.d.querySelectorAll('.map-point[data-run-id]')].find(x=>x.getAttribute('aria-label').startsWith('Inspect '+name+' ·'));
+ const pointOrder=[...demos.d.querySelectorAll('.map-point[data-run-id]')].map(x=>x.id);
+ assert.equal(demos.d.querySelector('.risk-map svg').getAttribute('role'),'group');assert.equal(demos.d.getElementById('chart-inspector').hidden,true);
+ pointFor('Holdout sample').dispatchEvent(new demos.w.MouseEvent('click',{bubbles:true}));
+ assert.equal(demos.d.querySelector('#chart-inspector h4').textContent,'Holdout sample');assert.equal(demos.d.getElementById('chart-inspector').hidden,false);assert.match(demos.d.getElementById('chart-inspector').textContent,/Main strategy settings/);assert.match(demos.d.getElementById('chart-inspector').textContent,/Period 1/);
+ assert.match(demos.d.querySelector('.map-index-context').textContent,/2024-01-01 — 2024-12-31/);assert.match(demos.d.querySelector('.map-index').textContent,/\+13\.83%/);
+ assert.equal(pointFor('Holdout sample').getAttribute('aria-pressed'),'true');assert.equal(demos.d.activeElement.id,pointFor('Holdout sample').id);
+ assert.deepEqual([...demos.d.querySelectorAll('.map-point[data-run-id]')].map(x=>x.id),pointOrder);
+ const space=new demos.w.KeyboardEvent('keydown',{key:' ',bubbles:true,cancelable:true});pointFor('Renko trend').dispatchEvent(space);assert.equal(space.defaultPrevented,true);
+ assert.equal(demos.d.querySelector('#chart-inspector h4').textContent,'Renko trend');assert.match(demos.d.querySelector('#chart-inspector').textContent,/Brick size/);assert.match(demos.d.querySelector('.map-index-context').textContent,/2025-01-01 — 2025-12-31/);assert.match(demos.d.querySelector('.map-index').textContent,/\+5\.85%/);
+ demos.d.getElementById('chart-index-point').dispatchEvent(new demos.w.KeyboardEvent('keydown',{key:'Enter',bubbles:true}));assert.equal(demos.d.querySelector('#chart-inspector h4').textContent,'Nifty 50 (fictional)');assert.match(demos.d.getElementById('chart-inspector').textContent,/Buy & hold ending capital/);assert.equal(demos.d.activeElement.id,'chart-index-point');
+ const chartSelect=demos.d.getElementById('chart-run-select');chartSelect.value=D.create().find(x=>x.name==='Holdout sample').id;chartSelect.onchange();assert.equal(demos.d.querySelector('#chart-inspector h4').textContent,'Holdout sample');
+ demos.click('Return');assert.equal(demos.d.querySelector('#chart-inspector h4').textContent,'Holdout sample');assert.match(demos.d.querySelector('.map-index-context').textContent,/2024-01-01/);
+ const referenceChoice=demos.d.getElementById('benchmark-select');referenceChoice.value='';referenceChoice.onchange();assert.equal(demos.d.querySelector('.risk-map .map-reference'),null);assert.match(demos.d.querySelector('.map-index').textContent,/Import a Nifty index CSV/);
+ demos.click('Choose / import index');assert.equal(demos.d.getElementById('analysis-options').open,true);assert.equal(demos.d.activeElement.id,'benchmark-select');
+ const restoreRef=demos.d.getElementById('benchmark-select');restoreRef.value=D.benchmarks()[0].id;restoreRef.onchange();assert.equal(demos.d.querySelectorAll('.risk-map .map-reference').length,1);
+ demos.click('Hide details');assert.equal(demos.d.getElementById('chart-inspector').hidden,true);assert.equal(demos.d.activeElement.id,'chart-run-select');
  demos.click('Export analysis CSV');const allCsv=await demos.downloads.at(-1).text();assert.match(allCsv,/All runs · exploratory/);assert.match(allCsv,/Needs review/);assert.match(allCsv,/Captured settings/);assert.match(allCsv,/Growth basis/);assert.equal(allCsv.trim().split('\r\n').length,7);
  demos.d.getElementById('analysis-all-settings').open=true;demos.click('Return');assert.equal(demos.d.getElementById('ranking-group').value,'all');assert.equal(demos.d.getElementById('analysis-all-settings').open,true);
  demos.d.getElementById('analysis-risk').value='0';demos.click('Apply ceiling');assert.match(demos.d.querySelector('.ranking-hero').textContent,/Not enough eligible/);assert.ok([...demos.d.querySelectorAll('.rank-place')].every(x=>x.textContent==='—'));
@@ -41,9 +59,11 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  // Test the real application storage/import branches with synthetic data, never real user storage.
  const fixture=D.create()[0];fixture.demo=false;fixture.charts=[];fixture.name='<img src=x onerror=alert(1)>';const saved={['run:'+fixture.id]:structuredClone(fixture)};real=app(saved);await tick();
  real.click('Analyze strategies');await tick();assert.match(real.d.querySelector('#detail').textContent,/Import a Nifty index CSV/);assert.equal(real.d.querySelector('#detail img[src=x]'),null);
+ real.d.querySelector('.map-point[data-run-id]').dispatchEvent(new real.w.MouseEvent('click',{bubbles:true}));assert.equal(real.d.querySelector('#chart-inspector h4').textContent,fixture.name);assert.equal(real.d.querySelector('#chart-inspector img'),null);
  const input=real.d.querySelector('#detail input[type=file]');Object.defineProperty(input,'files',{value:[{name:'test-only.csv',size:70,text:async()=> 'Date,Total Returns Index\n2025-01-01,100\n2025-06-01,90\n2025-12-31,110'}]});await input.onchange();
  assert.match(real.d.getElementById('notice').textContent,/Benchmark saved locally/);assert.equal(Object.keys(saved).filter(k=>k.startsWith('benchmark:')).length,1);assert.deepEqual(saved['run:'+fixture.id],fixture);
  real.click('Back up all');const backup=JSON.parse(await real.downloads.at(-1).text());assert.equal(backup.benchmarks.length,1);assert.equal(backup.runs.length,1);assert.match(real.d.querySelector('#detail').textContent,/Sparse observations/);
+ assert.equal(real.d.querySelector('.map-reference'),null);assert.match(real.d.querySelector('.map-index').textContent,/Index point unavailable/);assert.match(real.d.querySelector('.map-index').textContent,/\+10\.00%/);real.click('Inspect index');assert.match(real.d.getElementById('chart-inspector').textContent,/Observed-close drawdown—/);
  real.click('Export analysis CSV');assert.match(await real.downloads.at(-1).text(),/Imported file: test-only.csv/);
  restored=app();await tick();await importJSON(restored,backup);assert.equal((await restored.w.VaultStore.all()).length,1);assert.equal((await restored.w.VaultStore.allBenchmarks()).length,1);
  const before=JSON.stringify(restored.saved);const duplicate=structuredClone(backup);duplicate.runs[0].name='Must not replace';duplicate.benchmarks[0].source='Must not replace';await importJSON(restored,duplicate);assert.equal(JSON.stringify(restored.saved),before);
@@ -70,5 +90,15 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  }finally{allApp.close();}
  const blockedOnly=structuredClone(entire[0]);blockedOnly.provenance='unverified';const blockedApp=app({['run:'+blockedOnly.id]:blockedOnly},false,true);
  try{await tick();assert.equal(blockedApp.d.getElementById('ranking-group').value,'all');assert.equal(blockedApp.d.querySelectorAll('.all-runs-table tbody tr').length,1);assert.match(blockedApp.d.querySelector('.all-runs-table').textContent,/Needs review/);blockedApp.click('Export analysis CSV');assert.match(await blockedApp.downloads.at(-1).text(),/Needs review/);}finally{blockedApp.close();}
+ // New-period runs never keep the previous run's index coordinates or borrow fictional data.
+ const referenceRuns=[D.create()[0],D.create().find(r=>r.name==='Holdout sample')];referenceRuns.forEach(r=>{r.demo=false;r.charts=[];});
+ const indexHistory=D.benchmarks()[0];indexHistory.demo=false;indexHistory.points=indexHistory.points.filter(p=>p.date>='2025-01-01');
+ const referenceSaved={...Object.fromEntries(referenceRuns.map(r=>['run:'+r.id,r])),['benchmark:'+indexHistory.id]:indexHistory},referenceBefore=JSON.stringify(referenceSaved),periodApp=app(referenceSaved,false,true);
+ try{await tick();const scope=periodApp.d.getElementById('ranking-group');scope.value='all';scope.onchange();assert.equal(periodApp.d.querySelectorAll('.map-reference').length,1);
+ const select=periodApp.d.getElementById('chart-run-select');select.value=referenceRuns[1].id;select.onchange();assert.equal(periodApp.d.querySelector('.map-reference'),null);assert.match(periodApp.d.querySelector('.map-index').textContent,/does not cover this run/);assert.match(periodApp.d.querySelector('.map-index-context').textContent,/2024-01-01/);assert.equal(JSON.stringify(referenceSaved),referenceBefore);
+ periodApp.click('Open full run');assert.equal(periodApp.d.body.classList.contains('analysis-mode'),false);assert.equal(periodApp.d.querySelector('#detail h2').textContent,'Holdout sample');
+ }finally{periodApp.close();}
+ const fictionalIndex=app({['run:'+referenceRuns[0].id]:referenceRuns[0],['benchmark:'+indexHistory.id]:{...indexHistory,demo:true}},false,true);
+ try{await tick();assert.equal(fictionalIndex.d.querySelector('.map-reference'),null);assert.match(fictionalIndex.d.querySelector('.map-index').textContent,/Fictional and real data cannot be mixed/);}finally{fictionalIndex.close();}
  console.log('PASS: analysis UI, drawdown controls, text safety, demo benchmark isolation, CSV precision/provenance, immediate benchmark backup, JSON roundtrip, duplicate IDs and invalid-import staging.');
  }finally{demos.close();real?.close();restored?.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

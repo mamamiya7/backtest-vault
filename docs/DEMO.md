@@ -15,4 +15,6 @@ For a whole-library overview, choose **Compare within → All runs · explorator
 
 Demo returns come from a fixed synthetic monthly series. The displayed drawdown is calculated only at those observations. Trade rows are fictional illustrations of that series, not engine-generated transactions. None of these numbers demonstrate a strategy's effectiveness.
 
+Click a chart dot to see the run's key metrics and main settings. In All runs, select **Holdout sample**: the index reference changes to 2024. Select **Renko trend**: it changes to 2025. Click the index square to inspect its measures, then **Hide details** to collapse the summary. Use **Inspect run** when dots overlap. This demonstrates period matching with fictional history, not actual Nifty performance.
+
 For a public demonstration, keep the demo URL open. Switching to **Open my archive** can reveal that browser environment's own records.

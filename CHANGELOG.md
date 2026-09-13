@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.1 — 2026-09-13
+
+- Make return/drawdown points selectable by pointer, keyboard or a run selector, with a selection ring, inline key metrics/settings and links to the full report.
+- Restore the index point in All runs for the selected run's own period; update its dates, coordinates and excess return when the selection changes.
+- Add a visible index reference card and selectable index metrics, including ending capital for the selected run's initial investment. Explain unavailable coverage, sparse-history drawdown and fictional/real mismatches.
+- Preserve original records, strict groups, all-run exclusions, ranking rules and local benchmark imports. Add regression coverage for selection/focus, period changes, text safety, unavailable history and unchanged archives.
+
 ## 0.5.0 — 2026-09-13
 
 - Add **Compare within → All runs · exploratory** alongside the default matched groups, with Calmar/Return/Drawdown ordering, a return/drawdown map and shortcuts back to each matched group.

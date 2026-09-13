@@ -20,7 +20,7 @@ In matched-group mode, **Export analysis CSV** includes all analyzed groups, reg
 
 **Analyze strategies** includes the whole library. **Explain comparison** from selected runs limits the scope to those runs. All-runs mode includes every record in that scope, including review-needed and repeated results. It sorts reviewed unique results by the selected Calmar, Return or Drawdown measure and applies the current ceiling. Ties share ranks; fewer than two eligible measured runs produces no numeric rank. Missing values, repeated evidence, review flags and ceiling failures remain visible but unranked. When real and fictional records coexist, fictional records are also unranked. This mode does not alter the original runs or strict group analysis.
 
-The takeaway names the highest or lowest **available** measure among eligible runs, explicitly labelled exploratory. It is not evidence that different date ranges, universes, chart models or sizing have equal difficulty. The return/drawdown map shows reviewed unique runs, including marked ceiling failures, and explains omissions. There is no common-period index point on this map.
+The takeaway names the highest or lowest **available** measure among eligible runs, explicitly labelled exploratory. It is not evidence that different date ranges, universes, chart models or sizing have equal difficulty. The return/drawdown map shows reviewed unique runs, including marked ceiling failures, and explains omissions. Its index reference follows only the selected run's period, with that scope visibly labelled; it is not a common-period reference for the whole library.
 
 Three disclosures hold the detail: all submitted conditions/settings (with differences and missing capture marked), all original quick/detailed statistics, and a per-run buy-and-hold table. Unverified current inputs remain inside the individual record. Each benchmark calculation uses that run's dates and capital; source, price/TRI basis, effective dates, unavailable coverage and caveats remain attached. A **Group** shortcut restores the matched view.
 
@@ -50,6 +50,16 @@ A period under a year and fewer than 30 reported trades receive evidence flags. 
 There is no arbitrary weighted score. Returns, CAGR, drawdown and Calmar are interpreted together; they are never summed across strategies. A combined portfolio needs synchronized portfolio equity series, valuation/cash-flow conventions and explicit weights. Static chart screenshots cannot establish that result.
 
 ## Nifty buy and hold
+
+### Select a strategy or index point
+
+Chart points support click, tap, Enter and Space. The **Inspect run** selector reaches every plotted run, including points at identical coordinates. A selection ring and announced run name identify the selected item. The inline summary shows headline metrics, submitted universe/dates, chart models, capital/allocation, position limits and main active settings. Additional active settings can be expanded; **Open full run** opens the original record. **Hide details** closes the summary. Selection persists across ranking/ceiling changes while the run remains in the plotted scope; changing to a group without that run selects a member of the new group.
+
+An index square appears whenever the selected benchmark has usable coverage and observed-close drawdown for the selected run. Clicking it, or **Inspect index**, opens index return, annualized growth, drawdown, Calmar and ending capital using that run's initial capital. In **All runs**, choosing another period updates the index coordinates, dates and excess return. The index is not a strategy candidate and never receives a strategy rank.
+
+The reference card stays visible below the chart, even if no square can be drawn. It identifies the selected run, source, fictional/real marker, price/TRI basis and requested/effective dates. Missing history or fictional/real mismatch withholds the point and comparison; sparse history withholds drawdown and Calmar while retaining a descriptive return when coverage permits. **Choose / import index** or **Change index reference** opens the local benchmark controls. No missing reference is silently replaced by data from another period, and no data is fetched automatically.
+
+### Import history
 
 Open **Filters & benchmark → Add Nifty benchmark data**, choose the index name and price/total-return basis, then import one index's CSV from the [official NSE Indices historical-data page](https://www.niftyindices.com/reports/historical-data).
 
@@ -85,6 +95,8 @@ Index references are stored locally, separately from run records. **Back up all*
 **Export analysis CSV** includes aligned controls, headline measures, dominance, reference basis/source/effective dates, excess return and caveats. Numeric export precision is capped at six decimals; calculations use original numeric precision and original JSON values stay intact. A CSV is a review snapshot, not a complete backup.
 
 ## Validation and limits
+
+Version 0.5.1 adds passing regressions for pointer/Enter/Space selection, focus retention, overlapping-point selection, key-setting/source-label display, per-period index updates, missing and sparse history, fictional/real isolation, full-run navigation and unchanged archives. All six suites and runtime checks passed. Chrome demo checks covered a strategy-point click, index activation with Enter, 2024/2025 reference changes, and the 390-pixel phone inspector without page overflow; the viewport was restored and no browser warnings/errors were reported. These are standalone demo checks, not an installed-extension dashboard inspection.
 
 Automated checks cover cohort controls, evidence exclusion, duplicate detection, missing/invalid CAGR, zero drawdown, ties, negative leaders, return/drawdown math, CSV parsing, missing edges, sparse series, fictional/real separation, text rendering, immediate backup after CSV import, JSON roundtrip and duplicate/malformed imports.
 

@@ -10,21 +10,97 @@ const measures={calmar:{label:'Calmar',kind:'number',direction:'Higher is better
 const nameOf=x=>x.run.name||x.run.id;
 const num=(value,kind='number',signed=false)=>cell(value,kind,signed).text;
 function disclosure(title,id){const d=el('details');d.id=id;d.append(el('summary',title));return d;}
-function riskChart(group,leaders,bm,all=false){
- const figure=el('figure',undefined,'risk-map reveal'),head=el('div',undefined,'panel-heading');head.append(el('h3','Return vs. drawdown'),el('span','Higher + further left is better','mini'));figure.append(head);
- const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 540 290');svg.setAttribute('role','img');svg.setAttribute('aria-label',all?'Return versus drawdown across different test conditions. Exploratory, not a matched comparison. Exact values are in the all-runs table.':'Return versus drawdown in the selected group. Exact values are available in the ranking and benchmark details.');
- const add=(tag,attrs,text)=>{const e=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;svg.append(e);return e;};
- add('title',{},'Higher return with less drawdown is toward the upper left.');
- const ref=bm.available&&bm.drawdown!==null?bm:null,values=[...group.items.map(x=>({ret:x.returns,dd:x.drawdown})),...(ref?[{ret:ref.returns,dd:ref.drawdown}]:[])];
- const minY=Math.min(0,...values.map(x=>x.ret)),maxY=Math.max(1,...values.map(x=>x.ret)),pad=Math.max(1,(maxY-minY)*.16),low=minY<0?minY-pad:0,high=maxY+pad,maxX=Math.max(1,...values.map(x=>x.dd))*1.2;
- const left=55,right=505,top=28,bottom=240,px=x=>left+x/maxX*(right-left),py=y=>bottom-(y-low)/(high-low)*(bottom-top);
- add('rect',{x:left,y:top,width:right-left,height:bottom-top,rx:8,class:'map-ground'});
- for(let i=0;i<=4;i++){const x=maxX*i/4,y=low+(high-low)*i/4;add('line',{x1:px(x),x2:px(x),y1:top,y2:bottom,class:'map-grid'});add('line',{x1:left,x2:right,y1:py(y),y2:py(y),class:'map-grid'});add('text',{x:px(x),y:bottom+19,'text-anchor':'middle',class:'map-axis'},x.toFixed(1)+'%');add('text',{x:left-10,y:py(y)+4,'text-anchor':'end',class:'map-axis'},y.toFixed(1)+'%');}
- if(low<0)add('line',{x1:left,x2:right,y1:py(0),y2:py(0),class:'map-zero'});add('text',{x:left,y:16,class:'map-caption'},'Return');add('text',{x:right,y:282,'text-anchor':'end',class:'map-caption'},'Drawdown');
- group.items.forEach((x,i)=>{const tone=!x.withinLimit?'limit':leaders.includes(x)?'lead':'peer',dot=add('circle',{cx:px(x.drawdown),cy:py(x.returns),r:tone==='lead'?8:6,class:'map-dot '+tone,style:'--order:'+Math.min(i,5)}),title=document.createElementNS(ns,'title');title.textContent=nameOf(x)+' · return '+num(x.returns,'percent',true)+' · drawdown '+num(x.drawdown,'percent')+(x.withinLimit?'':' · above ceiling');dot.append(title);
- if(leaders.length===1&&leaders.includes(x)){const anchor=px(x.drawdown)>335?'end':'start';add('text',{x:px(x.drawdown)+(anchor==='end'?-13:13),y:py(x.returns)-13,'text-anchor':anchor,class:'map-leader-label'},nameOf(x).length>22?nameOf(x).slice(0,20)+'…':nameOf(x));}});
- if(ref){const dot=add('rect',{x:px(ref.drawdown)-5,y:py(ref.returns)-5,width:10,height:10,rx:1,class:'map-reference'}),title=document.createElementNS(ns,'title');title.textContent=ref.benchmark.name+' · return '+num(ref.returns,'percent',true)+' · observed-close drawdown '+num(ref.drawdown,'percent');dot.append(title);add('text',{x:px(ref.drawdown)-12,y:py(ref.returns)+20,'text-anchor':'end',class:'map-axis'},'Index reference');}
- figure.append(svg);const legend=el('figcaption',undefined,'map-legend');[...(!all?[['lead','Leader']]:[]),['peer',all?'Reviewed run':'Other run'],['limit','Above ceiling'],...(ref?[['reference','Index · closing values']]:[])].forEach(([tone,label])=>{const text=el('span',label);text.prepend(el('i',undefined,tone));legend.append(text);});figure.append(legend);return figure;
+function metricList(rows,cls='map-metrics'){
+ const list=el('dl',undefined,cls);
+ for(const [label,value] of rows){const pair=el('div');pair.append(el('dt',label),el('dd',value));list.append(pair);}return list;
+}
+function showBenchmarkOptions(){
+ const options=document.getElementById('analysis-options');if(options){options.open=true;options.scrollIntoView({block:'nearest'});document.getElementById('benchmark-select')?.focus({preventScroll:true});}
+}
+function runSnapshot(x,onOpen){
+ const panel=el('div'),head=el('div',undefined,'panel-heading');head.append(el('h4',nameOf(x)),button('Open full run',()=>onOpen(x.run),'quiet'));panel.append(head);
+ panel.append(metricList([['Gross return',num(x.returns,'percent',true)],['Max drawdown',num(x.drawdown,'percent')],[x.metrics.growthLabel||'CAGR / annualized',num(x.metrics.growth,'percent',true)],['Derived Calmar',num(x.calmar,'number',true)],['Win ratio',num(x.metrics.win,'percent')],['Reported trades',num(x.metrics.trades,'count')]]));
+ const c=x.controls;panel.append(metricList([['Universe / timeframe',[c.Universe,c.Market,c.Timeframe].filter(Boolean).join(' · ')],['Test dates',x.from+' — '+x.to],['Chart models',c['Momentum chart']+' momentum · '+c['Execution chart']+' execution'],['Initial capital / allocation',num(c['Initial capital'])+' · '+c.Allocation],['Position / daily limits',num(c['Maximum open trades'],'count')+' open · '+(c['Daily stock limit']==='Off'?'daily limit off':num(c['Daily stock limit'],'count')+' per day')],['Execution price mode',c['Execution price mode']]],'map-settings map-context'));
+ const main=[...x.rows].filter(([key,r])=>r.checked!==false&&!r.disabled&&(/^(momentum\.(period\.|ema\.|tma$|rs$|rs\.|strategy\.|radar$|trend-quality$|box\.|brick\.|signal-mode$|retracement$)|execution\.(selection$|exit$|target$|stop$|box\.|brick\.))/.test(key))).filter(([key])=>!key.startsWith('momentum.rs.')||x.rows.get('momentum.rs')?.checked===true);
+ panel.append(el('h5','Main strategy settings'),metricList(main.slice(0,8).map(([key,r])=>[(key.startsWith('execution.')?'Execution · ':key.startsWith('momentum.rs.')?'RS · ':'')+r.label,P.settingText(r)]),'map-settings'));
+ if(main.length>8){const more=el('details');more.append(el('summary',(main.length-8)+' more active settings'),metricList(main.slice(8).map(([key,r])=>[(key.startsWith('execution.')?'Execution · ':key.startsWith('momentum.rs.')?'RS · ':'')+r.label,P.settingText(r)]),'map-settings'));panel.append(more);}
+ panel.append(el('p',(!x.withinLimit?'Above your drawdown ceiling. ':'')+(x.cautions||[]).join(' '),'mini'));
+ return panel;
+}
+function riskChart(group,leaders,b,{all=false,state={},onOpen}={}){
+ const figure=el('figure',undefined,'risk-map reveal'),head=el('div',undefined,'panel-heading');
+ head.append(el('h3','Return vs. drawdown'),el('span','Select a point to inspect','mini'));figure.append(head);
+ const items=group.items.filter(x=>Number.isFinite(x.returns)&&Number.isFinite(x.drawdown));
+ let selected=items.find(x=>x.run.id===state.runId)||leaders[0]||items[0];
+ if(selected?.run.id!==state.runId){state.runId=selected?.run.id||'';state.expanded=false;state.kind='run';}
+ const plot=el('div'),legend=el('figcaption',undefined,'map-legend'),chooser=el('label','Inspect run','map-chooser'),select=el('select');
+ select.id='chart-run-select';select.setAttribute('aria-label','Inspect chart run');items.forEach(x=>select.append(new Option(nameOf(x),x.run.id)));select.disabled=!selected;select.value=selected?.run.id||'';chooser.append(select);
+ const announcement=el('p',undefined,'map-announcement');announcement.setAttribute('aria-live','polite');announcement.setAttribute('aria-atomic','true');
+ const inspector=el('section',undefined,'map-inspector');inspector.id='chart-inspector';inspector.tabIndex=-1;inspector.setAttribute('aria-label','Chart selection details');
+ const reference=el('section',undefined,'map-index');reference.setAttribute('aria-label','Index reference for selected run');
+ figure.append(plot,legend,chooser,announcement,inspector,reference);
+ const choose=(item,kind='run',focusKey='chart-run-select')=>{selected=item;state.runId=item.run.id;state.kind=kind;state.expanded=true;draw(focusKey);inspector.scrollIntoView({block:'nearest',behavior:'auto'});};
+ select.onchange=()=>choose(items.find(x=>x.run.id===select.value));
+ function draw(focusKey){
+  const bm=selected?I.benchmarkFor(selected,b):{available:false,reason:'No reviewed run is available for a period-matched reference.'};
+  const ref=bm.available&&Number.isFinite(bm.drawdown)?bm:null;
+  if(!bm.available&&state.kind==='index'){state.kind='run';state.expanded=false;}
+  figure.classList.toggle('map-interacted',!!state.expanded);
+  plot.replaceChildren();legend.replaceChildren();inspector.replaceChildren();reference.replaceChildren();select.value=selected?.run.id||'';
+  const ns='http://www.w3.org/2000/svg',svg=document.createElementNS(ns,'svg');svg.setAttribute('viewBox','0 0 540 290');svg.setAttribute('role','group');svg.setAttribute('aria-label',all?'Interactive return versus drawdown across different test conditions. The index reference follows the selected run’s period.':'Interactive return versus drawdown in the selected group. Select a run or the index reference.');
+  const add=(tag,attrs,text,parent=svg)=>{const e=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))e.setAttribute(k,String(v));if(text!==undefined)e.textContent=text;parent.append(e);return e;};
+  add('title',{},'Higher return with less drawdown is toward the upper left. Select points with click, Enter or Space; the run selector also reaches overlapping points.');
+  const values=[...items.map(x=>({ret:x.returns,dd:x.drawdown})),...(ref?[{ret:ref.returns,dd:ref.drawdown}]:[])];
+  const minY=Math.min(0,...values.map(x=>x.ret)),maxY=Math.max(1,...values.map(x=>x.ret)),pad=Math.max(1,(maxY-minY)*.16),low=minY<0?minY-pad:0,high=maxY+pad,maxX=Math.max(1,...values.map(x=>x.dd))*1.2;
+  const left=55,right=505,top=28,bottom=240,px=x=>left+x/maxX*(right-left),py=y=>bottom-(y-low)/(high-low)*(bottom-top);
+  add('rect',{x:left,y:top,width:right-left,height:bottom-top,rx:8,class:'map-ground'});
+  for(let i=0;i<=4;i++){const x=maxX*i/4,y=low+(high-low)*i/4;add('line',{x1:px(x),x2:px(x),y1:top,y2:bottom,class:'map-grid'});add('line',{x1:left,x2:right,y1:py(y),y2:py(y),class:'map-grid'});add('text',{x:px(x),y:bottom+19,'text-anchor':'middle',class:'map-axis'},x.toFixed(1)+'%');add('text',{x:left-10,y:py(y)+4,'text-anchor':'end',class:'map-axis'},y.toFixed(1)+'%');}
+  if(low<0)add('line',{x1:left,x2:right,y1:py(0),y2:py(0),class:'map-zero'});add('text',{x:left,y:16,class:'map-caption'},'Return');add('text',{x:right,y:282,'text-anchor':'end',class:'map-caption'},'Drawdown');
+  const wire=(point,callback)=>{point.addEventListener('click',callback);point.addEventListener('keydown',event=>{if(event.key==='Enter'||event.key===' '){event.preventDefault();callback();}});};
+  // Keep tab order stable after selection; the selector reaches coincident points.
+  items.forEach((x,index)=>{
+   const id='chart-point-'+index,tone=!x.withinLimit?'limit':leaders.includes(x)?'lead':'peer',isSelected=x===selected&&state.kind!=='index';
+   const text='Inspect '+nameOf(x)+' · return '+num(x.returns,'percent',true)+' · drawdown '+num(x.drawdown,'percent')+(x.withinLimit?'':' · above ceiling');
+   const point=add('g',{id,role:'button',tabindex:0,'aria-label':text,'aria-pressed':String(isSelected),'aria-controls':'chart-inspector',class:'map-point'+(isSelected?' selected':''),'data-run-id':x.run.id});
+   add('circle',{cx:px(x.drawdown),cy:py(x.returns),r:15,class:'map-hit'},undefined,point);
+   add('circle',{cx:px(x.drawdown),cy:py(x.returns),r:tone==='lead'?8:6,class:'map-dot '+tone,style:'--order:'+Math.min(index,5)},undefined,point);
+   if(isSelected)add('circle',{cx:px(x.drawdown),cy:py(x.returns),r:11,class:'map-selected-ring'},undefined,point);
+   add('title',{},text,point);wire(point,()=>choose(x,'run',id));
+  });
+  if(selected){const anchor=px(selected.drawdown)>335?'end':'start';add('text',{x:px(selected.drawdown)+(anchor==='end'?-14:14),y:py(selected.returns)-16,'text-anchor':anchor,class:'map-leader-label','pointer-events':'none'},nameOf(selected).length>24?nameOf(selected).slice(0,22)+'…':nameOf(selected));}
+  if(ref){
+   const text='Inspect index reference · '+b.name+' · '+ref.from+' to '+ref.to+' · return '+num(ref.returns,'percent',true)+' · observed-close drawdown '+num(ref.drawdown,'percent');
+   const point=add('g',{id:'chart-index-point',role:'button',tabindex:0,'aria-label':text,'aria-pressed':String(state.kind==='index'),'aria-controls':'chart-inspector',class:'map-point map-index-point'});
+   add('rect',{x:px(ref.drawdown)-15,y:py(ref.returns)-15,width:30,height:30,rx:3,class:'map-hit'},undefined,point);
+   add('rect',{x:px(ref.drawdown)-6,y:py(ref.returns)-6,width:12,height:12,rx:1,class:'map-reference'},undefined,point);
+   if(state.kind==='index')add('rect',{x:px(ref.drawdown)-10,y:py(ref.returns)-10,width:20,height:20,rx:2,class:'map-selected-ring'},undefined,point);
+   add('title',{},text,point);wire(point,()=>choose(selected,'index','chart-index-point'));
+   const anchor=px(ref.drawdown)>335?'end':'start';add('text',{x:px(ref.drawdown)+(anchor==='end'?-12:12),y:py(ref.returns)+21,'text-anchor':anchor,class:'map-axis','pointer-events':'none'},'Index reference');
+  }
+  plot.append(svg);
+  [['selected','Selected'],...(!all?[['lead','Leader']]:[]),['peer',all?'Reviewed run':'Other run'],['limit','Above ceiling'],...(ref?[['reference','Index · selected period']]:[])].forEach(([tone,label])=>{const text=el('span',label);text.prepend(el('i',undefined,tone));legend.append(text);});
+  announcement.textContent=state.expanded?(state.kind==='index'?'Index reference selected for ':'Selected ')+(selected?nameOf(selected):'')+'. Details below.':'Click a dot or choose a run to see its key metrics and settings. Overlapping points are available in the selector.';
+  inspector.hidden=!state.expanded||!selected;
+  if(!inspector.hidden){
+   if(state.kind==='index'&&bm.available){
+    inspector.append(el('h4',b.name),el('p','For '+nameOf(selected)+' · '+bm.from+' — '+bm.to,'mini'),metricList([['Buy & hold return',num(bm.returns,'percent',true)],['Annualized growth',num(bm.cagr,'percent',true)],['Observed-close drawdown',num(bm.drawdown,'percent')],['Derived Calmar',num(bm.calmar,'number',true)],['Initial capital',num(selected.metrics.capital)],['Buy & hold ending capital',num(bm.endingCapital)]]),el('p',bm.cautions.join(' '),'mini'),button('Inspect selected strategy',()=>choose(selected,'run','chart-run-select'),'quiet'));
+   }else inspector.append(runSnapshot(selected,onOpen));
+   inspector.append(button('Hide details',()=>{state.expanded=false;state.kind='run';draw('chart-run-select');},'quiet'));
+  }
+  reference.append(el('span','INDEX REFERENCE','eyebrow'));
+  if(b)reference.append(el('h4',b.name),el('p',(b.demo?'FICTIONAL REFERENCE · ':'')+(b.kind==='total-return'?'Total return · dividends reinvested':'Price only · no dividends')+' · Source: '+b.source,'mini'));
+  if(selected)reference.append(el('p','For '+nameOf(selected)+' · requested '+selected.from+' — '+selected.to+(all?' · follows the selected run, not the entire library.':''),'map-index-context'));
+  if(bm.available){
+   reference.append(metricList([['Buy & hold return',num(bm.returns,'percent',true)],['Gross excess (pp)',num(bm.excess,'number',true)]],'map-metrics index-metrics'),el('p','Effective index dates: '+bm.from+' — '+bm.to+(bm.shifted?' · approximate period':''),'mini'));
+   if(!ref)reference.append(el('p','Index point unavailable: observed-close drawdown is withheld because the imported series is sparse. Return remains available.','map-reference-note'));
+   reference.append(el('p','Gross comparison; strategy costs and dividend treatment are unverified. Index drawdown uses imported closing observations.','mini'));
+   if(bm.shifted)reference.append(el('p','The effective index dates differ from the requested run dates. This is an approximate comparison.','map-reference-note'));
+   const inspect=button('Inspect index',()=>choose(selected,'index','chart-inspect-index'),'quiet');inspect.id='chart-inspect-index';reference.append(inspect);
+  }else reference.append(el('p',bm.reason,'map-reference-note'));
+  reference.append(button(b?'Change index reference':'Choose / import index',showBenchmarkOptions,'quiet'));
+  if(focusKey)figure.querySelector('#'+focusKey)?.focus({preventScroll:true});
+ }
+ draw();return figure;
 }
 
 function overviewStatus(x,basis){
@@ -38,7 +114,7 @@ function overviewStatus(x,basis){
 function overviewReference(x,b){
  return x.rankEligible?I.benchmarkFor(x,b):{available:false,reason:x.fictionalExcluded?'Fictional data excluded from real comparison.':x.status+'; review the original before comparing a benchmark.'};
 }
-function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,table}){
+function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,table,chartState}){
  const ordered=I.ranking(o,basis),eligible=ordered.filter(({item:x})=>x.rankEligible&&x.withinLimit&&Number.isFinite(x[basis])),m=measures[basis];
  const top=eligible[0]?.item,ties=top?eligible.filter(({item:x})=>Math.abs(x[basis]-top[basis])<1e-9):[];
  const hero=el('section',undefined,'ranking-hero reveal'+(eligible.length>=2&&ties.length===1?'':' neutral'));
@@ -70,7 +146,7 @@ function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,tabl
  t.append(body);wrap.append(t);board.append(wrap);
  if(ordered.length>5){const more=button(showAll?'Show top 5':'Show all '+ordered.length+' runs',onMore,'quiet');more.id='rank-more';board.append(more);}
  board.append(el('p','Equal values share a rank. Review flags, repeats, missing values and ceiling failures stay unranked.','mini'));
- const plotted=o.items.filter(x=>x.rankEligible&&Number.isFinite(x.returns)&&Number.isFinite(x.drawdown)),chart=riskChart({items:plotted},[],{available:false},true);
+ const plotted=o.items.filter(x=>x.rankEligible&&Number.isFinite(x.returns)&&Number.isFinite(x.drawdown)),chart=riskChart({items:plotted},[],b,{all:true,state:chartState,onOpen});
  chart.append(el('p',plotted.length+' of '+o.total+' saved runs plotted. Review flags, repeated results and mixed fictional data are omitted. Different periods make this an exploratory map.','mini'));
  grid.append(board,chart);target.append(grid);
  const detail=disclosure('Compare all conditions & strategy settings','analysis-all-settings');
@@ -80,7 +156,7 @@ function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,tabl
  detail.append(el('h3','Captured strategy settings'),table(['Setting',...names],o.settings.map(r=>[r.key.split('.')[0]+' · '+r.label+(r.different?' · Different':''),...r.values]),{className:'comparison-table',name:'All strategy settings'}));target.append(detail);
  const statistics=disclosure('Compare all reported statistics','analysis-all-statistics');statistics.append(el('p','Original source measures remain separate, including CAGR and Annualized Returns. Values from runs needing review are shown as evidence, not endorsed as comparable.'),table(['Source measure',...names],o.statistics.map(r=>[r.label,...r.values.map(values=>values===null?'Not provided by source':values.length===1?P.metric(r.metricLabel,values[0]):values.join(' · '))]),{className:'comparison-table',name:'All reported statistics'}));target.append(statistics);
  const reference=disclosure('Buy & hold for each run’s own period','analysis-all-benchmarks');
- reference.append(el('p','Each eligible run uses its own dates and initial capital. There is no shared-period index point on the all-runs chart. Gross excess is descriptive; strategy cost and dividend treatment remain unverified.'));
+ reference.append(el('p','Each eligible run uses its own dates and initial capital. The chart’s index point follows the selected run’s period. Gross excess is descriptive; strategy cost and dividend treatment remain unverified.'));
  if(b){reference.append(el('p',(b.demo?'FICTIONAL REFERENCE · ':'')+b.name+' · '+(b.kind==='total-return'?'Total return · dividends reinvested':'Price only · no dividends')+' · Source: '+b.source,'mini'));
   reference.append(table(['Run','Requested period','Reference period','Reference return','Gross excess (pp)','Buy & hold ending capital','Coverage & caveats'],o.items.map(x=>{const ref=overviewReference(x,b);return [nameOf(x),x.from&&x.to?x.from+' — '+x.to:'Not verified',ref.available?ref.from+' — '+ref.to:'Unavailable',cell(ref.returns,'percent',true),cell(ref.excess,'number',true),cell(ref.endingCapital),ref.available?ref.cautions.join(' '):ref.reason];}),{className:'comparison-table',name:'Per-run buy and hold'}));
  }else reference.append(el('p','Choose or import a reference in Filters & benchmark. Real Nifty history is not bundled.'));
@@ -89,7 +165,7 @@ function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,tabl
 
 function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,onBenchmarksChanged,download}){
  let limit=null,benchmarkId=benchmarks[0]?.id||'',groupKey='',basis='calmar',showAll=false;
- const openDetails=new Set();
+ const openDetails=new Set(),chartState={};
  function draw(focusId){
   target.querySelectorAll('details[id]').forEach(d=>{if(d.open)openDetails.add(d.id);else openDetails.delete(d.id);});
   const a=I.analyze(runs,{drawdownLimit:limit});if(groupKey!=='all'&&!a.groups.some(g=>g.key===groupKey))groupKey=[...a.groups].sort((x,y)=>y.items.length-x.items.length)[0]?.key||'all';
@@ -100,7 +176,7 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
   const by=el('div',undefined,'rank-by');by.append(el('span','Rank by','control-label'));const choices=el('div',undefined,'rank-switch');choices.setAttribute('role','group');choices.setAttribute('aria-label','Rank strategies by');for(const [key,m] of Object.entries(measures)){const choose=button(m.label,()=>{basis=key;showAll=false;draw('rank-'+key);},'quiet');choose.id='rank-'+key;choose.setAttribute('aria-pressed',String(key===basis));choices.append(choose);}by.append(choices);toolbar.append(by);target.append(toolbar);
   target.append(el('p',runs.length+' runs · '+a.groups.length+' separate groups · '+a.blocked.length+' for review'+(a.duplicates.length?' · '+a.duplicates.length+' repeated results':''),'ranking-scope'));
   if(all&&runs.length){
-   drawOverview({target,o,basis,b,limit,showAll,onOpen,table,onGroup:key=>{groupKey=key;showAll=false;draw('ranking-group');},onMore:()=>{showAll=!showAll;draw('rank-more');}});
+   drawOverview({target,o,basis,b,limit,showAll,onOpen,table,chartState,onGroup:key=>{groupKey=key;showAll=false;draw('ranking-group');},onMore:()=>{showAll=!showAll;draw('rank-more');}});
   }else if(g){
    target.append(el('p',g.controls.Universe+' · '+g.controls.From+' — '+g.controls.To+' · '+g.controls.Allocation+' · '+num(g.controls['Initial capital'])+' capital'+(limit!==null?' · ceiling '+num(limit,'percent'):''),'ranking-context'));
    const ordered=I.ranking(g,basis),valid=ordered.filter(x=>x.item.withinLimit&&Number.isFinite(x.item[basis])),leaders=valid.filter(x=>Math.abs(x.item[basis]-valid[0].item[basis])<1e-9).map(x=>x.item),complete=valid.length===g.eligible.length,canLead=valid.length>=2&&complete,lead=canLead&&leaders.length===1?leaders[0]:null,m=measures[basis];
@@ -125,7 +201,7 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
     for(const [key,kind,signed] of [['returns','percent',true],['drawdown','percent',false],['calmar','number',true]])row.append(el('td',num(x[key],kind,signed),'numeric'+(key===basis?' ranked-value':'')));tbody.append(row);
    });t.append(tbody);wrap.append(t);board.append(wrap);
    if(ordered.length>5){const more=button(showAll?'Show top 5':'Show all '+ordered.length+' runs',()=>{showAll=!showAll;draw('rank-more');},'quiet');more.id='rank-more';board.append(more);}board.append(el('p','Ranks stay within this group. Equal values share a rank.','mini'));
-   grid.append(board,riskChart(g,canLead?leaders:[],bm));target.append(grid);
+   grid.append(board,riskChart(g,canLead?leaders:[],b,{state:chartState,onOpen}));target.append(grid);
    const reference=el('section',undefined,'benchmark-brief reveal');reference.append(el('span','BUY & HOLD','eyebrow'));
    if(!bm.available)reference.append(el('h3','Add Nifty to the picture.'),el('p',bm.reason||'Choose a benchmark in Filters & benchmark.','muted'));
    else{const headline=el('div',undefined,'benchmark-headline');headline.append(el('h3',b.name),el('strong',num(bm.returns,'percent',true)));if(lead){const diff=lead.returns-bm.returns;headline.append(el('span',nameOf(lead)+' '+(diff>=0?'ahead by ':'behind by ')+num(Math.abs(diff))+' pp','benchmark-gap'));}reference.append(headline,el('p',(b.demo?'FICTIONAL REFERENCE · ':'')+(b.kind==='total-return'?'Total return · dividends reinvested':'Price only · no dividends')+' · '+bm.from+' — '+bm.to+(bm.shifted?' · approximate dates':''),'mini'),el('p','Source: '+b.source+' · Gross comparison; cost/dividend bases unverified.','mini'));}target.append(reference);
