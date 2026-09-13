@@ -30,7 +30,7 @@
   function snapshot(container) {return {at:now(), fields:fields(container)};}
   function status(message) {statusEl.textContent = message;}
   const host = document.createElement('div'); host.id = 'definedge-backtest-vault';
-  host.dataset.version = '0.5.1';
+  host.dataset.version = '0.7.0';
   host.style.cssText = 'position:fixed;right:16px;bottom:14px;z-index:2147483646;';
   const shadow = host.attachShadow({mode:'closed'});
   shadow.innerHTML = `<style>:host{font:14px system-ui;color:#f3f8fc}.bar{background:#112639;border:1px solid #34536e;border-radius:12px;padding:10px;box-shadow:0 6px 26px #0007;max-width:390px}button{font:600 14px system-ui;border:0;border-radius:7px;padding:9px 12px;cursor:pointer;background:#52d8ca;color:#072923;margin-right:6px}button.secondary{background:#2b455b;color:white}button:disabled{opacity:.5;cursor:wait}p{margin:8px 2px 0;line-height:1.35;font-size:13px}</style><div class="bar"><button id="save">Save backtest</button><button class="secondary" id="open">Open vault</button><p id="status" role="status">Recording settings when you run a backtest.</p></div>`;
@@ -45,7 +45,7 @@
     const message=String(error?.message || error);
     return error?.code==='VAULT_DISCONNECTED' || /extension context invalidated/i.test(message) ? disconnected : 'Vault storage could not save this run: '+message;
   }
-  async function persistPending() {
+  async function persistPending(strict=false) {
     const run=pendingRun;
     try {
       const local=typeof chrome==='undefined'?null:chrome.storage?.local;
@@ -53,9 +53,11 @@
       await local.set({['run:'+run.id]:run});
       pendingRun=null; recoveryButton.hidden=true; saveButton.textContent='Save backtest';
       status(`Saved ${run.trades.rows.length} trades and ${run.charts.length} charts${run.provenance==='unverified'?' · settings unverified':''}. Open vault to review and back up.`);
+      return run;
     } catch(error) {
       recoveryButton.hidden=false; saveButton.textContent='Retry captured run';
       status('Not saved to Vault. '+storageFailure(error)+recoveryAdvice());
+      if(strict)throw error;
     }
   }
   recoveryButton.onclick = () => {
@@ -189,16 +191,15 @@
     }
     return result;
   }
-  saveButton.onclick = async () => {
-    if(busy) return;
+  async function capture(options={}) {
+    if(busy) {if(options.strict)throw Error('A capture is already in progress.');return;}
     // A retry writes the same frozen capture and ID, even if the report has changed or closed.
     if(pendingRun) {
       busy=true;saveButton.disabled=true;
-      try {await persistPending();} finally {busy=false;saveButton.disabled=false;}
-      return;
+      try {if(options.runId&&pendingRun.id!==options.runId)throw Error('Recover the earlier manual capture first.');return await persistPending(options.strict);} finally {busy=false;saveButton.disabled=false;}
     }
     const report = popup('Portfolio Backtesting Report');
-    if(!report) {status('Open a completed Portfolio Backtesting Report, then Save backtest.');return;}
+    if(!report) {if(options.strict)throw Error('Completed portfolio report is missing.');status('Open a completed Portfolio Backtesting Report, then Save backtest.');return;}
     monitor();
     const linked = reportLinks.get(report);
     const selected = [...report.querySelectorAll('[role="tab"]')].find(e=>e.className.includes('selected') || e.getAttribute('aria-selected')==='true');
@@ -220,12 +221,20 @@
       if(linked?.strategy?.auxiliarySettingsUncaptured) run.warnings.push('Market Trend Filter is enabled. Its separate dialog values are not captured by this version; record them in Notes.');
       const expected=V.metrics(run).trades;
       if(expected!==null && trades.rows.length!==expected) throw new Error(`Trade capture incomplete: ${trades.rows.length} of ${expected}. Nothing was saved.`);
+      if(options.strict){if(!linked?.strategy||extracted.charts.length!==6)throw Error('Experiments require linked submissions and all six charts.');options.verify?.(run);}
+      if(options.runId){run.id=options.runId;run.name=options.name;run.experiment=options.experiment;}
       pendingRun=run;
-      await persistPending();
-    } catch(error) {status(`Save failed: ${error.message}`);}
+      return await persistPending(options.strict);
+    } catch(error) {status(`Save failed: ${error.message}`);if(options.strict)throw error;}
     finally {
       if(report.isConnected) {try {await chooseTab(report,previousTab);} catch { /* Archive remains valid if tab restoration fails. */ }}
       busy=false; saveButton.disabled=false;
     }
-  };
+  }
+  saveButton.onclick=()=>{if(window.VaultRunner?.active){status('An experiment is using this tab. Stop after current in Vault before saving manually.');return;}return capture();};
+  // This facade exists in the extension's isolated world, not the site's page world.
+  window.VaultCapture={capture,fields,snapshot,main,popup,visible,monitor,status,host,
+    getStrategy:()=>strategy?structuredClone(strategy):null,
+    pending:()=>!!pendingRun,
+    addControl:button=>statusEl.before(button)};
 })();

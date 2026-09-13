@@ -120,6 +120,6 @@ for(const file of ['core.js','storage.js','presentation.js','dashboard.js'])w.ev
  assert.doesNotMatch([...d.querySelectorAll('.settings-table')].map(t=>t.textContent).join(' '),/Prei|iThis feature|Str 2.*Str 3/);
  assert.ok([...d.querySelectorAll('.source-fields')].every(e=>!e.open));
  d.getElementById('summary').click();const csv=await downloads.at(-1).text();assert.match(csv,/Momentum · Period 3/);assert.match(csv,/Strategy 3/);assert.doesNotMatch(csv,/Prei|iThis feature/);
- d.getElementById('backup').click();assert.deepEqual(JSON.parse(await downloads.at(-1).text()).runs,[run]);
+ await d.getElementById('backup').onclick();assert.deepEqual(JSON.parse(await downloads.at(-1).text()).runs,[run]);
  console.log('PASS: signed/decimal/unit formatting, arrow semantics, numbered periods/EMA, consolidated strategies, exact field coverage, safe unknown-layout fallback, aligned cells, readable CSV and unchanged JSON archives.');
  }finally{dom.window.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

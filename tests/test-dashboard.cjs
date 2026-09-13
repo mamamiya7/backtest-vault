@@ -17,7 +17,7 @@ const tick=()=>new Promise(r=>setTimeout(r,20));
   d.getElementById('risk').value='10';d.getElementById('risk').dispatchEvent(new w.Event('input'));assert.equal(d.querySelectorAll('.run').length,1);
   d.querySelector('.open').click();[...d.querySelectorAll('.tabs button')].find(b=>b.textContent==='Trades').click();assert.match(d.getElementById('detail').textContent,/1 trades have quantity zero/);
   [...d.querySelectorAll('.tabs button')].find(b=>b.textContent==='Notes').click();d.querySelector('#detail input').value='Revised name';d.querySelector('textarea').value='Holdout period still required';[...d.querySelectorAll('#detail button')].find(b=>b.textContent==='Save name & notes').click();await tick();assert.equal(saved['run:a'].notes,'Holdout period still required');
-  d.getElementById('summary').click();assert.equal(downloads.length,1);d.getElementById('backup').click();assert.equal(downloads.length,2);
+  d.getElementById('summary').click();assert.equal(downloads.length,1);await d.getElementById('backup').onclick();assert.equal(downloads.length,2);
   dom.window.close();await testGrowthPreference();console.log('PASS: dashboard persistence, comparisons, risk filters, zero quantities, notes, exports, and CAGR-first display/sort/CSV with labelled fallback.');
 })().catch(e=>{dom.window.close();console.error(e);process.exitCode=1;});
 
@@ -54,6 +54,6 @@ async function testGrowthPreference(){
     doc.getElementById('summary').click();const csv=await blobs.at(-1).text(),rows=csv.replace(/^\uFEFF/,'').split('\r\n').map(line=>line.slice(1,-1).split('","').map(v=>v.replaceAll('""','"'))),headers=rows.shift();
     const column=name=>headers.indexOf(name);for(const name of ['CAGR / annualized return (%)','Return measure','CAGR (%)','Annualized return (%)'])assert.notEqual(column(name),-1);
     for(const c of cases){const row=rows.find(row=>row[0]===c.id),fixed=value=>value===null?'':value.toFixed(2);assert.equal(row[column('CAGR / annualized return (%)')],fixed(c.value));assert.equal(row[column('Return measure')],c.value===null?'':c.label);assert.equal(row[column('CAGR (%)')],fixed(win.Vault.number(c.cagr)));assert.equal(row[column('Annualized return (%)')],fixed(win.Vault.number(c.annualized)));}
-    doc.getElementById('backup').click();const backup=JSON.parse(await blobs.at(-1).text());assert.deepEqual(backup.runs.map(r=>r.quickStats),Object.values(stored).map(r=>r.quickStats));assert.equal(JSON.stringify(stored),before);
+    await doc.getElementById('backup').onclick();const backup=JSON.parse(await blobs.at(-1).text());assert.deepEqual(backup.runs.map(r=>r.quickStats),Object.values(stored).map(r=>r.quickStats));assert.equal(JSON.stringify(stored),before);
   }finally{win.close();}
 }

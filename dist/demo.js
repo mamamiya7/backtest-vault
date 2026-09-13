@@ -28,8 +28,8 @@ function chartSvg(values,title,color,drawdown=false){
  const grid=[0,1,2,3].map(i=>{const y=top+i*height/3,v=max-i*(max-min)/3;return '<line x1="53" y1="'+y+'" x2="673" y2="'+y+'" stroke="#30415a"/><text x="43" y="'+(y+4)+'" text-anchor="end" fill="#b0c3dc" font-size="12">'+v.toFixed(0)+(drawdown?'%':'')+'</text>';}).join('');
  return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 720 282" width="720" height="282"><title>'+title+' — fictional demo</title><rect width="720" height="282" fill="#101d2e"/>'+grid+'<path d="'+line+' L673 235 L53 235 Z" fill="'+color+'" fill-opacity="0.10"/><path d="'+line+'" fill="none" stroke="'+color+'" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/><text x="53" y="263" fill="#b0c3dc" font-size="12">JAN</text><text x="247" y="263" fill="#b0c3dc" font-size="12">APR</text><text x="441" y="263" fill="#b0c3dc" font-size="12">JUL</text><text x="673" y="263" text-anchor="end" fill="#b0c3dc" font-size="12">DEC</text></svg>';
 }
-function create(){
- const configs=[
+function create(configOverride){
+ const configs=configOverride||[
  ['Momentum core','Candle',180,false,'Percent',[2.8,3.1,-2.5,4.6,1.4,-1.8,3.5,2.1,-1.3,3.2,1.6,2.4]],
  ['Relative strength','Candle',120,true,'Percent',[1.5,2.2,-1.8,3.3,1.1,-2.7,2.4,1.6,-1.1,2.5,1.9,1.3]],
  ['P&F breakout','P&F',90,false,'Percent',[3.4,-4.2,2.7,3.9,-1.5,2.2,-3.1,4.8,2.1,3.2,-2.6,2.8]],
@@ -53,6 +53,19 @@ function create(){
 }
 function benchmarks(){const points=[];for(let i=0;i<731;i++)points.push({date:new Date(Date.UTC(2024,0,1+i)).toISOString().slice(0,10),value:100*Math.exp(.00028*i+.025*Math.sin(i/17)+.015*Math.sin(i/47))});return [{schemaVersion:1,id:'demo-nifty-reference',name:'Nifty 50 (fictional)',kind:'total-return',source:'Synthetic calendar-day series; not actual Nifty performance',importedAt:'2026-01-02T00:00:00Z',demo:true,points}];}
 const createOriginal=create;
-function withCagr(){return createOriginal().map(run=>{const from=run.parameters.strategy.execution.fields[1].value,to=run.parameters.strategy.execution.fields[2].value,days=(Date.parse(to)-Date.parse(from))/86400000,ret=Number(run.quickStats[0].value.replace('%',''));run.quickStats.push({label:'CAGR',value:(((1+ret/100)**(365.25/days)-1)*100).toFixed(2)+'%'});return run;});}
-const api={create:withCagr,benchmarks};if(typeof module!=='undefined')module.exports=api;root.VaultDemo=api;
+function withCagr(configOverride){return createOriginal(configOverride).map(run=>{const from=run.parameters.strategy.execution.fields[1].value,to=run.parameters.strategy.execution.fields[2].value,days=(Date.parse(to)-Date.parse(from))/86400000,ret=Number(run.quickStats[0].value.replace('%',''));run.quickStats.push({label:'CAGR',value:(((1+ret/100)**(365.25/days)-1)*100).toFixed(2)+'%'});return run;});}
+function createTrial(e,t){
+ if(!e.demo)throw Error('Simulation is restricted to fictional experiments.');
+ const E=root.VaultExperiments,b=E.expected(e,t),m=E.fields(b,'momentum'),x=E.fields(b,'execution');
+ const wave=Object.values(t.patch).reduce((sum,v)=>sum+(typeof v==='boolean'?Number(v)*3:Number(v)),0);
+ const returns=Array.from({length:12},(_,i)=>Number((1.2+2.8*Math.sin(i*1.7+wave*.014)).toFixed(2)));
+ const run=withCagr([[e.name+' · simulated '+t.ordinal,m[0].value,180,false,'Percent',returns]])[0];
+ run.id=t.runId;run.parameters=b.parameters;run.experiment={id:e.id,trialId:t.id,phase:t.phase};run.savedAt=new Date().toISOString();
+ run.statistics[0].rows=[['Group',m[1].value],['Segment',m[3].value],['Start Date',x[1].value],['End Date',x[2].value],['Timeframe',m[33].value],['Data type','Fictional experiment simulation']];
+ const span=Date.parse(x[2].value)-Date.parse(x[1].value);run.trades.rows.forEach((r,i)=>{r[2]=new Date(Date.parse(x[1].value)+span*i/12).toISOString().slice(0,10);r[3]=new Date(Date.parse(x[1].value)+span*(i+1)/12).toISOString().slice(0,10);});
+ const gross=Number(run.quickStats[0].value.replace('%',''));run.quickStats.find(s=>s.label==='CAGR').value=(((1+gross/100)**(365.25/(span/86400000))-1)*100).toFixed(2)+'%';
+ run.monthly=[];run.notes='FICTIONAL EXPERIMENT SIMULATION. A deterministic synthetic series illustrates queue and decision behavior. Settings do not execute trading logic. Charts and trades are synthetic.';
+ return run;
+}
+const api={create:withCagr,benchmarks,createTrial};if(typeof module!=='undefined')module.exports=api;root.VaultDemo=api;
 })(typeof window!=='undefined'?window:globalThis);

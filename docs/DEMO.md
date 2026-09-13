@@ -20,3 +20,7 @@ Demo returns come from a fixed synthetic monthly series. The displayed drawdown 
 Click a chart dot to see the run's key metrics and main settings. In All runs, select **Holdout sample**: the index reference changes to 2024. Select **Renko trend**: it changes to 2025. Click the index square to inspect its measures, then **Hide details** to collapse the summary. Use **Inspect run** when dots overlap. This demonstrates period matching with fictional history, not actual Nifty performance.
 
 For a public demonstration, keep the demo URL open. Switching to **Open my archive** can reveal that browser environment's own records.
+
+## Experiment simulation
+
+Open `?demo=1&view=experiments`. Choose New experiment, keep Momentum core as baseline, and enter `126,180,252` for Period 1. Save plan, then Simulate queue. The Decision Desk shows synthetic trial rankings, baseline differences and immediate-neighbor checks. Stop after current and Resume retain finished trials in memory. A later validation candidate is a separate stage. These series illustrate the interface and do not execute strategy logic or contact RZone. Reset demo clears them.

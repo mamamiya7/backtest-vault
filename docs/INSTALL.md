@@ -40,3 +40,7 @@ Version 0.4.1 checks whether extension storage exists and handles rejected write
 The earlier raw `Cannot read properties of undefined (reading 'local')` failure did not retain a recovery copy. A page still running that older code must be refreshed to load the fix; run both submissions again to obtain verified setting links. Previously saved Vault records remain separate from the failed write.
 
 Chrome requires both the extension and host page to reload after content-script changes. [Chrome reload guidance](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#when_to_reload_the_extension). Extension-local storage requires the already-declared storage permission. [Chrome storage documentation](https://developer.chrome.com/docs/extensions/reference/api/storage).
+
+## Enable Experiments after an update
+
+Reload Backtest Vault on Chrome's Extensions page, refresh the RZone tab, and reopen Vault. Choose Experiments or Create experiment on a saved run. Live controls are available only inside the installed extension; the localhost viewer can prepare plans and run a fictional simulation. Begin with a small Candle plan and a matching source baseline. P&F/Renko live execution remains gated pending separate acceptance tests. See [Experiments](EXPERIMENTS.md).

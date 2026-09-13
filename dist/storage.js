@@ -2,9 +2,9 @@ window.VaultStore = (() => {
   // Select the isolated demo branch before even opening durable storage.
   const demo = new URLSearchParams(location.search).get('demo') === '1';
   if (demo) {
-    let memory = window.VaultDemo.create(), benchmarks = window.VaultDemo.benchmarks?.() || [], tablePreferences = null;
+    let memory = window.VaultDemo.create(), benchmarks = window.VaultDemo.benchmarks?.() || [], tablePreferences = null, experiments=[];
     const clone = value => JSON.parse(JSON.stringify(value));
-    return {demo:true,all:async()=>clone(memory),put:async run=>{const i=memory.findIndex(r=>r.id===run.id);if(i<0)memory.push(clone(run));else memory[i]=clone(run);},allBenchmarks:async()=>clone(benchmarks),putBenchmark:async()=>{throw Error('Benchmark import is disabled in demo mode.');},getTablePreferences:async()=>clone(tablePreferences),putTablePreferences:async value=>{tablePreferences=clone(value);},reset:async()=>{memory=window.VaultDemo.create();benchmarks=window.VaultDemo.benchmarks?.()||[];tablePreferences=null;}};
+    return {demo:true,allExperiments:async()=>clone(experiments),putExperiment:async e=>{window.VaultExperiments.validate(e);const i=experiments.findIndex(x=>x.id===e.id);if(i<0)experiments.push(clone(e));else experiments[i]=clone(e);},all:async()=>clone(memory),put:async run=>{const i=memory.findIndex(r=>r.id===run.id);if(i<0)memory.push(clone(run));else memory[i]=clone(run);},allBenchmarks:async()=>clone(benchmarks),putBenchmark:async()=>{throw Error('Benchmark import is disabled in demo mode.');},getTablePreferences:async()=>clone(tablePreferences),putTablePreferences:async value=>{tablePreferences=clone(value);},reset:async()=>{memory=window.VaultDemo.create();benchmarks=window.VaultDemo.benchmarks?.()||[];tablePreferences=null;experiments=[];}};
   }
   const chromeStore = typeof chrome !== 'undefined' && chrome.storage?.local;
   const database = chromeStore ? null : new Promise((resolve,reject) => {
@@ -31,5 +31,9 @@ window.VaultStore = (() => {
   const preferencesKey='ui:strategy-table:v1';
   async function getTablePreferences(){try{return chromeStore?(await chromeStore.get(preferencesKey))[preferencesKey]||null:JSON.parse(localStorage.getItem(preferencesKey)||'null');}catch{return null;}}
   async function putTablePreferences(value){if(chromeStore)return chromeStore.set({[preferencesKey]:value});localStorage.setItem(preferencesKey,JSON.stringify(value));}
-  return {all,put,allBenchmarks,putBenchmark,getTablePreferences,putTablePreferences};
+  let experimentDatabase;
+  function experimentDB(){return experimentDatabase ||= new Promise((resolve,reject)=>{const q=indexedDB.open('definedge-backtest-vault-experiments',1);q.onupgradeneeded=()=>q.result.createObjectStore('experiments',{keyPath:'id'});q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);});}
+  async function allExperiments(){if(chromeStore)return Object.entries(await chromeStore.get(null)).filter(([k])=>k.startsWith('experiment:')).map(([,v])=>v);const db=await experimentDB();return new Promise((resolve,reject)=>{const q=db.transaction('experiments').objectStore('experiments').getAll();q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error);});}
+  async function putExperiment(e){window.VaultExperiments.validate(e);if(chromeStore)return chromeStore.set({['experiment:'+e.id]:e});const db=await experimentDB();return new Promise((resolve,reject)=>{const tx=db.transaction('experiments','readwrite');tx.objectStore('experiments').put(e);tx.oncomplete=()=>resolve();tx.onerror=()=>reject(tx.error);});}
+  return {all,put,allBenchmarks,putBenchmark,getTablePreferences,putTablePreferences,allExperiments,putExperiment};
 })();

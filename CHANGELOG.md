@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.0 - 2026-09-13
+
+- Add Experiments: saved baselines, validated ranges, grid/sample/bounded adaptive modes, frozen decision rules and a finite queue preview.
+- Add a persistent single-tab coordinator and Candle DOM executor, with read-back checks, both submission snapshots, full-report saving, uncertain-state recovery and stop-after-current. Live acceptance remains pending; P&F/Renko plans retain execution gates.
+- Add Decision Desk rankings, baseline deltas, immediate-neighbor checks, local index context, and separate frozen validation/holdout stages.
+- Add memory-only fictional simulation and version-2 backups including experiments; old run archives remain compatible.
+- Add three suites for planner/coordinator/decision integrity, UI/backup isolation and three sequential Candle DOM trials.
+
 ## 0.6.1 — 2026-09-13
 
 - Replace the full-width column panel and repeated table instructions with a compact Columns menu. Remove visible field counts and duplicate ranking-direction text.

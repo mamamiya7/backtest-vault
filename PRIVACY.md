@@ -25,3 +25,7 @@ Column order and visibility are stored separately as appearance preferences: Chr
 Export a backup before clearing browser data, changing profiles, removing the extension, or moving devices. Clearing site data removes the standalone viewer's records for that origin; removing the extension may remove its local records. The app does not currently offer individual run deletion.
 
 A public copy of this source repository must not contain personal archives or report screenshots. The publication packager uses an explicit allowlist.
+
+## Experiment automation
+
+Experiment plans, ranges, decision rules, trial journals and temporary source-tab ownership are stored locally. When the user starts a plan, the content script changes approved settings and submits backtests to Definedge through its existing page. No source credentials are collected. There is no LLM service, telemetry, new host permission or external data transfer by Vault. Full backups include experiment journals; import always pauses them and removes source ownership. The localhost viewer cannot control an extension tab. Demo simulations stay entirely in memory.

@@ -5,13 +5,43 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Save the settings behind a result, compare matching runs, and understand why a strategy leads.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.6.1 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.7.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
 **All screenshots and demo records are fictional.** They illustrate the product, not investment performance.
 
 [Try it](#try-the-demo) · [Install](#install-the-extension) · [Compare strategies](#how-the-ranking-works) · [Understand the numbers](#cagr-or-annualized-return) · [Backups](#where-your-data-lives) · [Develop](#development)
+
+## Plan, run and decide
+
+**Experiments** turns a saved baseline into a bounded research queue. Compare explicit ranges, follow a visual Decision Desk, then freeze a candidate for a later validation period.
+
+```mermaid
+flowchart LR
+    A[Baseline] --> B[Setting ranges]
+    B --> C[Grid / Sample / Adaptive]
+    C --> D[Read back settings]
+    D --> E[Momentum + Portfolio]
+    E --> F[Capture and verify saved run]
+    F --> G[Decision Desk]
+    F --> C
+    G --> H[Freeze candidate]
+    H --> I[Validation → Holdout]
+```
+
+[Open the fictional experiment demo](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [workflow, recovery model and delivery plan](docs/EXPERIMENTS.md).
+
+| Available in 0.7.0 | Acceptance boundary |
+| --- | --- |
+| Finite plans, reproducible samples, bounded adaptive neighborhood search | Local planner and isolated simulation tested |
+| Persistent queue, one source tab, save acknowledgement, pause/recovery | Three-trial Candle DOM integration passed; installed/live acceptance pending |
+| Frozen decision rules, neighboring-setting checks, baseline/index context, validation and holdout stages | Descriptive research evidence; no predictive or pooled portfolio score |
+| P&F and Renko plans | Live execution gated pending separate write tests |
+
+![Experiment Decision Desk with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
+
+No LLM setup is required. Dynamic RS/rule switching, additional chart write adapters, forward-window studies and optional language planning are tracked in the delivery plan.
 
 ## From a backtest to a research record
 
@@ -261,14 +291,14 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 
 | Supported | Limits to keep visible |
 | --- | --- |
-| Manual report saving and local research comparison | No order execution or automatic batch backtest runner |
+| Manual saving plus experimental Candle batch runner | No order execution; installed/live batch acceptance pending |
 | Settings recorded at submission | Named rules may not expose their underlying numerical definition |
 | Static report chart snapshots | No underlying price-series or hover-data capture |
 | Separate, comparable strategy groups | No promised future winner or combined-portfolio performance from averaged summaries |
 | Candle, P&F and Renko display adapters | Unknown layouts retain individual fields rather than guessed labels |
 | Brief animations respecting reduced motion | Financial values display immediately, without animated counting |
 
-**Validation evidence:** all six local test suites passed for v0.6.1. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
+**Validation evidence:** all nine local test suites passed for v0.7.0. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
 
 Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. The current dashboard was checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
 
@@ -315,7 +345,7 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/U
 npm run package:public
 ```
 
-This copies an explicit public-file allowlist into `releases/backtest-vault-0.6.1-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.7.0-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
 
 ## License and affiliation
 

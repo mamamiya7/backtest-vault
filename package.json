@@ -1,10 +1,10 @@
 {
   "name": "definedge-backtest-vault",
-  "version": "0.6.1",
+  "version": "0.7.0",
   "private": true,
   "description": "Local Definedge momentum backtest recorder and comparison dashboard",
   "scripts": {
-    "test": "node tests/test-vault.cjs && node tests/test-dashboard.cjs && node tests/test-presentation.cjs && node tests/test-demo.cjs && node tests/test-intelligence.cjs && node tests/test-intelligence-ui.cjs",
+    "test": "node tests/test-vault.cjs && node tests/test-dashboard.cjs && node tests/test-presentation.cjs && node tests/test-demo.cjs && node tests/test-intelligence.cjs && node tests/test-intelligence-ui.cjs && node tests/test-experiments.cjs && node tests/test-experiments-ui.cjs && node tests/test-runner.cjs",
     "preview": "node scripts/serve.cjs",
     "check": "node scripts/check.cjs",
     "package:public": "node scripts/package-public.cjs"
