@@ -19,7 +19,7 @@
     const digits=kind==='count' && Number.isInteger(n) ? integer : precision===2?decimal:new Intl.NumberFormat('en-IN',{minimumFractionDigits:2,maximumFractionDigits:precision});
     const sign=n<0?'-':signed&&n>0?'+':'';
     const unit=kind==='percent'||original.includes('%')?'%':/days?$/i.test(original)?` ${Math.abs(n)===1?'day':'days'}`:'';
-    return {text:sign+(original.includes('₹')?'₹':'')+digits.format(Math.abs(n))+unit,numeric:true,tone:signed&&n!==0?(n<0?'negative':'positive'):'',title:`Original: ${original}`};
+    return {text:sign+(original.includes('₹')?'₹':'')+digits.format(Math.abs(n))+unit,numeric:true,sortValue:n,tone:signed&&n!==0?(n<0?'negative':'positive'):'',title:`Original: ${original}`};
   }
 
   function metric(label,value) {
@@ -30,9 +30,14 @@
   }
 
   function tradeCell(header,value) {
-    if (/^(Symbol|.*Date|Exit Reason)$/i.test(header)) return cell(value,{kind:'text'});
+    if (/Date$/i.test(header)) {
+      const text=clean(value),match=text.match(/^(\d{1,2})-([A-Za-z]{3})[ -](\d{2}|\d{4})$/),months=['jan','feb','mar','apr','may','jun','jul','aug','sep','oct','nov','dec'];
+      const iso=match&&months.includes(match[2].toLowerCase())?(match[3].length===2?'20':'')+match[3]+'-'+String(months.indexOf(match[2].toLowerCase())+1).padStart(2,'0')+'-'+match[1].padStart(2,'0'):text;
+      return {...cell(value,{kind:'text'}),sortValue:/^\d{4}-\d{2}-\d{2}$/.test(iso)?iso:text||null};
+    }
+    if (/^(Symbol|Exit Reason)$/i.test(header)) return cell(value,{kind:'text'});
     if (/^(Sr #|Qty)$/i.test(header)) return cell(value,{kind:'count'});
-    return cell(value,{kind:header.includes('%')?'percent':'number',signed:/^(G\/L|P&L)/i.test(header)});
+    return cell(value,{kind:header.includes('%')?'percent':'number',signed:/^(G\/L|P[&/]L)/i.test(header)});
   }
 
   const sourceName=value=>({Pre:'Predefined',My:'My systems',Public:'Public',Popular:'Popular'}[value]||value);
@@ -149,7 +154,13 @@
   function parameterMap(run) {
     return new Map(settings(run).flatMap(stage=>stage.groups.flatMap(group=>group.rows.map(row=>[`${stage.key}.${row.key}`,{label:`${stage.title} · ${row.label}`,text:settingText(row),signature:JSON.stringify(row.sourceIndices.map(i=>{const f=stage.snapshot.fields.find(f=>f.index===i);return [f.type,f.value,f.checked,f.disabled];}))}]))));
   }
-  const api={cell,metric,tradeCell,state,settingValue,settingText,settings,parameterMap};
+  function compareValues(a,b,direction='ascending') {
+    const missing=v=>v===null||v===undefined||v===''||v==='—'||typeof v==='number'&&!Number.isFinite(v);
+    if(missing(a))return missing(b)?0:1;if(missing(b))return -1;
+    const order=typeof a==='number'&&typeof b==='number'?a-b:String(a).localeCompare(String(b),'en',{numeric:true,sensitivity:'base'});
+    return direction==='descending'?-order:order;
+  }
+  const api={cell,metric,tradeCell,compareValues,state,settingValue,settingText,settings,parameterMap};
   if (typeof module!=='undefined') module.exports=api;
   root.VaultPresentation=api;
 })(typeof window!=='undefined'?window:globalThis);

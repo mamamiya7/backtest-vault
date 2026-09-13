@@ -1,5 +1,30 @@
 # UI / UX audit
 
+## Alignment and table controls — v0.6.0
+
+**Date:** 2026-09-13. **Goal:** keep each label visibly attached to its value and let readers organize strategy comparisons without changing the underlying ranking.
+
+**Scope and evidence:** reviewed the library, overview/quick statistics, Parameters, Charts, Trades, Notes, side-by-side comparison, matched-group analysis, All runs, chart/index inspectors, Quick guide and no-match filter recovery. Captured and inspected current screenshots before editing, including the user's inspector screenshot. In-app browser captures were clipped and rejected as complete visual evidence; the existing Chrome fictional demo provided accepted screenshots. Checked desktop layout and a 390 × 844 phone viewport. Raw audit captures remain private; the public screenshots contain fictional data only.
+
+| Finding | Change / outcome |
+| --- | --- |
+| Inspector metric labels sat left while their values floated at the far right | Bordered metric tiles align both on the right, with consistent spacing and tabular digits |
+| Long context and strategy settings needed a clearer label/value association | Left-aligned pairs share one edge; long values wrap, with one setting per row on phones |
+| Library gross return and drawdown had different baselines / type sizes | Matched value size, weight and line height; retained signs, units and grouping |
+| Mixed text/numeric comparison columns left some headings misaligned | Numeric-bearing column headings align with their numbers |
+| Tables offered no header sorting or column selection | Strategy tables have ascending/descending headings, 14 available columns, show/hide, Left/Right and reset; trade tables sort numbers, symbols and dates |
+| Phone ranking previously hid most measures by column position | All chosen columns remain in an internally scrollable table; sorting preserves its sideways position and focused heading |
+| Repeated entrance fades made column changes flash | Table updates are immediate; restrained first-entry motion and reduced-motion support remain |
+| Positive trade P/L omitted its sign | P/L uses explicit positive/negative signs while retaining original archive values |
+
+**Preserved strengths:** the leading-run takeaway remains first; evidence and settings stay collapsed initially; chart selection opens the selected run's metrics and period-matched index; labels and status text supplement colour. Overview cards already paired labels and numbers well. Archived graphics and Notes needed no redesign.
+
+**Verified interactions:** strategy header click and keyboard Enter, ascending/descending Return and Drawdown, numeric trade P/L sorting, show/hide and Left movement, reset, transfer of column choices between matched groups and All runs, original rank numbers despite display sorting, no-match filter recovery and full-run navigation. The phone table retained horizontal scroll and a visible focused heading after sorting. Inspector settings stacked without page overflow; the desktop matched-group table fit its panel with all six default columns. Temporary viewport overrides were reset.
+
+**Regression coverage:** all six suites passed; added cases cover numeric/natural text/date order, missing-last sorting, negative values, flagged results retaining no rank, column persistence, malformed preferences, unchanged archives and complete exports. Demo tests prohibit extension storage, IndexedDB and localStorage access. Runtime/version/origin/permissions and public-file checks are part of release validation.
+
+**Evidence limits:** this is a visual and functional audit, not accessibility certification. Screen-reader output, real-device touch, print rendering, every unknown source layout and the installed-extension dashboard remain unverified. Real research, live backtests and benchmark history were not changed or uploaded. Preference persistence was exercised with isolated local fixtures, not the user's installed extension storage.
+
 ## Visual ranking follow-up — v0.4.0
 
 **Date:** 2026-09-13. **Scope:** strategy analysis entry, group selection, ranking controls, leader/status card, risk plot, benchmark disclosure and responsive layout. Existing library audit follows below.

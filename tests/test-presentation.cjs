@@ -21,6 +21,16 @@ assert.equal(P.tradeCell('Qty','0.25').text,'0.25');
 assert.equal(P.tradeCell('Symbol','1234').text,'1234');
 assert.equal(P.tradeCell('Entry Date','1-Jan 25').text,'1-Jan 25');
 assert.equal(P.tradeCell('G/L %','4.5').text,'+4.50%');
+assert.equal(P.tradeCell('P/L','2800').text,'+2,800.00');
+assert.equal(P.tradeCell('P/L','-2800').text,'-2,800.00');
+assert.equal(P.tradeCell('Entry Date','1-Jan 25').sortValue,'2025-01-01');
+assert.equal(P.tradeCell('Exit Date','28-Dec-2024').sortValue,'2024-12-28');
+for(const direction of ['ascending','descending']){
+ const sorted=[null,12,-2,0,2,NaN].sort((a,b)=>P.compareValues(a,b,direction));
+ assert.deepEqual(sorted.slice(0,4),direction==='ascending'?[-2,0,2,12]:[12,2,0,-2]);assert.equal(sorted[4],null);assert.ok(Number.isNaN(sorted[5]));
+}
+assert.ok(P.compareValues('Strategy 2','Strategy 10')<0);
+assert.ok(P.compareValues(P.tradeCell('Entry Date','28-Dec 24').sortValue,P.tradeCell('Entry Date','1-Jan 25').sortValue)<0);
 assert.equal(P.cell('↑').text,'↑','An annotation alone is not a number');
 assert.equal(P.settingText({value:'—',checked:true}),'On','A standalone toggle needs only its state');
 

@@ -100,5 +100,38 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  }finally{periodApp.close();}
  const fictionalIndex=app({['run:'+referenceRuns[0].id]:referenceRuns[0],['benchmark:'+indexHistory.id]:{...indexHistory,demo:true}},false,true);
  try{await tick();assert.equal(fictionalIndex.d.querySelector('.map-reference'),null);assert.match(fictionalIndex.d.querySelector('.map-index').textContent,/Fictional and real data cannot be mixed/);}finally{fictionalIndex.close();}
- console.log('PASS: analysis UI, drawdown controls, text safety, demo benchmark isolation, CSV precision/provenance, immediate benchmark backup, JSON roundtrip, duplicate IDs and invalid-import staging.');
+// Display order is independent of financial rank, and column choices never enter backups.
+ const tableApp=app({},true,true);
+ try{
+  await tick();const d=tableApp.d,click=id=>d.getElementById(id).click(),scope=d.getElementById('ranking-group');scope.value='all';scope.onchange();
+  const rows=()=>[...d.querySelectorAll('.rank-table tbody tr')],headers=()=>[...d.querySelectorAll('.rank-table th')].map(x=>x.dataset.column);
+  const original=JSON.stringify(await tableApp.w.VaultStore.all()),headline=d.querySelector('.hero-message h3').textContent;
+  click('strategy-sort-returns');assert.equal(rows().length,6);assert.equal(rows()[0].querySelector('.rank-name').textContent,'Renko · review needed');assert.equal(rows()[0].querySelector('.rank-place').textContent,'—');assert.equal(rows()[1].querySelector('.rank-name').textContent,'Holdout sample');assert.equal(rows()[1].querySelector('.rank-place').textContent,'5');
+  assert.equal(d.querySelector('th[data-column=returns]').getAttribute('aria-sort'),'ascending');
+  click('strategy-sort-returns');assert.equal(rows()[0].querySelector('.rank-name').textContent,'Momentum core');assert.equal(rows().at(-1).querySelector('.rank-place').textContent,'—');
+  assert.equal(d.querySelector('th[data-column=returns]').getAttribute('aria-sort'),'descending');assert.equal(d.activeElement.id,'strategy-sort-returns');assert.equal(d.querySelector('.hero-message h3').textContent,headline);
+  click('strategy-sort-strategy');assert.equal(rows()[0].querySelector('.rank-name').textContent,'Holdout sample');
+  d.getElementById('strategy-columns').open=true;click('column-win');click('column-drawdown');
+  assert.ok(headers().includes('win'));assert.ok(!headers().includes('drawdown'));assert.equal(d.getElementById('strategy-columns').open,true);
+  click('column-growth-left');assert.ok(headers().indexOf('growth')<headers().indexOf('calmar'));assert.equal(d.activeElement.id,'column-growth');
+  const chosen=headers();await tick();tableApp.click('Back to library');tableApp.click('Analyze strategies');await tick();assert.deepEqual(headers(),chosen);
+  tableApp.click('Back up all');const backup=JSON.parse(await tableApp.downloads.at(-1).text());assert.equal(JSON.stringify(backup.runs),original);assert.equal(backup.preferences,undefined);assert.equal(tableApp.durable(),0);
+  const all=d.getElementById('ranking-group');all.value='all';all.onchange();click('strategy-sort-growth');tableApp.click('Export analysis CSV');assert.equal((await tableApp.downloads.at(-1).text()).trim().split('\r\n').length,7);
+  click('columns-reset');assert.deepEqual(headers(),['rank','strategy','returns','drawdown','calmar','growth']);
+  // Trade sorting uses original numbers and chronological dates, with missing cells last.
+  tableApp.click('Back to library');tableApp.click('Trades');const trade=d.querySelector('.trades-table'),by=name=>[...trade.querySelectorAll('th button')].find(b=>b.textContent===name).click();
+  by('G/L %');assert.match(trade.tBodies[0].rows[0].textContent,/-2.50%/);by('G/L %');assert.match(trade.tBodies[0].rows[0].textContent,/\+4.60%/);
+  by('Sr #');assert.equal(trade.tBodies[0].rows[1].cells[0].textContent,'2');by('Sr #');assert.equal(trade.tBodies[0].rows[0].cells[0].textContent,'12');
+  by('Entry Date');assert.match(trade.tBodies[0].rows[0].textContent,/2025-01-01/);by('Entry Date');assert.match(trade.tBodies[0].rows[0].textContent,/2025-12-01/);
+  assert.equal(JSON.stringify(await tableApp.w.VaultStore.all()),original);
+ }finally{tableApp.close();}
+ const prefFixture=D.create()[0],prefSaved={['run:'+prefFixture.id]:prefFixture},prefsApp=app(prefSaved,false,true);
+ try{
+  await tick();prefsApp.d.getElementById('column-trades').click();await tick();const pref=prefSaved['ui:strategy-table:v1'];assert.ok(pref.visible.includes('trades'));assert.deepEqual(prefSaved['run:'+prefFixture.id],prefFixture);
+  const reopened=app(prefSaved,false,true);try{await tick();assert.ok(reopened.d.querySelector('th[data-column=trades]'));}finally{reopened.close();}
+  // Corrupt / stale browser preferences recover without hiding identity columns.
+  prefSaved['ui:strategy-table:v1']={order:['bogus','win','win'],visible:['win','bogus']};
+  const stale=app(prefSaved,false,true);try{await tick();assert.deepEqual([...stale.d.querySelectorAll('.rank-table th')].map(x=>x.dataset.column),['rank','strategy','win']);}finally{stale.close();}
+ }finally{prefsApp.close();}
+ console.log('PASS: analysis UI, sortable configurable tables, persistent isolated preferences, rank integrity, drawdown controls, text safety, benchmark provenance and full backups.');
  }finally{demos.close();real?.close();restored?.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

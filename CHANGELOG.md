@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.6.0 — 2026-09-13
+
+- Align chart/index metric labels and values in compact tiles; pair long settings on one edge and stack them on phones. Match library metric baselines and numeric table headings throughout the dashboard.
+- Add ascending/descending strategy-table headers without changing financial ranks, leader explanations, chart selection or exports. Trade tables sort numbers, symbols and recorded dates; P/L amounts now show explicit positive and negative signs.
+- Add a shared Columns control with 14 choices, show/hide checkboxes, accessible Left/Right movement, local persistence and reset. Rank and strategy stay visible; demo preferences remain in memory.
+- Keep all chosen columns reachable through internal horizontal scrolling on phones and preserve that scroll position after sorting. Suppress repeated entrance animations during table updates; initial motion still respects reduced-motion preferences.
+- Extend regression coverage for sorting, rank integrity, preferences, malformed saved choices, full exports and source immutability. Document the app-wide visual review and table controls.
+
 ## 0.5.1 — 2026-09-13
 
 - Make return/drawdown points selectable by pointer, keyboard or a run selector, with a selection ring, inline key metrics/settings and links to the full report.

@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Save the settings behind a result, compare matching runs, and understand why a strategy leads.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.5.1 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.6.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
@@ -92,6 +92,25 @@ flowchart TD
 ```
 
 Choose **Analyze strategies** for the whole library, or **Explain comparison** for selected runs. The first view opens the group with the most comparable runs and shows a leading-run explanation, top-five table and return/drawdown plot.
+
+### Make the table yours
+
+Click a **column heading** once for ascending order and again for descending. The header arrow and display-order note identify the active sort. Sorting includes every run in the current scope, including flagged records with their unranked status. It does not change the selected **Rank by** measure, the leader, or the chart. **Ranking order** restores the financial ordering. Trade-table headings also sort amounts, symbols and dates.
+
+Open **Columns** above either strategy table to show or hide metrics and use **Left / Right** to rearrange them. Rank and strategy stay visible. Six columns appear initially; optional choices add win ratio, reported trades, capital, dates, universe and chart model. Choices apply to both matched groups and All runs, and are saved on this browser. Demo choices are temporary. **Reset columns** restores the defaults.
+
+```mermaid
+flowchart LR
+    A["Strategy table"] --> B["Click a heading<br/>Ascending / descending"]
+    A --> C["Columns<br/>Show · hide · move left / right"]
+    B --> D["Display order changes<br/>Financial ranks stay intact"]
+    C --> E["Your local table layout<br/>Shared by both comparison views"]
+    D --> F["Original records and full exports unchanged"]
+    E --> F
+    style C fill:#b2f7dc,stroke:#247456,color:#122b22
+```
+
+On phones, the table scrolls sideways so every chosen column remains available. Missing values stay last in both sort directions. Metric cards keep labels and values on the same edge; long settings wrap below their labels.
 
 ### One group or every run?
 
@@ -245,7 +264,7 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 | Candle, P&F and Renko display adapters | Unknown layouts retain individual fields rather than guessed labels |
 | Brief animations respecting reduced motion | Financial values display immediately, without animated counting |
 
-**Validation evidence:** all six local test suites passed for v0.5.1. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
+**Validation evidence:** all six local test suites passed for v0.6.0. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
 
 Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. The current dashboard was checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
 
@@ -292,7 +311,7 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/U
 npm run package:public
 ```
 
-This copies an explicit public-file allowlist into `releases/backtest-vault-0.5.1-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.6.0-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
 
 ## License and affiliation
 

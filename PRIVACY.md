@@ -14,6 +14,8 @@ Imported index levels, dates, basis and source filenames are stored locally in a
 
 The extension's content script runs only on the configured Definedge domain. It reads the relevant backtest form/report and advances trade pagination during a save. Definedge itself is a separate service with its own data practices.
 
+Column order and visibility are stored separately as appearance preferences: Chrome extension storage in the extension, and localStorage in the standalone viewer. They contain column identifiers only, are excluded from JSON research backups, and can be restored with Reset columns. Sorting is temporary. Demo preferences use memory and never access these durable stores.
+
 ## Demo mode
 
 `?demo=1` selects a memory-only library before opening extension storage or IndexedDB. Demo records are fictional, imports are disabled, and changes disappear on reload. Demo exports remain marked as synthetic. Opening **my archive** leaves demo mode and opens the current environment's normal local library.

@@ -7,6 +7,7 @@ const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScr
 let durableCalls=0;const downloads=[];
 Object.defineProperty(w,'indexedDB',{get(){durableCalls++;throw Error('Demo opened IndexedDB');}});
 Object.defineProperty(w,'chrome',{get(){durableCalls++;throw Error('Demo accessed extension storage');}});
+Object.defineProperty(w,'localStorage',{get(){durableCalls++;throw Error('Demo accessed durable preferences');}});
 w.Blob=Blob;w.URL.createObjectURL=blob=>{downloads.push(blob);return 'blob:synthetic';};w.URL.revokeObjectURL=()=>{};
 const names=[];w.HTMLAnchorElement.prototype.click=function(){names.push(this.download);};
 for(const file of ['core.js','demo.js','storage.js','presentation.js','dashboard.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));

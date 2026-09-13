@@ -2,12 +2,18 @@
 
 Choose **Analyze strategies** to analyze the full library, or **Explain comparison** from a selected comparison. This is a transparent shortlist of reported historical results. It does not predict which strategy will win next.
 
+## Table controls
+
+Column headings toggle ascending/descending display order across the current scope; sorting reveals all rows. Missing values stay last. Rank numbers and leader explanations still use the chosen Calmar/Return/Drawdown basis. A flagged result can appear early in a numeric or alphabetical display sort while retaining its unranked status. **Ranking order** restores the financial order.
+
+**Columns** offers 14 fields, six shown by default. Checkboxes select visible metrics; Left/Right moves visible optional columns. Rank and strategy stay first. Both comparison modes use the same local choices; demo keeps them only in memory. Reset restores defaults. Layout choices are separate from research records and exports. The graph and index continue to follow their selected run, independently of table sorting.
+
 ## Read the visual ranking
 
 The first view opens the group with the most comparable runs. Choose another group or **All runs · exploratory** using **Compare within**. Strict matching remains the default; the all-runs view offers a descriptive ordering across different conditions without declaring a universal winner.
 
 1. Read the leading-run takeaway and its reason. Switch **Calmar**, **Return** or **Drawdown** to rank by that single measure. Higher Calmar/return or lower drawdown leads.
-2. Scan the first five table rows and the return/drawdown plot. Higher and further left means more reported return with less reported drawdown. Mint marks leaders, amber marks runs above the ceiling, and an index reference uses a square. Names, ranks, status text and exact table values supplement colour. **Show all** reveals longer groups; on phones the table shows the selected measure, with full metrics available through the run.
+2. Scan the first five table rows and the return/drawdown plot. Higher and further left means more reported return with less reported drawdown. Mint marks leaders, amber marks runs above the ceiling, and an index reference uses a square. Names, ranks, status text and exact table values supplement colour. **Show all** reveals longer groups; on phones the table scrolls sideways to keep every chosen column available.
 3. Open **Filters & benchmark** to set a drawdown ceiling or import an index. Open **Why these results?** for aligned controls, changed settings and full benchmark measures. **Method & excluded runs** explains exclusions and repeated evidence.
 
 Equal values share competition ranks (1, 1, 3). Ceiling failures and missing values remain unranked. A single eligible measured run gets no rank; an incomplete group gets no leader takeaway. Where two or more values are available but another is missing, numeric ranks describe only the available values. Negative leaders retain their signs and an explicit non-positive-return explanation.

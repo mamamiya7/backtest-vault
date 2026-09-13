@@ -10,6 +10,92 @@ const measures={calmar:{label:'Calmar',kind:'number',direction:'Higher is better
 const nameOf=x=>x.run.name||x.run.id;
 const num=(value,kind='number',signed=false)=>cell(value,kind,signed).text;
 function disclosure(title,id){const d=el('details');d.id=id;d.append(el('summary',title));return d;}
+const tableColumns=[
+ {key:'rank',label:'Rank',numeric:true,value:r=>r.rank,kind:'count',required:true},
+ {key:'strategy',label:'Strategy & test conditions',value:r=>nameOf(r.item),required:true},
+ {key:'returns',label:'Return',numeric:true,value:r=>r.item.returns,kind:'percent',signed:true},
+ {key:'drawdown',label:'Drawdown',numeric:true,value:r=>r.item.drawdown,kind:'percent'},
+ {key:'calmar',label:'Calmar',numeric:true,value:r=>r.item.calmar,signed:true},
+ {key:'growth',label:'CAGR / annualized',numeric:true,value:r=>r.item.metrics.growth,kind:'percent',signed:true},
+ {key:'win',label:'Win ratio',numeric:true,value:r=>r.item.metrics.win,kind:'percent'},
+ {key:'trades',label:'Reported trades',numeric:true,value:r=>r.item.metrics.trades,kind:'count'},
+ {key:'capital',label:'Initial capital',numeric:true,value:r=>r.item.metrics.capital},
+ {key:'final',label:'Final capital',numeric:true,value:r=>r.item.metrics.final},
+ {key:'from',label:'From',value:r=>r.item.from},
+ {key:'to',label:'To',value:r=>r.item.to},
+ {key:'universe',label:'Universe',value:r=>r.item.controls.Universe},
+ {key:'chart',label:'Momentum chart',value:r=>r.item.controls['Momentum chart']}
+];
+const defaultColumns=tableColumns.slice(0,6).map(c=>c.key);
+function tablePreferences(value){
+ const keys=tableColumns.map(c=>c.key),optional=keys.slice(2);
+ const order=['rank','strategy',...new Set([...(Array.isArray(value?.order)?value.order:[]).filter(k=>optional.includes(k)),...optional])];
+ const visible=Array.isArray(value?.visible)?value.visible.filter(k=>keys.includes(k)):defaultColumns;
+ return {order,visible:[...new Set(['rank','strategy',...visible])]};
+}
+function strategyTable({ordered,basis,all=false,showAll,onOpen,onGroup,onMore,leaders=[],canLead=false,state,onChange}){
+ const container=el('div',undefined,'strategy-table-tools'),prefs=state.preferences,m=measures[basis],name=all?'All runs ranking':'Strategy ranking';
+ const columns=prefs.order.map(key=>tableColumns.find(c=>c.key===key)),shown=columns.filter(c=>prefs.visible.includes(c.key));
+ const config=disclosure('Columns · '+shown.length+' of '+columns.length,'strategy-columns');
+ config.append(el('p','Choose columns for both comparison views. Move a checked column left or right. Rank and strategy stay visible. '+(state.demo?'Demo choices last until reload.':'Choices are saved on this browser.'),'mini'));
+ const list=el('div',undefined,'column-options');
+ columns.filter(c=>!c.required).forEach(c=>{
+  const row=el('div',undefined,'column-option'),label=el('label'),check=el('input');check.type='checkbox';check.id='column-'+c.key;check.checked=prefs.visible.includes(c.key);
+  check.onchange=()=>{prefs.visible=check.checked?[...prefs.visible,c.key]:prefs.visible.filter(k=>k!==c.key);if(!check.checked&&state.sort?.key===c.key)state.sort=null;onChange(check.id,true);};
+  label.append(check,el('span',c.label));row.append(label);
+  const index=shown.findIndex(x=>x.key===c.key);
+  for(const [step,text] of [[-1,'Left'],[1,'Right']]){
+   const move=button(text,()=>{
+    const neighbor=shown[index+step].key,a=prefs.order.indexOf(c.key),b=prefs.order.indexOf(neighbor);[prefs.order[a],prefs.order[b]]=[prefs.order[b],prefs.order[a]];
+    onChange('column-'+c.key,true);
+   },'quiet column-move');
+   move.id='column-'+c.key+'-'+text.toLowerCase();move.setAttribute('aria-label','Move '+c.label+' '+text.toLowerCase());
+   move.disabled=index<2||index+step<2||index+step>=shown.length;row.append(move);
+  }
+  list.append(row);
+ });
+ config.append(list);const reset=button('Reset columns',()=>{state.preferences=tablePreferences(null);state.sort=null;onChange('columns-reset',true);},'quiet');reset.id='columns-reset';config.append(reset);
+ container.append(config);
+ const status=el('div',undefined,'table-order'),description=el('p',undefined,'mini');description.id='strategy-table-order';description.setAttribute('role','status');
+ const sortedColumn=tableColumns.find(c=>c.key===state.sort?.key);
+ description.textContent=sortedColumn?'Display: '+sortedColumn.label+' · '+state.sort.direction+'. Ranks still use '+m.label+'.':'Display: ranking order · '+m.label+'. Click a column heading to sort.';
+ status.append(description);
+ if(state.sort){const resetSort=button('Ranking order',()=>{state.sort=null;onChange('strategy-sort-rank');},'quiet');status.append(resetSort);}
+ container.append(status,el('p','Scroll sideways for more columns. Missing values stay last.','mini table-scroll-hint'));
+ const wrap=el('div',undefined,'table-wrap');wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label',name+' · scrollable table');
+ const t=el('table',undefined,'rank-table'+(all?' all-runs-table':''));t.setAttribute('aria-label',name);t.setAttribute('aria-describedby','strategy-table-order');t.dataset.basis=basis;
+ t.style.minWidth=((all?320:240)+Math.max(0,shown.length-2)*(all?125:90))+'px';
+ const head=el('thead'),tr=el('tr');
+ shown.forEach(c=>{
+  const th=el('th');th.scope='col';th.dataset.column=c.key;if(c.numeric)th.className='numeric';
+  const active=state.sort?.key===c.key;th.setAttribute('aria-sort',active?state.sort.direction:!state.sort&&c.key==='rank'?'ascending':'none');
+  const sort=button(c.label,()=>{state.sort={key:c.key,direction:active&&state.sort.direction==='ascending'?'descending':'ascending'};onChange('strategy-sort-'+c.key,false,true);},'table-sort');
+  sort.id='strategy-sort-'+c.key;sort.setAttribute('aria-label',c.label);sort.title=c.label+' · click to sort '+(active&&state.sort.direction==='ascending'?'descending':'ascending');th.append(sort);tr.append(th);
+ });head.append(tr);t.append(head);
+ // Display sorting never recomputes financial ranks, leaders or chart order.
+ const display=sortedColumn?[...ordered].sort((a,b)=>P.compareValues(sortedColumn.value(a),sortedColumn.value(b),state.sort.direction)):ordered;
+ const body=el('tbody');
+ (showAll?display:display.slice(0,5)).forEach((r,index)=>{
+  const x=r.item,row=el('tr',undefined,(canLead&&leaders.includes(x)?'rank-leader ':'')+(x.rankEligible===false||!x.withinLimit?'rank-limited':''));
+  row.dataset.runId=x.run.id;row.style.setProperty('--order',Math.min(index,5));
+  shown.forEach(c=>{
+   const td=el('td',undefined,(c.numeric?'numeric':'')+(c.key===basis?' ranked-value':''));td.dataset.column=c.key;
+   if(c.key==='rank')td.append(el('span',r.rank===null?'—':String(r.rank),'rank-place'));
+   else if(c.key==='strategy'){
+    td.append(button(nameOf(x),()=>onOpen(x.run),'rank-name'));
+    const status=all?overviewStatus(x,basis):!x.withinLimit?'Above ceiling':!Number.isFinite(x[basis])?'Missing '+m.label:r.rank===null?'Needs a peer':canLead&&leaders.includes(x)?(leaders.length>1?'Joint leader':'Leading'):x.dominatedBy.length?'Outperformed on return / drawdown':'Different return / risk trade-off';
+    td.append(el('small',status,'rank-status'));
+    if(all){const c=x.controls;td.append(el('small',[c.Universe||'Universe not captured',c['Momentum chart']||'Chart not captured',c.From&&c.To?c.From+' — '+c.To:'Dates not verified',c['Initial capital']!==undefined?num(c['Initial capital'])+' capital':'Capital not captured'].join(' · '),'run-conditions'));if(x.groupKey)td.append(button('Group '+x.groupNumber+' · compare matched runs',()=>onGroup(x.groupKey),'quiet group-shortcut'));}
+   }else{
+    const value=c.value(r);td.textContent=c.numeric?num(value,c.kind,c.signed):value||'—';
+    if(c.key==='growth'&&Number.isFinite(value))td.append(el('small',x.metrics.growthLabel,'growth-basis'));
+   }
+   row.append(td);
+  });body.append(row);
+ });t.append(body);wrap.append(t);container.append(wrap);
+ if(ordered.length>5){const more=button(showAll?(state.sort?'Show first 5':'Show top 5'):'Show all '+ordered.length+' runs',onMore,'quiet');more.id='rank-more';container.append(more);}
+ return container;
+}
 function metricList(rows,cls='map-metrics'){
  const list=el('dl',undefined,cls);
  for(const [label,value] of rows){const pair=el('div');pair.append(el('dt',label),el('dd',value));list.append(pair);}return list;
@@ -114,7 +200,7 @@ function overviewStatus(x,basis){
 function overviewReference(x,b){
  return x.rankEligible?I.benchmarkFor(x,b):{available:false,reason:x.fictionalExcluded?'Fictional data excluded from real comparison.':x.status+'; review the original before comparing a benchmark.'};
 }
-function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,table,chartState}){
+function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,table,chartState,tableState,onTableChange}){
  const ordered=I.ranking(o,basis),eligible=ordered.filter(({item:x})=>x.rankEligible&&x.withinLimit&&Number.isFinite(x[basis])),m=measures[basis];
  const top=eligible[0]?.item,ties=top?eligible.filter(({item:x})=>Math.abs(x[basis]-top[basis])<1e-9):[];
  const hero=el('section',undefined,'ranking-hero reveal'+(eligible.length>=2&&ties.length===1?'':' neutral'));
@@ -129,22 +215,7 @@ function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,tabl
  if(o.mixedData)target.append(el('p','Fictional runs are visible but excluded from ordering alongside real research.','issues'));
  const grid=el('div',undefined,'ranking-grid all-runs-grid'),board=el('section',undefined,'rank-board reveal'),head=el('div',undefined,'panel-heading');
  head.append(el('h3','All strategies, together'),el('span',m.label+' · '+m.direction.toLowerCase(),'mini'));board.append(head);
- const wrap=el('div',undefined,'table-wrap');wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','All runs ranking · scrollable table');
- const t=el('table',undefined,'rank-table all-runs-table');t.setAttribute('aria-label','All runs ranking');t.dataset.basis=basis;
- const thead=el('thead'),headers=el('tr');['Rank','Strategy & test conditions','Return','Drawdown','Calmar','CAGR / annualized'].forEach((title,i)=>{const th=el('th',title);th.scope='col';if(i>1)th.className='numeric';headers.append(th);});thead.append(headers);t.append(thead);
- const body=el('tbody');
- for(const {item:x,rank} of showAll?ordered:ordered.slice(0,5)){
-  const row=el('tr',undefined,!x.rankEligible||!x.withinLimit?'rank-limited':'');row.dataset.runId=x.run.id;
-  const place=el('td');place.append(el('span',rank===null?'—':String(rank),'rank-place'));
-  const identity=el('td');identity.append(button(nameOf(x),()=>onOpen(x.run),'rank-name'),el('small',overviewStatus(x,basis),'rank-status'));
-  const c=x.controls;identity.append(el('small',[c.Universe||'Universe not captured',c['Momentum chart']||'Chart not captured',c.From&&c.To?c.From+' — '+c.To:'Dates not verified',c['Initial capital']!==undefined?num(c['Initial capital'])+' capital':'Capital not captured'].join(' · '),'run-conditions'));
-  if(x.groupKey)identity.append(button('Group '+x.groupNumber+' · compare matched runs',()=>onGroup(x.groupKey),'quiet group-shortcut'));
-  row.append(place,identity);
-  for(const [key,kind,signed] of [['returns','percent',true],['drawdown','percent',false],['calmar','number',true]])row.append(el('td',num(x[key],kind,signed),'numeric'+(key===basis?' ranked-value':'')));
-  const growth=el('td',num(x.metrics.growth,'percent',true),'numeric');if(x.metrics.growth!==null&&x.metrics.growth!==undefined)growth.append(el('small',x.metrics.growthLabel,'growth-basis'));row.append(growth);body.append(row);
- }
- t.append(body);wrap.append(t);board.append(wrap);
- if(ordered.length>5){const more=button(showAll?'Show top 5':'Show all '+ordered.length+' runs',onMore,'quiet');more.id='rank-more';board.append(more);}
+ board.append(strategyTable({ordered,basis,all:true,showAll,onOpen,onGroup,onMore,state:tableState,onChange:onTableChange}));
  board.append(el('p','Equal values share a rank. Review flags, repeats, missing values and ceiling failures stay unranked.','mini'));
  const plotted=o.items.filter(x=>x.rankEligible&&Number.isFinite(x.returns)&&Number.isFinite(x.drawdown)),chart=riskChart({items:plotted},[],b,{all:true,state:chartState,onOpen});
  chart.append(el('p',plotted.length+' of '+o.total+' saved runs plotted. Review flags, repeated results and mixed fictional data are omitted. Different periods make this an exploratory map.','mini'));
@@ -163,20 +234,28 @@ function drawOverview({target,o,basis,b,limit,showAll,onOpen,onGroup,onMore,tabl
  target.append(reference);
 }
 
-function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,onBenchmarksChanged,download}){
+function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,onBenchmarksChanged,download,preferences}){
  let limit=null,benchmarkId=benchmarks[0]?.id||'',groupKey='',basis='calmar',showAll=false;
- const openDetails=new Set(),chartState={};
+ const openDetails=new Set(),chartState={},tableState={preferences:tablePreferences(preferences),sort:null,demo:!!store.demo};
+ let preferenceWrite=Promise.resolve(),hasRendered=false;
+ function onTableChange(focusId,persist=false,sorted=false){
+  tableState.scrollLeft=target.querySelector('.rank-table')?.parentElement.scrollLeft||0;
+  if(sorted)showAll=true;
+  if(persist){const snapshot=JSON.parse(JSON.stringify(tableState.preferences));preferenceWrite=preferenceWrite.then(()=>store.putTablePreferences?.(snapshot)).catch(()=>onNotice('Column choices apply for this visit, but could not be saved on this browser.',true));}
+  draw(focusId);
+ }
  function draw(focusId){
+  target.classList.toggle('analysis-updated',hasRendered);hasRendered=true;
   target.querySelectorAll('details[id]').forEach(d=>{if(d.open)openDetails.add(d.id);else openDetails.delete(d.id);});
   const a=I.analyze(runs,{drawdownLimit:limit});if(groupKey!=='all'&&!a.groups.some(g=>g.key===groupKey))groupKey=[...a.groups].sort((x,y)=>y.items.length-x.items.length)[0]?.key||'all';
   const g=a.groups.find(g=>g.key===groupKey),all=groupKey==='all',o=all?I.overview(a):null,b=benchmarks.find(b=>b.id===benchmarkId),bm=g?I.benchmarkFor(g.items[0],b):{available:false};
   target.replaceChildren();const head=el('div',undefined,'comparison-intro'),heading=el('div');heading.append(el('p','STRATEGY INTELLIGENCE','eyebrow'),el('h2','Find your front-runner.'));head.append(heading,button('Back to library',onExit));target.append(head);
   const toolbar=el('div',undefined,'ranking-toolbar'),groupLabel=el('label','Compare within'),groupSelect=el('select');groupSelect.id='ranking-group';groupSelect.setAttribute('aria-label','Comparison group');
-  a.groups.forEach((x,i)=>groupSelect.append(new Option('Group '+(i+1)+' · '+x.controls['Momentum chart']+' · '+x.items.length+(x.items.length===1?' run':' runs')+' · '+x.controls.From.slice(0,4),x.key)));groupSelect.append(new Option('All runs · '+runs.length+' · exploratory','all'));if(!groupKey)groupKey='all';groupSelect.value=groupKey;groupSelect.disabled=!runs.length;groupSelect.onchange=()=>{groupKey=groupSelect.value;showAll=false;draw('ranking-group');};groupLabel.append(groupSelect);toolbar.append(groupLabel);
-  const by=el('div',undefined,'rank-by');by.append(el('span','Rank by','control-label'));const choices=el('div',undefined,'rank-switch');choices.setAttribute('role','group');choices.setAttribute('aria-label','Rank strategies by');for(const [key,m] of Object.entries(measures)){const choose=button(m.label,()=>{basis=key;showAll=false;draw('rank-'+key);},'quiet');choose.id='rank-'+key;choose.setAttribute('aria-pressed',String(key===basis));choices.append(choose);}by.append(choices);toolbar.append(by);target.append(toolbar);
+  a.groups.forEach((x,i)=>groupSelect.append(new Option('Group '+(i+1)+' · '+x.controls['Momentum chart']+' · '+x.items.length+(x.items.length===1?' run':' runs')+' · '+x.controls.From.slice(0,4),x.key)));groupSelect.append(new Option('All runs · '+runs.length+' · exploratory','all'));if(!groupKey)groupKey='all';groupSelect.value=groupKey;groupSelect.disabled=!runs.length;groupSelect.onchange=()=>{groupKey=groupSelect.value;showAll=false;tableState.sort=null;draw('ranking-group');};groupLabel.append(groupSelect);toolbar.append(groupLabel);
+  const by=el('div',undefined,'rank-by');by.append(el('span','Rank by','control-label'));const choices=el('div',undefined,'rank-switch');choices.setAttribute('role','group');choices.setAttribute('aria-label','Rank strategies by');for(const [key,m] of Object.entries(measures)){const choose=button(m.label,()=>{basis=key;showAll=false;tableState.sort=null;draw('rank-'+key);},'quiet');choose.id='rank-'+key;choose.setAttribute('aria-pressed',String(key===basis));choices.append(choose);}by.append(choices);toolbar.append(by);target.append(toolbar);
   target.append(el('p',runs.length+' runs · '+a.groups.length+' separate groups · '+a.blocked.length+' for review'+(a.duplicates.length?' · '+a.duplicates.length+' repeated results':''),'ranking-scope'));
   if(all&&runs.length){
-   drawOverview({target,o,basis,b,limit,showAll,onOpen,table,chartState,onGroup:key=>{groupKey=key;showAll=false;draw('ranking-group');},onMore:()=>{showAll=!showAll;draw('rank-more');}});
+   drawOverview({target,o,basis,b,limit,showAll,onOpen,table,chartState,tableState,onTableChange,onGroup:key=>{groupKey=key;showAll=false;tableState.sort=null;draw('ranking-group');},onMore:()=>{showAll=!showAll;draw('rank-more');}});
   }else if(g){
    target.append(el('p',g.controls.Universe+' · '+g.controls.From+' — '+g.controls.To+' · '+g.controls.Allocation+' · '+num(g.controls['Initial capital'])+' capital'+(limit!==null?' · ceiling '+num(limit,'percent'):''),'ranking-context'));
    const ordered=I.ranking(g,basis),valid=ordered.filter(x=>x.item.withinLimit&&Number.isFinite(x.item[basis])),leaders=valid.filter(x=>Math.abs(x.item[basis]-valid[0].item[basis])<1e-9).map(x=>x.item),complete=valid.length===g.eligible.length,canLead=valid.length>=2&&complete,lead=canLead&&leaders.length===1?leaders[0]:null,m=measures[basis];
@@ -194,13 +273,7 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
     const stats=el('div',undefined,'hero-facts');for(const [label,value,signed] of [['Gross return',lead.returns,true],['Max drawdown',lead.drawdown,false]]){const s=el('span');s.append(el('small',label),el('strong',num(value,'percent',signed)));stats.append(s);}stats.append(button('Inspect this run',()=>onOpen(lead.run),'quiet'));hero.append(stats);}
    target.append(hero,el('p','Provisional ranking · costs and execution assumptions remain unverified.','ranking-caution'));
    const grid=el('div',undefined,'ranking-grid'),board=el('section',undefined,'rank-board reveal'),boardHead=el('div',undefined,'panel-heading');boardHead.append(el('h3','The leaderboard'),el('span',m.label+' · '+m.direction.toLowerCase(),'mini'));board.append(boardHead);
-   const wrap=el('div',undefined,'table-wrap');wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','Strategy ranking · scrollable table');const t=el('table',undefined,'rank-table');t.setAttribute('aria-label','Strategy ranking');t.dataset.basis=basis;const thead=el('thead'),tr=el('tr');['Rank','Strategy','Return','Drawdown','Calmar'].forEach((h,i)=>{const th=el('th',h);th.scope='col';if(i>1)th.className='numeric';tr.append(th);});thead.append(tr);t.append(thead);
-   const tbody=el('tbody');(showAll?ordered:ordered.slice(0,5)).forEach(({item:x,rank},index)=>{
-    const row=el('tr',undefined,(canLead&&leaders.includes(x)?'rank-leader ':'')+(!x.withinLimit?'rank-limited':''));row.style.setProperty('--order',Math.min(index,5));row.dataset.runId=x.run.id;const place=el('td');place.append(el('span',rank===null?'—':String(rank),'rank-place'));const identity=el('td');identity.append(button(nameOf(x),()=>onOpen(x.run),'rank-name'));
-    const status=!x.withinLimit?'Above ceiling':!Number.isFinite(x[basis])?'Missing '+m.label:rank===null?'Needs a peer':canLead&&leaders.includes(x)?(leaders.length>1?'Joint leader':'Leading'):x.dominatedBy.length?'Outperformed on return / drawdown':'Different return / risk trade-off';identity.append(el('small',status,'rank-status'));row.append(place,identity);
-    for(const [key,kind,signed] of [['returns','percent',true],['drawdown','percent',false],['calmar','number',true]])row.append(el('td',num(x[key],kind,signed),'numeric'+(key===basis?' ranked-value':'')));tbody.append(row);
-   });t.append(tbody);wrap.append(t);board.append(wrap);
-   if(ordered.length>5){const more=button(showAll?'Show top 5':'Show all '+ordered.length+' runs',()=>{showAll=!showAll;draw('rank-more');},'quiet');more.id='rank-more';board.append(more);}board.append(el('p','Ranks stay within this group. Equal values share a rank.','mini'));
+   board.append(strategyTable({ordered,basis,showAll,onOpen,leaders,canLead,state:tableState,onChange:onTableChange,onMore:()=>{showAll=!showAll;draw('rank-more');}}),el('p','Ranks stay within this group. Equal values share a rank.','mini'));
    grid.append(board,riskChart(g,canLead?leaders:[],b,{state:chartState,onOpen}));target.append(grid);
    const reference=el('section',undefined,'benchmark-brief reveal');reference.append(el('span','BUY & HOLD','eyebrow'));
    if(!bm.available)reference.append(el('h3','Add Nifty to the picture.'),el('p',bm.reason||'Choose a benchmark in Filters & benchmark.','muted'));
@@ -240,7 +313,7 @@ function render({target,runs,benchmarks=[],store,table,onOpen,onExit,onNotice,on
    }
    const rows=[['Group','Run','Aligned controls','Gross return (%)','Source CAGR (%)','Max drawdown (%)','Derived Calmar','Drawdown ceiling met','Dominated by','Reference','Reference basis','Reference source','Benchmark from','Benchmark to','Benchmark return (%)','Excess gross return (pp)','Benchmark caveats','Evidence']];a.groups.forEach((group,i)=>{const ref=I.benchmarkFor(group.items[0],b);group.items.forEach(x=>rows.push([i+1,nameOf(x),Object.entries(group.controls).map(([k,v])=>k+': '+v).join('; '),x.returns,x.cagr,x.drawdown,x.calmar,x.withinLimit,x.dominatedBy.join('; '),b?.name||'',b?.kind||'',b?.source||'',ref.from||'',ref.to||'',ref.returns??'',ref.available?x.returns-ref.returns:'',ref.cautions?.join('; ')||ref.reason||'',x.cautions.join('; ')]));});download('strategy-analysis.csv',root.Vault.csv(rows.map(row=>row.map(v=>typeof v==='number'?Number(v.toFixed(6)):v))),'text/csv;charset=utf-8');
   },'quiet');exportButton.disabled=all?!runs.length:!a.groups.length;target.append(exportButton,el('span',all?'Exports every run, status and setting in this comparison.':'Exports all comparison groups.','mini export-scope'));
-  target.querySelectorAll('details[id]').forEach(d=>{d.open=openDetails.has(d.id);});if(focusId)document.getElementById(focusId)?.focus({preventScroll:true});
+  target.querySelectorAll('details[id]').forEach(d=>{d.open=openDetails.has(d.id);});const tableWrap=target.querySelector('.rank-table')?.parentElement;if(tableWrap)tableWrap.scrollLeft=tableState.scrollLeft||0;if(focusId)document.getElementById(focusId)?.focus({preventScroll:true});
  }
  draw();
 }
