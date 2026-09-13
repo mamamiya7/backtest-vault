@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.7.1 - 2026-09-13
+
+- Check registered RZone tabs directly for discovery and immediately before Start. A delayed background timer no longer removes a responding source after 15 seconds.
+- Auto-select a single ready Candle tab, preserve an existing selection when disconnected, and disable Start with a current connection message when needed.
+- Keep native dropdown options unchanged while focused so refreshes cannot dismiss the menu. Never silently switch a chosen source to a different tab.
+- Wake the selected runner after Start without waiting for its next page timer. Status probes cannot submit trials, renew leases, or replace the recorded document owner.
+- Add regression coverage for delayed heartbeats, closed/reloaded tabs, open dialogs, untrusted status requests and dropdown interaction during refresh. Live installed batch acceptance remains pending.
+
 ## 0.7.0 - 2026-09-13
 
 - Add Experiments: saved baselines, validated ranges, grid/sample/bounded adaptive modes, frozen decision rules and a finite queue preview.

@@ -21,7 +21,7 @@ async function scenario(changeLocked=false){
  });});
  const memory={},runtime={id:'test-ext',getURL:p=>'chrome-extension://test-ext/'+p},source={id:'test-ext',url:w.location.href,tab:{id:9}},dashboard={id:'test-ext',url:runtime.getURL('index.html')};let uid=0;
  const storage={get:async key=>key?{[key]:E.clone(memory[key]??null)}:E.clone(memory),set:async data=>Object.assign(memory,E.clone(data))};const coordinator=createCoordinator({storage,runtime,uuid:()=> 'test-id-'+(++uid)});
- w.chrome={storage:{local:storage},runtime:{...runtime,sendMessage:m=>coordinator.handle(m,source)}};
+ const listeners=[];w.chrome={storage:{local:storage},runtime:{...runtime,sendMessage:m=>coordinator.handle(m,source),onMessage:{addListener:fn=>listeners.push(fn)}}};
  w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};
  for(const file of ['core.js','presentation.js','intelligence.js','experiments.js','capture.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
  // Build the baseline from the same visible form labels the saver records.
@@ -30,7 +30,13 @@ async function scenario(changeLocked=false){
  const plan=E.create({id:'runner-proof',name:'Runner proof',baseline:E.baseline(fixture),dimensions:[{key:'momentum.period.1',values:'126,180,252'}],minTrades:0});memory['experiment:'+plan.id]=plan;
  if(changeLocked)main.querySelectorAll('input')[0].value='Unexpected group';
  w.eval(fs.readFileSync(path.join(base,'runner.js'),'utf8'));
- try{for(let n=0;n<50&&!memory['runner:tab:9'];n++)await sleep(10);await coordinator.handle({action:'start',id:plan.id,tabId:9},dashboard);
+ try{for(let n=0;n<50&&!memory['runner:tab:9'];n++)await sleep(10);
+  const probe=()=>{let status;for(const fn of listeners)fn({type:'vault-runner-status'},{id:runtime.id},r=>status=r);return status;};
+  assert.equal(probe().ready,true);assert.equal(probe().session,memory['runner:tab:9'].session);
+  const blockedDialog=popup('Existing report');assert.equal(probe().ready,false);assert.match(probe().reason,/Close/);blockedDialog.remove();
+  let untrustedReply=false;for(const fn of listeners)fn({type:'vault-runner-status'},{id:'other-extension'},()=>untrustedReply=true);assert.equal(untrustedReply,false);
+  await coordinator.handle({action:'start',id:plan.id,tabId:9},dashboard);
+  for(const fn of listeners)fn({type:'vault-runner-wake'},{id:runtime.id},()=>{});
   for(let n=0;n<300&&!['complete','needs-review'].includes(memory['experiment:'+plan.id].status);n++)await sleep(20);
   const result=memory['experiment:'+plan.id];
   if(changeLocked){assert.equal(result.status,'needs-review');assert.equal(submissions,0);assert.equal(Object.keys(memory).filter(k=>k.startsWith('run:')).length,0);}

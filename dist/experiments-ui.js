@@ -26,6 +26,7 @@ let cleanup=()=>{};
 async function render({target,store,runs,onOpen,onExit,onNotice,table,download,baselineRun}){
 
  cleanup();document.body.classList.add('experiments-mode');let timer,selected=null,experiments=[],tabs=[],disposed=false,simulation=false,refreshing=false;
+ let refreshSource=()=>{};const sourceChoices=new Map();
 
  const extension=!store.demo&&location.protocol==='chrome-extension:'&&typeof chrome!=='undefined'&&!!chrome.runtime?.sendMessage;
 
@@ -52,6 +53,33 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
  async function load(){if(extension){const r=await command('list');experiments=r.experiments;tabs=r.tabs;}else experiments=await store.allExperiments();runs=await store.all();}
 
  async function action(fn){try{notice.textContent='';await fn();}catch(e){notice.textContent=e.message;notice.className='notice error';}}
+
+ function sourceControls(id,state){
+  const picker=select([['','Select RZone tab']]),help=el('p','','mini');
+  picker.setAttribute('aria-label','RZone tab');picker.dataset.rzone='true';help.setAttribute('role','status');
+  const ready=t=>t.ready&&t.chart==='Candle';
+  const start=button(state==='draft'?'Start experiment':'Resume',()=>action(async()=>{
+   const tab=tabs.find(t=>String(t.id)===picker.value);if(!tab||!ready(tab))throw Error('Connect a ready Candle RZone tab first.');
+   start.disabled=true;try{await command('start',{id,tabId:tab.id});await load();detail(id);}finally{if(start.isConnected)refreshSource();}
+  }),'primary');
+  function sync(){
+   const available=tabs.filter(ready);let chosen=sourceChoices.get(id)||'';
+   if(!chosen&&available.length===1){chosen=String(available[0].id);sourceChoices.set(id,chosen);}
+   const current=tabs.find(t=>String(t.id)===chosen);
+   // Never rebuild a focused native menu: Chrome can dismiss its open choices.
+   if(document.activeElement!==picker){
+    const opts=[['','Select RZone tab'],...tabs.map(t=>[String(t.id),'RZone · '+(t.chart||'not ready')+(ready(t)?'':' · unavailable')+' · tab '+t.id])];
+    if(chosen&&!current)opts.push([chosen,'RZone · not connected']);
+    if(JSON.stringify([...picker.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(opts))picker.replaceChildren(...[...select(opts).options]);
+    picker.value=chosen;
+   }
+   const target=tabs.find(t=>String(t.id)===picker.value);start.disabled=!target||!ready(target);
+   help.textContent=target?(target.reason||(!ready(target)?'Live experiments currently need a Candle RZone tab.':'')):chosen?'RZone is not responding. Open its tab to reconnect.':'Open RZone Momentum BackTesting and close any report or settings dialogs.';
+   help.hidden=!help.textContent;
+  }
+  picker.onchange=()=>{sourceChoices.set(id,picker.value);sync();};picker.onblur=sync;refreshSource=sync;sync();
+  return [picker,start,help];
+ }
 
  function heading(title,back){const h=el('div',undefined,'comparison-intro');const text=el('div');text.append(el('p','EXPERIMENTS','eyebrow'),el('h2',title));h.append(text,button(back?'All experiments':'Run library',back?()=>list():onExit,'quiet'));return h;}
 
@@ -158,7 +186,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
    if(store.demo)actions.append(button(simulation?'Simulation running':'Simulate queue',()=>action(()=>simulate(id)),'primary'));
 
-   else if(extension){if(!tabs.some(t=>t.ready))actions.append(el('p','Open RZone Momentum BackTesting and close any existing report or settings dialogs. Its tab will appear here.','mini'));const targetTab=select([['','Select RZone tab'],...tabs.filter(t=>t.ready).map(t=>[String(t.id),'RZone · '+t.chart+' · tab '+t.id])]);targetTab.setAttribute('aria-label','RZone tab');targetTab.dataset.rzone='true';actions.append(targetTab,button(e.status==='draft'?'Start experiment':'Resume',()=>action(async()=>{if(!targetTab.value)throw Error('Select the RZone tab to use.');await command('start',{id,tabId:+targetTab.value});await load();detail(id);}),'primary'));}
+   else if(extension)actions.append(...sourceControls(id,e.status));
 
    else actions.append(el('p','Run this plan from the installed extension. This browser viewer stores plans separately.','muted'));
 
@@ -204,7 +232,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  await load();if(baselineRun)builder(baselineRun);else list();
 
- timer=setInterval(async()=>{if(!alive()){cleanup();return;}if(refreshing)return;refreshing=true;try{const before=selected&&experiments.find(e=>e.id===selected)?.revision;await load();const tabPicker=content.querySelector('[data-rzone]');if(tabPicker){const value=tabPicker.value;const opts=[['','Select RZone tab'],...tabs.filter(t=>t.ready).map(t=>[String(t.id),'RZone · '+t.chart+' · tab '+t.id])];if(JSON.stringify([...tabPicker.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(opts)){tabPicker.replaceChildren(...[...select(opts).options]);tabPicker.value=opts.some(o=>o[0]===value)?value:'';}}const after=selected&&experiments.find(e=>e.id===selected)?.revision;if(selected&&before!==after&&!content.contains(document.activeElement))detail(selected);}catch(error){notice.textContent=error.message;}finally{refreshing=false;}},3000);
+ timer=setInterval(async()=>{if(!alive()){cleanup();return;}if(refreshing)return;refreshing=true;try{const before=selected&&experiments.find(e=>e.id===selected)?.revision;await load();if(content.querySelector('[data-rzone]'))refreshSource();const after=selected&&experiments.find(e=>e.id===selected)?.revision;if(selected&&before!==after&&!content.contains(document.activeElement))detail(selected);}catch(error){notice.textContent=error.message;}finally{refreshing=false;}},3000);
 
 }
 

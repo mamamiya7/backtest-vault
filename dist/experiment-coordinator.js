@@ -3,11 +3,20 @@
 'use strict';
 const E=typeof module!=='undefined'?require('./experiments.js'):root.VaultExperiments;
 const V=typeof module!=='undefined'?require('./core.js'):root.Vault;
-function createCoordinator({storage,runtime,clock=()=>Date.now(),uuid=()=>crypto.randomUUID()}){
+function createCoordinator({storage,runtime,probe,clock=()=>Date.now(),uuid=()=>crypto.randomUUID()}){
  let serial=Promise.resolve();
  const get=async k=>(await storage.get(k))[k];
  const put=e=>storage.set({['experiment:'+e.id]:e});
  const collection=async prefix=>Object.entries(await storage.get(null)).filter(([k])=>k.startsWith(prefix)).map(([,v])=>v);
+ async function sourceStatus(tab){
+  if(!tab)return null;
+  if(!probe)return clock()-tab.seenAt<15000?tab:null;
+  // A direct reply does not depend on background-page interval scheduling.
+  // Probing never renews a trial lease or changes its document owner.
+  try{const r=await probe(tab.id);if(!r||r.session!==tab.session)return null;
+   return {...tab,ready:r.ready===true,chart:String(r.chart||'').slice(0,30),reason:String(r.reason||'').slice(0,180)};
+  }catch{return null;}
+ }
  async function reviewLease(){
   const l=await get('runner:lease');if(!l||clock()-l.seenAt<90000)return l;
   const e=await get('experiment:'+l.experimentId),t=e?.trials.find(t=>t.id===l.trialId);
@@ -31,7 +40,7 @@ function createCoordinator({storage,runtime,clock=()=>Date.now(),uuid=()=>crypto
    return {ok:true,id:mine?.id||null};
   }
   if(dashboard&&m.action==='list'){
-   await reviewLease();return {ok:true,experiments:await collection('experiment:'),tabs:(await collection('runner:tab:')).filter(v=>clock()-v.seenAt<15000)};
+   await reviewLease();const tabs=(await Promise.all((await collection('runner:tab:')).map(sourceStatus))).filter(Boolean);return {ok:true,experiments:await collection('experiment:'),tabs};
   }
   if(dashboard&&m.action==='create'){
    const e=E.create({...m.plan,id:uuid()});if(e.demo)throw Error('Fictional experiments cannot control RZone.');
@@ -43,7 +52,7 @@ function createCoordinator({storage,runtime,clock=()=>Date.now(),uuid=()=>crypto
     if(await reviewLease())throw Error('A trial still owns the source tab. Finish or review it first.');
     if((await collection('experiment:')).some(x=>x.id!==e.id&&['running','pausing'].includes(x.status)))throw Error('Another experiment is running.');
     if(!['draft','paused'].includes(e.status)||e.trials.some(t=>t.status==='uncertain'))throw Error('Review interrupted trials before resuming.');
-    const tab=await get('runner:tab:'+m.tabId);if(!tab?.ready||clock()-tab.seenAt>15000)throw Error('Open RZone Momentum BackTesting with the updated extension, then select its tab.');
+    const tab=await sourceStatus(await get('runner:tab:'+m.tabId));if(!tab?.ready)throw Error(tab?.reason||'RZone is not responding. Open its Momentum BackTesting page with the updated extension, then try again.');
     if(e.demo||!e.trials.some(t=>t.status==='queued'))throw Error('There are no queued real trials.');
     if(E.fields(e.baseline,'momentum')[0].value!=='Candle'||E.fields(e.baseline,'execution')[3].value!=='Candle')throw Error('P&F and Renko plans can be saved; live execution is waiting for separate adapter acceptance tests.');
     e.owner={tabId:tab.id,session:tab.session};e.status='running';E.journal(e,'Started on selected RZone tab');await put(e);return {ok:true};

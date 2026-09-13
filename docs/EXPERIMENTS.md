@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.7.0 introduces a working experiment planner, local queue, Decision Desk and fictional simulation. The Candle executor has passed a three-trial DOM integration test. **Installed-extension and live RZone batch acceptance are still pending.** P&F/Renko plans can be prepared, but live execution is gated until their write adapters pass separate acceptance tests.
+Version 0.7.1 includes the experiment planner, local queue, Decision Desk and fictional simulation, with direct RZone connection checks and stable tab selection. The Candle executor has passed a three-trial DOM integration test. **Installed-extension and live RZone batch acceptance are still pending.** P&F/Renko plans can be prepared, but live execution is gated until their write adapters pass separate acceptance tests.
 
 ## Trader workflow
 
@@ -21,10 +21,12 @@ flowchart LR
 2. Choose one to six settings. Enter explicit values, such as `126,180,252`, or `100:200:25` for start/end/step. These are input examples, not trading recommendations.
 3. Choose All combinations, Budgeted sample or Adaptive. Freeze Calmar, Return or Drawdown as the objective, together with a drawdown ceiling and minimum reported trades.
 4. Save the plan. Review **All trials** and **Baseline & locked context**.
-5. In the installed extension, select a ready RZone tab and Start. That tab must have the matching baseline configured, with existing report/settings dialogs closed. Use one designated tab for the batch.
+5. In the installed extension, a single ready Candle RZone tab is selected automatically. With several tabs, choose one and Start. That tab must have the matching baseline configured, with existing report/settings dialogs closed. Use one designated tab for the batch.
 6. Stop after current finishes capturing the active report. Resume starts the next queued trial. Closing Vault does not stop an active source tab; closing or refreshing the source tab requires recovery review.
 
 The localhost viewer can prepare and export plans. It has no bridge to the installed extension. Import the plan JSON into the extension, then select a source tab. Import never starts execution automatically.
+
+Vault asks registered source tabs for their current readiness instead of treating a delayed timer as a missing tab. It checks again before Start and wakes the chosen runner. A disconnected selection stays visible, with Start disabled; Vault never silently switches it to another tab. Keep Chrome, RZone and the computer running. Source execution can slow or stop if Chrome suspends the page. These readiness checks do not renew an active trial's lease or authorize replay.
 
 ## What can vary now
 

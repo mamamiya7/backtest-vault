@@ -7,7 +7,27 @@ function app(demo=true){const dom=new JSDOM(fs.readFileSync(path.join(base,'inde
  const click=text=>{const b=[...d.querySelectorAll('button')].find(b=>b.textContent===text);assert.ok(b,'Button '+text);b.click();};return {dom,w,d,memory,downloads,click,durable:()=>durable};
 }
 const tick=(n=40)=>new Promise(r=>setTimeout(r,n));
-(async()=>{const a=app();let real;try{await tick();assert.match(a.d.querySelector('#detail').textContent,/Plan → Run → Decide/);a.click('New experiment');
+async function sourcePickerTests(){
+ const dom=new JSDOM('<main></main>',{runScripts:'outside-only',url:'chrome-extension://test-extension/index.html'}),w=dom.window,d=w.document;w.structuredClone=structuredClone;
+ let poll,tabs=[{id:7,chart:'Candle',ready:true}];w.setInterval=fn=>{poll=fn;return 1;};w.clearInterval=()=>{};
+ for(const file of ['core.js','presentation.js','intelligence.js','experiments.js','demo.js','experiments-ui.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
+ const run=w.VaultDemo.create()[0];run.demo=false;const baseline=w.VaultExperiments.baseline(run),plan=w.VaultExperiments.create({id:'picker-test',name:'Picker test',baseline,dimensions:[{key:'momentum.period.1',values:'126,180,252'}]});
+ let starts=0;w.chrome={runtime:{sendMessage:async m=>{if(m.action==='list')return {ok:true,experiments:[plan],tabs};if(m.action==='start'){starts++;assert.equal(m.tabId,9);return {ok:false,error:'Source no longer ready.'};}throw Error('Unexpected command');}}};
+ const store={demo:false,all:async()=>[run],allBenchmarks:async()=>[],allExperiments:async()=>[plan]};
+ const render=()=>w.VaultExperimentsUI.render({target:d.querySelector('main'),store,runs:[run],onOpen:()=>{},onExit:()=>{},onNotice:()=>{},table:()=>d.createElement('table'),download:()=>{}});
+ try{
+  await render();d.querySelector('.experiment-card').click();const picker=d.querySelector('[data-rzone]'),start=[...d.querySelectorAll('button')].find(b=>b.textContent==='Start experiment');
+  assert.equal(picker.value,'7','One ready source is selected automatically');assert.equal(start.disabled,false);
+  picker.focus();const options=[...picker.options];tabs=[];await poll();assert.deepEqual([...picker.options],options,'Never replace options while native menu is focused');assert.equal(start.disabled,true);
+  picker.blur();assert.equal(picker.value,'7');assert.match(picker.selectedOptions[0].textContent,/not connected/);assert.match(d.querySelector('.experiment-actions').textContent,/not responding/);
+  tabs=[{id:9,chart:'Candle',ready:true}];await poll();assert.equal(picker.value,'7','Never silently switch an existing selection');assert.equal(start.disabled,true);
+  picker.value='9';picker.dispatchEvent(new w.Event('change'));assert.equal(start.disabled,false);
+  tabs=[{id:7,chart:'Candle',ready:true},{id:9,chart:'Candle',ready:true}];await poll();assert.equal(picker.value,'9');start.click();await tick();assert.equal(starts,1);assert.match(d.querySelector('.notice').textContent,/Source no longer ready/);
+  tabs=[{id:9,chart:'Candle',ready:false,reason:'Close the open report in RZone.'}];await poll();assert.equal(picker.value,'9');assert.equal(start.disabled,true);assert.match(d.querySelector('.experiment-actions').textContent,/Close the open report/);
+  tabs=[];await render();d.querySelector('.experiment-card').click();const late=d.querySelector('[data-rzone]');assert.equal(late.value,'');tabs=[{id:12,chart:'Candle',ready:true}];await poll();assert.equal(late.value,'12','A source discovered later is auto-selected');
+ }finally{w.VaultExperimentsUI.dispose();dom.window.close();}
+}
+(async()=>{await sourcePickerTests();const a=app();let real;try{await tick();assert.match(a.d.querySelector('#detail').textContent,/Plan → Run → Decide/);a.click('New experiment');
  const values=a.d.querySelector('.experiment-dimension input');values.value='126,180,252';values.dispatchEvent(new a.w.Event('input'));assert.match(a.d.querySelector('.experiment-preview').textContent,/3 planned runs/);
  a.d.querySelector('form').dispatchEvent(new a.w.Event('submit',{bubbles:true,cancelable:true}));await tick();assert.equal((await a.w.VaultStore.allExperiments()).length,1);a.click('Simulate queue');await tick(650);a.click('Stop after current');await tick(1000);
  let e=(await a.w.VaultStore.allExperiments())[0];assert.equal(e.status,'paused');assert.ok(e.trials.some(t=>t.status==='saved'));a.click('Simulate queue');await tick(1600);e=(await a.w.VaultStore.allExperiments())[0];assert.equal(e.status,'complete');assert.equal(e.trials.filter(t=>t.status==='saved').length,3);assert.match(a.d.querySelector('.experiment-evidence').textContent,/Trial/);assert.equal(a.durable(),0);

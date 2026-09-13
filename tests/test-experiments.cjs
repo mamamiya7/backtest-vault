@@ -42,6 +42,17 @@ async function coordinatorTests(){
  await assert.rejects(call('reconcile',{id,trialId:next.trial.id}),/No durable/);
  // A failed persistence acknowledgement must not dispatch another trial.
  const blocked=createCoordinator({storage:{...storage,set:async()=>{throw Error('Storage unavailable');}},runtime});await assert.rejects(blocked.handle({action:'create',plan:{...config,baseline:real}},dashboard),/Storage unavailable/);
+ // Hidden-page heartbeats can be delayed. Discovery/start must use a direct reply,
+ // while neither discovery nor a closed/reloaded tab may revive an old owner.
+ let reply={session:'session-1',ready:true,chart:'Candle'};
+ c=createCoordinator({storage,runtime,clock:()=>time,uuid:()=> 'generated-'+(++ids),probe:async tabId=>{assert.equal(tabId,7);if(!reply)throw Error('Tab closed');return clone(reply);}});
+ const leaseBefore=clone(memory['runner:lease']);time+=120000;
+ assert.equal((await call('list')).tabs[0].ready,true,'Responding background tab survives delayed heartbeat');assert.deepEqual(memory['runner:lease'],leaseBefore);
+ const {experiment:live}=await call('create',{plan:{...config,baseline:real}});
+ reply.ready=false;reply.reason='Close the open report.';await assert.rejects(call('start',{id:live.id,tabId:7}),/Close the open report/);
+ reply={session:'new-document',ready:true,chart:'Candle'};assert.equal((await call('list')).tabs.length,0);await assert.rejects(call('start',{id:live.id,tabId:7}),/not responding/);
+ reply=null;assert.equal((await call('list')).tabs.length,0);await assert.rejects(call('start',{id:live.id,tabId:7}),/not responding/);
+ reply={session:'session-1',ready:true,chart:'Candle'};await call('start',{id:live.id,tabId:7});assert.equal(memory['experiment:'+live.id].status,'running');
 }
 
 async function decisionTests(){

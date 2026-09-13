@@ -8,6 +8,15 @@ const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const send=async data=>{const r=await chrome.runtime.sendMessage({type:'vault-experiment',session,...data});if(!r?.ok)throw Error(r?.error||'Extension disconnected.');return r;};
 const inputs=p=>[...p.querySelectorAll('input,select,textarea')].filter(e=>C.visible(e)&&!['password','hidden','submit','button'].includes(e.type)&&!e.closest('[role="tab"]'));
 const popups=()=>[...document.querySelectorAll('.popupContent')].filter(C.visible);
+function sourceStatus(){
+ const main=C.main();const reason=failed?'RZone runner stopped. Refresh RZone after preserving any open report.':active?'A trial is running in RZone.':C.pending()?'Recover the pending save in RZone first.':!main||!document.body.innerText.includes('Momentum Trading BackTesting')?'Open Momentum Trading BackTesting in RZone.':popups().length?'Close the open report or settings dialog in RZone.':'';
+ return {session,ready:!reason,chart:C.fields(main)[0]?.value||'',reason};
+}
+chrome.runtime.onMessage.addListener((message,sender,reply)=>{
+ if(sender.id!==chrome.runtime.id)return;
+ if(message?.type==='vault-runner-status')reply(sourceStatus());
+ if(message?.type==='vault-runner-wake'){reply({ok:true});void tick();}
+});
 function button(p,name){const matches=[...p.querySelectorAll('button')].filter(e=>C.visible(e)&&!e.disabled&&name.test(V.clean(e.textContent)));if(matches.length!==1)throw Error('Cannot identify the '+name+' control.');return matches[0];}
 function check(){if(interrupted)throw Error('The source tab was changed manually. Review the current trial.');if(!C.main())throw Error('RZone Momentum page is unavailable.');if(C.popup('Error'))throw Error('Definedge rejected the submitted settings.');}
 async function wait(checkValue,deadline,message){while(Date.now()<deadline){check();const v=checkValue();if(v)return v;await delay(250);}throw Error(message);}
@@ -55,7 +64,7 @@ async function run(job){
 }
 document.addEventListener('click',event=>{if(active&&event.isTrusted&&!C.host.contains(event.target))interrupted=true;},true);
 document.addEventListener('input',event=>{if(active&&event.isTrusted&&!C.host.contains(event.target))interrupted=true;},true);
-async function tick(){if(polling)return;polling=true;try{const r=await send({action:'hello',ready:!!C.main()&&!failed&&!C.pending()&&!popups().length,chart:C.fields(C.main())[0]?.value,failed});if(r.id&&!active&&!failed){const job=await send({action:'claim',id:r.id});if(job.trial)void run(job);}}catch{/* Reload invalidates the document; do not keep sending or submit again. */failed=true;}finally{polling=false;}}
+async function tick(){if(polling)return;polling=true;try{const r=await send({action:'hello',...sourceStatus(),failed});if(r.id&&!active&&!failed){const job=await send({action:'claim',id:r.id});if(job.trial)void run(job);}}catch{/* Reload invalidates the document; do not keep sending or submit again. */failed=true;}finally{polling=false;}}
 window.VaultRunner={get active(){return active;},apply};
 const timer=setInterval(tick,3000);void tick();window.addEventListener('pagehide',()=>{clearInterval(timer);interrupted=true;},{once:true});
 })();
