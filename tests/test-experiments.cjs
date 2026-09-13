@@ -1,8 +1,12 @@
 const assert=require('node:assert/strict'),E=require('../dist/experiments.js'),D=require('../dist/demo.js'),V=require('../dist/core.js');
 const {createCoordinator}=require('../dist/experiment-coordinator.js');
 const clone=E.clone,b=E.baseline(D.create()[0]);
+const reordered=x=>Array.isArray(x)?x.map(reordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,reordered(x[k])])):x;
 const config={id:'exp-test',name:'Period study',baseline:b,dimensions:[{key:'momentum.period.1',values:'126:252:63'},{key:'execution.stop',values:'6,8'}],minTrades:10};
 const e=E.create(config);assert.equal(e.trials.length,6);assert.equal(E.validate(e),e);assert.equal(E.fields(b,'momentum')[12].value,'180');assert.equal(E.fields(E.expected(e,e.trials[0]),'momentum')[12].value,'126');
+const stored=reordered(e);assert.equal(E.validate(stored),stored,'Storage property order does not alter the approved plan');
+const changedIndex=reordered(e);changedIndex.dimensions[0].index++;assert.throws(()=>E.validate(changedIndex),/settings were altered/);
+const changedOrder=reordered(e);changedOrder.dimensions[0].values.reverse();assert.throws(()=>E.validate(changedOrder),/queue was altered/,'Array order still determines the approved trial order');
 assert.throws(()=>E.create({...config,budget:3}),/exceed/);assert.throws(()=>E.create({...config,dimensions:[{key:'momentum.group',values:'something'}]}),/Unknown/);
 assert.throws(()=>E.create({...config,dimensions:[{key:'momentum.period.1',values:'0,1.2'}]}),/valid whole/);
 assert.throws(()=>E.create({...config,dimensions:[{key:'momentum.period.1',values:'1:20:0'}]}),/positive step/);
@@ -17,7 +21,7 @@ const broken=clone(sampled);broken.trials[0].patch['momentum.period.1']=999;asse
 
 async function coordinatorTests(){
  const memory={},runtime={id:'test-extension',getURL:p=>'chrome-extension://test-extension/'+p};let time=100000,ids=0;
- const storage={get:async key=>key?{[key]:clone(memory[key]??null)}:clone(memory),set:async data=>Object.assign(memory,clone(data))};
+ const storage={get:async key=>reordered(key?{[key]:clone(memory[key]??null)}:clone(memory)),set:async data=>Object.assign(memory,clone(data))};
  const make=()=>createCoordinator({storage,runtime,clock:()=>time,uuid:()=> 'generated-'+(++ids)});let c=make();
  const dashboard={id:runtime.id,url:runtime.getURL('index.html')},source={id:runtime.id,url:'https://zone.definedgesecurities.com/index.html#research',tab:{id:7}};
  const real=clone(b);real.demo=false;
@@ -63,6 +67,9 @@ async function decisionTests(){
   const noCagr=clone(runs[0]);noCagr.quickStats=noCagr.quickStats.filter(s=>s.label!=='CAGR');assert.equal(w.VaultExperiments.result(plan,plan.trials[0],noCagr).eligible,false,'Annualized fallback must not enter Calmar');
   assert.throws(()=>w.VaultExperiments.validation(plan,d.leader.trial.id,{from:'2025-06-01',to:'2025-12-01'}),/strictly after/);
   w.VaultExperiments.validation(plan,d.leader.trial.id,{from:'2026-01-01',to:'2026-06-01'});assert.equal(plan.trials.at(-1).phase,'validation');assert.deepEqual(plan.trials.at(-1).patch,d.leader.trial.patch);
+  w.VaultExperiments.validate(reordered(plan));
+  const changedCandidate=reordered(plan);changedCandidate.trials.at(-1).patch['execution.stop']=changedCandidate.trials.at(-1).patch['execution.stop']===6?8:6;assert.throws(()=>w.VaultExperiments.validate(changedCandidate),/preserve its candidate/);
+  const duplicate=clone(runs[1]);for(const key of ['quickStats','statistics','trades'])duplicate[key]=reordered(runs[0][key]);const duplicateDecision=w.VaultExperiments.decisions(plan,[runs[0],duplicate]);assert.ok(duplicateDecision.items.find(x=>x.run.id===duplicate.id).reasons.includes('Repeated report evidence.'));
   const before=w.VaultExperiments.nextTrial({...plan,mode:'adaptive'},runs);const holdoutLeak=clone(runs[0]);holdoutLeak.id='unrelated';holdoutLeak.quickStats[0].value='999999%';assert.equal(w.VaultExperiments.nextTrial({...plan,mode:'adaptive'},[...runs,holdoutLeak]).id,before.id);
   w.VaultExperiments.validate(plan);
  }finally{dom.window.close();}

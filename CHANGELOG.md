@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.7.2 - 2026-09-13
+
+- Validate saved experiments by their values, ignoring object-property order returned by storage. Unchanged plans no longer fail with "Experiment settings were altered" solely because their properties were reordered.
+- Preserve ordered arrays, setting indices, approved values, trial order and frozen validation candidates. Actual edits remain rejected.
+- Make repeated-report detection independent of object-property order. Exercise coordinator recovery and all three sequential DOM trials with reordered storage responses.
+
 ## 0.7.1 - 2026-09-13
 
 - Check registered RZone tabs directly for discovery and immediately before Start. A delayed background timer no longer removes a responding source after 15 seconds.

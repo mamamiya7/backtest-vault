@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.7.1 includes the experiment planner, local queue, Decision Desk and fictional simulation, with direct RZone connection checks and stable tab selection. The Candle executor has passed a three-trial DOM integration test. **Installed-extension and live RZone batch acceptance are still pending.** P&F/Renko plans can be prepared, but live execution is gated until their write adapters pass separate acceptance tests.
+Version 0.7.2 includes the experiment planner, local queue, Decision Desk and fictional simulation, with direct RZone connection checks and stable tab selection. The Candle executor has passed a three-trial DOM integration test. **Installed-extension and live RZone batch acceptance are still pending.** P&F/Renko plans can be prepared, but live execution is gated until their write adapters pass separate acceptance tests.
 
 ## Trader workflow
 

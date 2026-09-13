@@ -5,6 +5,9 @@ const V=typeof module!=='undefined'?require('./core.js'):root.Vault;
 const P=typeof module!=='undefined'?require('./presentation.js'):root.VaultPresentation;
 const I=typeof module!=='undefined'?require('./intelligence.js'):root.VaultIntelligence;
 const clone=x=>JSON.parse(JSON.stringify(x)), stages=['momentum','execution','portfolio'];
+// Storage may reorder object properties. Array order and every value still matter.
+const ordered=x=>Array.isArray(x)?x.map(ordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,ordered(x[k])])):x;
+const signature=x=>JSON.stringify(ordered(x)),same=(a,b)=>signature(a)===signature(b);
 const fields=(b,s)=>s==='portfolio'?b.parameters?.settings?.fields:b.parameters?.strategy?.[s==='momentum'?'main':'execution']?.fields;
 const stageSnapshot=(b,s)=>({fields:fields(b,s)});
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
@@ -75,13 +78,13 @@ function verify(expectedFields,actualFields){
 function validate(e){
  if(!e||e.schemaVersion!==1||!idOK(e.id)||!Array.isArray(e.trials)||e.trials.length>1000||!['draft','running','pausing','paused','complete','needs-review'].includes(e.status))throw Error('Invalid experiment archive.');
  const fresh=create({...e,dimensions:e.dimensions,now:e.createdAt});
- if(JSON.stringify(fresh.dimensions)!==JSON.stringify(e.dimensions)||fresh.combinationCount!==e.combinationCount||fresh.demo!==e.demo)throw Error('Experiment settings were altered.');
+ if(!same(fresh.dimensions,e.dimensions)||fresh.combinationCount!==e.combinationCount||fresh.demo!==e.demo)throw Error('Experiment settings were altered.');
  const discovery=e.trials.filter(t=>t.phase==='discovery');
- if(discovery.length!==fresh.trials.length||discovery.some((t,i)=>t.id!==fresh.trials[i].id||t.ordinal!==fresh.trials[i].ordinal||JSON.stringify(t.patch)!==JSON.stringify(fresh.trials[i].patch)))throw Error('The planned discovery queue was altered.');
+ if(discovery.length!==fresh.trials.length||discovery.some((t,i)=>t.id!==fresh.trials[i].id||t.ordinal!==fresh.trials[i].ordinal||!same(t.patch,fresh.trials[i].patch)))throw Error('The planned discovery queue was altered.');
  if(e.trials.filter(t=>t.phase==='validation').length>1||e.trials.filter(t=>t.phase==='holdout').length>1)throw Error('Validation stages must remain frozen.');
  const ids=new Set(),validStates=['queued',...active,'saved','uncertain','skipped'];
  if(!Array.isArray(e.events)||e.events.length>10000)throw Error('Invalid experiment history.');
- for(const t of e.trials){if(!idOK(t.id)||!idOK(t.runId)||t.id!==t.runId||!t.id.startsWith(e.id+'-t')||ids.has(t.id)||!validStates.includes(t.status)||!['discovery','validation','holdout'].includes(t.phase)||!Array.isArray(t.events))throw Error('Invalid trial journal.');ids.add(t.id);if(Object.keys(t.patch||{}).length!==e.dimensions.length||e.dimensions.some(d=>!d.values.includes(t.patch[d.key])))throw Error('Trial is outside the approved ranges.');if(t.phase!=='discovery'){if(!t.period||I.date(t.period.from)!==t.period.from||I.date(t.period.to)!==t.period.to||t.period.from>=t.period.to)throw Error('Invalid validation dates.');const parent=e.trials.find(x=>x.id===t.parentTrialId&&x.phase===(t.phase==='validation'?'discovery':'validation'));if(!parent||JSON.stringify(t.patch)!==JSON.stringify(parent.patch)||t.period.from<=(parent.period?.to||fields(e.baseline,'execution')[2].value))throw Error('Validation must preserve its candidate and use a later period.');}expected(e,t);}
+ for(const t of e.trials){if(!idOK(t.id)||!idOK(t.runId)||t.id!==t.runId||!t.id.startsWith(e.id+'-t')||ids.has(t.id)||!validStates.includes(t.status)||!['discovery','validation','holdout'].includes(t.phase)||!Array.isArray(t.events))throw Error('Invalid trial journal.');ids.add(t.id);if(Object.keys(t.patch||{}).length!==e.dimensions.length||e.dimensions.some(d=>!d.values.includes(t.patch[d.key])))throw Error('Trial is outside the approved ranges.');if(t.phase!=='discovery'){if(!t.period||I.date(t.period.from)!==t.period.from||I.date(t.period.to)!==t.period.to||t.period.from>=t.period.to)throw Error('Invalid validation dates.');const parent=e.trials.find(x=>x.id===t.parentTrialId&&x.phase===(t.phase==='validation'?'discovery':'validation'));if(!parent||!same(t.patch,parent.patch)||t.period.from<=(parent.period?.to||fields(e.baseline,'execution')[2].value))throw Error('Validation must preserve its candidate and use a later period.');}expected(e,t);}
  if(e.trials.filter(t=>active.includes(t.status)).length>1)throw Error('Only one trial can run at a time.');
  return e;
 }
@@ -103,7 +106,7 @@ function decisions(e,runs,phase='discovery'){
  const map=new Map(runs.map(r=>[r.id,r])),items=e.trials.filter(t=>t.phase===phase&&t.status==='saved').map(t=>result(e,t,map.get(t.runId)));
  const results=items.filter(x=>x.eligible).sort((a,b)=>(e.objective==='drawdown'?a.value-b.value:b.value-a.value)||a.trial.ordinal-b.trial.ordinal);
  // Identical report evidence is not another independent result; keep it in the journal.
- const evidence=new Set();for(const x of results){const sig=JSON.stringify([x.run.quickStats,x.run.statistics,x.run.trades]);if(evidence.has(sig)){x.eligible=false;x.reasons.push('Repeated report evidence.');}else evidence.add(sig);}
+ const evidence=new Set();for(const x of results){const sig=signature([x.run.quickStats,x.run.statistics,x.run.trades]);if(evidence.has(sig)){x.eligible=false;x.reasons.push('Repeated report evidence.');}else evidence.add(sig);}
  const eligible=results.filter(x=>x.eligible),leaders=eligible.length?eligible.filter(x=>Math.abs(x.value-eligible[0].value)<1e-9):[],leader=leaders.length===1?leaders[0]:null;
  const neighbors=leader?items.filter(x=>x!==leader&&e.dimensions.filter(d=>x.trial.patch[d.key]!==leader.trial.patch[d.key]).length===1&&e.dimensions.every(d=>Math.abs(d.values.indexOf(x.trial.patch[d.key])-d.values.indexOf(leader.trial.patch[d.key]))<=1)):[];
  const pending=e.trials.filter(t=>t.phase===phase&&!['saved','skipped'].includes(t.status)).length;
