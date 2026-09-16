@@ -190,4 +190,54 @@ assert.equal(S.template({momentum:source.stages.momentum,execution:source.stages
  assert.equal(S.fieldsForUI(t).flatMap(g=>g.fields).find(f=>f.key==='momentum.strategy.1.source').cachedCategories,undefined);
  assert.equal(S.validateBaseline(clone(b)).id,b.id,'Legacy archives with no category metadata rebuild unchanged');
 }
-console.log('PASS: source-derived setup, exact labels and choices, market-bound Group autocomplete and legacy archives, editable Candle strategy/exits/portfolio, settings-only provenance, strict dates/weights/capital/rules, unsupported settings, immutable reconstruction and fictional isolation.');
+// RZone replaces each My/Public STR rule menu with a search input. Cached
+// options remain exact labels while the expected source type follows category.
+{
+ const captured=clone(source),m=captured.stages.momentum,categories=['Pre','My','Public','Popular'];m.ruleCatalogues={};
+ for(let n=1;n<=3;n++){
+  const parent=35+4*n,child=parent+1,gate=parent+3,lists=Object.fromEntries(categories.map(category=>[category,[`${n} ${category} first`,`${n} ${category} second`,{value:'ambiguous',label:`${n} ${category} duplicated`,disabled:true}]]));
+  m.options[parent]=categories;m.fields[parent].value='Public';m.fields[child].type='text';m.fields[child].value='';m.fields[gate].checked=false;m.fields[child].disabled=true;m.options[child]=clone(lists.Public);
+  m.ruleCatalogues[child]={parentIndex:parent,gateIndex:gate,categories:lists,controlTypes:{Pre:'select-one',My:'text',Public:'text',Popular:'select-one'},searchQueries:{My:'private',Public:'public'}};
+ }
+ const current=S.template(captured),initial=S.defaults(current);assert.equal(S.validateBaseline(S.configToBaseline(initial,current)).setup.config['momentum.strategy.1.rule'],'','An initially Public search can be blank while off');
+ for(let n=1;n<=3;n++)for(const category of categories){
+  const prefix='momentum.strategy.'+n,child=36+n*4,config={...initial,[prefix+'.source']:category,[prefix+'.rule']:`${n} ${category} second`,[prefix+'.enabled']:true},baseline=S.configToBaseline(config,current),field=S.fieldsForUI(current,config).flatMap(g=>g.fields).find(f=>f.key===prefix+'.rule');
+  assert.equal(field.type,'select','Vault presents source search results as exact choices');assert.equal(field.nativeType,['My','Public'].includes(category)?'text':'select-one');assert.equal(baseline.parameters.strategy.main.fields[child].type,field.nativeType);assert.deepEqual(S.validateBaseline(canonical(baseline)),canonical(baseline));
+  assert.throws(()=>S.validateConfig({...config,[prefix+'.rule']:`${n} ${category} duplicated`},current),/available strategy/,'An ambiguous display label cannot execute');
+  if(['My','Public'].includes(category))assert.equal(S.validateConfig({...config,[prefix+'.rule']:'',[prefix+'.enabled']:false},current)[prefix+'.rule'],'');
+ }
+ const startedPre=clone(captured);for(let n=1;n<=3;n++){const parent=35+n*4,child=parent+1;startedPre.stages.momentum.fields[parent].value='Pre';startedPre.stages.momentum.fields[child].type='select-one';startedPre.stages.momentum.fields[child].value=`${n} Pre first`;startedPre.stages.momentum.options[child]=clone(startedPre.stages.momentum.ruleCatalogues[child].categories.Pre);}
+ const pre=S.template(startedPre),preConfig=S.defaults(pre),textBaseline=S.configToBaseline({...preConfig,'momentum.strategy.1.source':'My','momentum.strategy.1.rule':'1 My second','momentum.strategy.1.enabled':true},pre);assert.equal(textBaseline.parameters.strategy.main.fields[40].type,'text');assert.equal(S.validateBaseline(textBaseline).parameters.strategy.main.fields[40].value,'1 My second');assert.equal(textBaseline.setup.template.stages.momentum.fields[40].type,'select-one','Config never rewrites the captured native source');
+ const labelled=clone(startedPre);for(let n=1;n<=3;n++){
+  const parent=35+n*4,child=parent+1,catalogue=labelled.stages.momentum.ruleCatalogues[child];catalogue.fieldLabels=Object.fromEntries(categories.map(category=>[category,new Array(4).fill('Str '+n+' : / '+category+'i')]));for(let i=0;i<4;i++)labelled.stages.momentum.fields[parent+i].label=catalogue.fieldLabels.Pre[i];
+ }
+ const labelsT=S.template(labelled),labelsC=S.defaults(labelsT),labelsB=S.configToBaseline({...labelsC,'momentum.strategy.1.source':'Public','momentum.strategy.1.rule':'1 Public first','momentum.strategy.1.enabled':true},labelsT);assert.deepEqual(labelsB.parameters.strategy.main.fields.slice(39,43).map(f=>f.label),new Array(4).fill('Str 1 : / Publici'));assert.equal(S.validateBaseline(labelsB).parameters.strategy.main.fields[40].type,'text');assert.deepEqual(labelsB.setup.template.stages.momentum.fields.slice(39,43).map(f=>f.label),new Array(4).fill('Str 1 : / Prei'),'Captured badge labels remain immutable');
+ for(const mutate of [x=>{x.stages.momentum.ruleCatalogues[40].fieldLabels=[];},x=>{delete x.stages.momentum.ruleCatalogues[40].fieldLabels.My;},x=>{x.stages.momentum.ruleCatalogues[40].fieldLabels.Other=['unexpected'];},x=>{x.stages.momentum.ruleCatalogues[40].fieldLabels.My=['too short'];},x=>{x.stages.momentum.ruleCatalogues[40].fieldLabels.My[0]='';},x=>{x.stages.momentum.ruleCatalogues[40].fieldLabels.My[1]=42;},x=>{x.stages.momentum.ruleCatalogues[40].fieldLabels.My[1]='x'.repeat(2001);},x=>{x.stages.momentum.ruleCatalogues[40].fieldLabels.Pre[2]='Wrong current label';}]){const invalid=clone(labelled);mutate(invalid);assert.throws(()=>S.template(invalid),/Invalid strategy field labels|field labels do not match/);}
+ const forgedLabels=clone(labelsB);forgedLabels.parameters.strategy.main.fields[41].label='Str 1 : / Prei';assert.throws(()=>S.validateBaseline(forgedLabels),/altered/);
+ const tampered=clone(textBaseline);tampered.parameters.strategy.main.fields[40].type='select-one';assert.throws(()=>S.validateBaseline(tampered),/altered/,'An imported baseline cannot lie about the source control type');
+ const empty=clone(captured);empty.stages.momentum.ruleCatalogues[40].categories.Public=[];empty.stages.momentum.options[40]=[];const emptyT=S.template(empty),emptyC=S.defaults(emptyT);assert.equal(S.validateBaseline(S.configToBaseline(emptyC,emptyT)).setup.config['momentum.strategy.1.rule'],'');assert.throws(()=>S.validateConfig({...emptyC,'momentum.strategy.1.enabled':true},emptyT),/No strategy 1 rule choices/);
+ for(const mutate of [
+  x=>delete x.stages.momentum.ruleCatalogues,
+  x=>delete x.stages.momentum.ruleCatalogues[40].controlTypes,
+  x=>{x.stages.momentum.ruleCatalogues[40].controlTypes=null;},
+  x=>{x.stages.momentum.ruleCatalogues[40].controlTypes=[];},
+  x=>delete x.stages.momentum.ruleCatalogues[40].controlTypes.My,
+  x=>{x.stages.momentum.ruleCatalogues[40].controlTypes.Other='text';},
+  x=>{x.stages.momentum.ruleCatalogues[40].controlTypes.Pre='text';},
+  x=>{x.stages.momentum.ruleCatalogues[40].controlTypes.Popular='text';},
+  x=>{x.stages.momentum.ruleCatalogues[40].controlTypes.Public='select-one';},
+  x=>{x.stages.momentum.ruleCatalogues[40].controlTypes.Public='password';},
+  x=>{x.stages.momentum.ruleCatalogues[40].searchQueries.Public='';},
+  x=>{x.stages.momentum.ruleCatalogues[40].searchQueries.Public=' padded ';},
+  x=>{x.stages.momentum.ruleCatalogues[40].searchQueries.Public='Line\nfeed';},
+  x=>{x.stages.momentum.ruleCatalogues[40].searchQueries.Public='x'.repeat(201);},
+  x=>{x.stages.momentum.ruleCatalogues[40].searchQueries.Pre='not a search';},
+  x=>{x.stages.momentum.ruleCatalogues[40].searchQueries=[];},
+  x=>{x.stages.momentum.fields[40].value='Unlisted search text';},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories.Public=['Different choices'];}
+ ]){const invalid=clone(captured);mutate(invalid);assert.throws(()=>S.template(invalid),/Invalid|does not match|do not match|absent/);}
+ const radarText=clone(captured);radarText.stages.momentum.fields[35].value='My';radarText.stages.momentum.fields[36].type='text';radarText.stages.momentum.fields[36].value='';radarText.stages.momentum.options[36]=[];radarText.stages.momentum.ruleCatalogues[36]={parentIndex:35,gateIndex:34,categories:{My:[]},controlTypes:{My:'text'}};assert.throws(()=>S.template(radarText),/Invalid strategy rule control type/,'Radar has no observed text-rule adapter');
+ const noEvidence=clone(captured);delete noEvidence.stages.momentum.ruleCatalogues[40].searchQueries;assert.throws(()=>S.template(noEvidence),/need their source query/,'Populated search lists need the query that produced them');
+ const unloaded=clone(empty);delete unloaded.stages.momentum.ruleCatalogues[40].searchQueries.Public;const unloadedT=S.template(unloaded),unloadedC=S.defaults(unloadedT);assert.equal(S.fieldsForUI(unloadedT).flatMap(g=>g.fields).find(f=>f.key==='momentum.strategy.1.rule').searchQuery,null);assert.throws(()=>S.validateConfig({...unloadedC,'momentum.strategy.1.enabled':true},unloadedT),/Search RZone/,'An unqueried category is not an empty search result');
+}
+console.log('PASS: source-derived setup, exact labels and choices, market-bound Group autocomplete and legacy archives, select/search strategy category types, editable Candle strategy/exits/portfolio, settings-only provenance, strict dates/weights/capital/rules, unsupported settings, immutable reconstruction and fictional isolation.');

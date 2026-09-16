@@ -108,6 +108,14 @@ for(const [chart,rs,selection,brickMode] of [['P&F',false,'Price','3'],['P&F',tr
 }
 
 const base=path.resolve(__dirname,'../dist');
+// Only the observed Candle STR My/Public search fields gain a text adapter;
+// unknown text replacements retain the complete captured-settings fallback.
+for(const category of ['My','Public']){
+ const search=structuredClone(run),fields=search.parameters.strategy.main.fields;
+ for(let slot=0;slot<3;slot++){const parent=39+slot*4;fields[parent].value=category;fields[parent+1].type='text';fields[parent+1].value='Fictional '+category+' rule '+slot;}
+ const before=JSON.stringify(search),adapted=P.settings(search)[0];assert.notEqual(adapted.groups[0].name,'Captured settings');assert.deepEqual(adapted.groups.find(g=>g.name==='Strategies').rows.map(r=>r.value),[0,1,2].map(n=>'Fictional '+category+' rule '+n));assert.deepEqual(adapted.groups.flatMap(g=>g.rows.flatMap(r=>r.sourceIndices)).sort((a,b)=>a-b),fields.map(f=>f.index));assert.equal(JSON.stringify(search),before);
+}
+for(const [index,parent,category] of [[40,39,'Pre'],[44,43,'Popular'],[36,35,'My']]){const wrong=structuredClone(run);wrong.parameters.strategy.main.fields[parent].value=category;wrong.parameters.strategy.main.fields[index].type='text';assert.equal(P.settings(wrong)[0].groups[0].name,'Captured settings','Unobserved text controls cannot receive positional labels');}
 const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/'}),w=dom.window,d=w.document,downloads=[];
 w.Blob=Blob;w.URL.createObjectURL=blob=>{downloads.push(blob);return 'blob:test';};w.URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){};
 const saved={'run:presentation-a':structuredClone(run)};w.chrome={storage:{local:{get:async()=>structuredClone(saved),set:async x=>Object.assign(saved,x)}}};

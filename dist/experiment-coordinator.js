@@ -50,7 +50,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    const e=E.create({...m.plan,id:uuid()});if(e.demo)throw Error('Fictional experiments cannot control RZone.');
    if(await get('experiment:'+e.id))throw Error('Experiment ID already exists.');await put(e);return {ok:true,experiment:e};
   }
-  if(dashboard&&['configure','open-source'].includes(m.action)){
+  if(dashboard&&['configure','lookup-rule','open-source'].includes(m.action)){
    if(await reviewLease()||(await collection('experiment:')).some(x=>['running','pausing'].includes(x.status)))throw Error('Finish or pause the current tests before changing the RZone setup.');
    if(m.action==='open-source'){
     if(!openSource)throw Error('Open RZone in Chrome and sign in, then reconnect here.');
@@ -59,6 +59,17 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    if(!configure)throw Error('Reload the updated extension and refresh RZone to connect the setup editor.');
    const tab=await sourceStatus(await get('runner:tab:'+m.tabId));
    if(!tab?.capable&&!tab?.ready)throw Error(tab?.reason||'Open RZone and sign in, then connect again.');
+   if(m.action==='lookup-rule'){
+    if(m.session!==tab.session)throw Error('RZone changed or reloaded. Reconnect before searching for strategies.');
+    if(![39,43,47].includes(m.parentIndex)||!['My','Public'].includes(m.category)||typeof m.query!=='string'||!m.query.length||m.query.length>200||m.query!==m.query.trim()||/[\u0000-\u001f\u007f]/.test(m.query))throw Error('Enter a strategy search of 1–200 characters.');
+    const request={parentIndex:m.parentIndex,category:m.category,query:m.query,session:tab.session};
+    const r=await configure(tab.id,{},request);
+    if(!r?.ok)throw Error(r?.error||'RZone strategy search could not be read.');
+    if(r.session!==tab.session)throw Error('RZone reloaded during the search. Reconnect and try again.');
+    const result=r.result;
+    if(!result||result.parentIndex!==m.parentIndex||result.childIndex!==m.parentIndex+1||result.category!==m.category||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000)throw Error('RZone returned a different strategy search. Search again.');
+    return {ok:true,result};
+   }
    const changes=m.changes??{};
    if(!changes||typeof changes!=='object'||Array.isArray(changes)||Object.keys(changes).some(k=>!['momentum','execution'].includes(k)))throw Error('Invalid source choices request.');
    for(const values of Object.values(changes))if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>10||Object.entries(values).some(([index,value])=>!/^\d{1,2}$/.test(index)||typeof value!=='string'||value.length>2000))throw Error('Invalid source choices request.');

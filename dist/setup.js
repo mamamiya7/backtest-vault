@@ -13,6 +13,7 @@ const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const blocked='This dynamic rule is not available in automatic setup yet.';
 const strategyCatalogues={36:{parentIndex:35,gateIndex:34},40:{parentIndex:39,gateIndex:42},44:{parentIndex:43,gateIndex:46},48:{parentIndex:47,gateIndex:50}};
 const ruleCategories=['Pre','My','Public','Popular'];
+const searchRule=(index,category)=>[40,44,48].includes(Number(index))&&['My','Public'].includes(category);
 const record=x=>!!x&&typeof x==='object'&&!Array.isArray(x);
 function catalogueChoices(input,label){
  if(!Array.isArray(input)||input.length>3000)throw Error('Invalid cached rule choices for '+label+'.');
@@ -28,15 +29,46 @@ function ruleCatalogues(input,stage,fields,options){
  const out={};
  for(const [key,entry] of Object.entries(input)){
   const shape=strategyCatalogues[key],child=fields[Number(key)];
-  if(!record(entry)||Object.keys(entry).some(k=>!['parentIndex','gateIndex','categories'].includes(k))||entry.parentIndex!==shape.parentIndex||entry.gateIndex!==shape.gateIndex||fields[shape.parentIndex]?.type!=='select-one'||child?.type!=='select-one'||fields[shape.gateIndex]?.type!=='checkbox'||!record(entry.categories)||!Object.keys(entry.categories).length||Object.keys(entry.categories).length>4)throw Error('Invalid strategy rule catalogue association.');
+  if(!record(entry)||Object.keys(entry).some(k=>!['parentIndex','gateIndex','categories','controlTypes','searchQueries','fieldLabels'].includes(k))||entry.parentIndex!==shape.parentIndex||entry.gateIndex!==shape.gateIndex||fields[shape.parentIndex]?.type!=='select-one'||!['select-one','text'].includes(child?.type)||fields[shape.gateIndex]?.type!=='checkbox'||!record(entry.categories)||!Object.keys(entry.categories).length||Object.keys(entry.categories).length>4)throw Error('Invalid strategy rule catalogue association.');
   const categories={};
   for(const [category,choices] of Object.entries(entry.categories)){
    if(!ruleCategories.includes(category)||!options[shape.parentIndex]?.some(o=>o.value===category&&!o.disabled))throw Error('Cached strategy category is not available from its source.');
    categories[category]=catalogueChoices(choices,child.label+' / '+category);
   }
   const selected=fields[shape.parentIndex].value;
+  let controlTypes;
+  if(owns(entry,'controlTypes')){
+   if(!record(entry.controlTypes)||!same(Object.keys(entry.controlTypes).sort(),Object.keys(categories).sort()))throw Error('Invalid strategy rule control types.');
+   controlTypes={};
+   for(const [category,type] of Object.entries(entry.controlTypes)){
+    if(type!=='select-one'&&(type!=='text'||!searchRule(key,category)))throw Error('Invalid strategy rule control type.');
+    controlTypes[category]=type;
+   }
+   if(owns(controlTypes,selected)&&controlTypes[selected]!==child.type)throw Error('Cached strategy control type does not match the selected source category.');
+  }
+  if(child.type==='text'&&(!searchRule(key,selected)||!owns(controlTypes,selected)))throw Error('Invalid strategy search rule association.');
+  let searchQueries;
+  if(owns(entry,'searchQueries')){
+   if(!record(entry.searchQueries))throw Error('Invalid strategy rule searches.');searchQueries={};
+   for(const [category,query] of Object.entries(entry.searchQueries)){
+    if(controlTypes?.[category]!=='text'||typeof query!=='string'||!query||query!==query.trim()||query.length>200||/[\u0000-\u001f\u007f]/.test(query))throw Error('Invalid strategy rule search query.');
+    searchQueries[category]=query;
+   }
+  }
+  if(controlTypes)for(const [category,type] of Object.entries(controlTypes))if(type==='text'&&categories[category].length&&!owns(searchQueries,category))throw Error('Strategy search choices need their source query.');
+  let fieldLabels;
+  if(owns(entry,'fieldLabels')){
+   if(!record(entry.fieldLabels)||!same(Object.keys(entry.fieldLabels).sort(),Object.keys(categories).sort()))throw Error('Invalid strategy field labels.');
+   const indices=Number(key)===36?[shape.parentIndex,Number(key),shape.gateIndex]:[shape.parentIndex,Number(key),Number(key)+1,shape.gateIndex];fieldLabels={};
+   for(const [category,labels] of Object.entries(entry.fieldLabels)){
+    if(!Array.isArray(labels)||labels.length!==indices.length||labels.some(label=>typeof label!=='string'||!label.trim()||label.length>2000))throw Error('Invalid strategy field labels.');
+    fieldLabels[category]=clone(labels);
+   }
+   if(owns(fieldLabels,selected)&&!same(fieldLabels[selected],indices.map(i=>fields[i].label)))throw Error('Cached strategy field labels do not match the selected source category.');
+  }
   if(owns(categories,selected)&&!same(categories[selected],options[key]))throw Error('Cached strategy rules do not match the selected source category.');
-  out[key]={parentIndex:shape.parentIndex,gateIndex:shape.gateIndex,categories};
+  if(child.type==='text'&&child.value!==''&&!options[key]?.some(o=>o.value===child.value))throw Error('Selected source value is absent from its choices: '+child.label);
+  out[key]={parentIndex:shape.parentIndex,gateIndex:shape.gateIndex,categories,...(controlTypes?{controlTypes}:{}),...(searchQueries?{searchQueries}:{}),...(fieldLabels?{fieldLabels}:{})};
  }
  return out;
 }
@@ -81,6 +113,7 @@ function template(source){
   }
   t.stages[stage]={fields,options};
   if(owns(s,'ruleCatalogues'))t.stages[stage].ruleCatalogues=ruleCatalogues(s.ruleCatalogues,stage,fields,options);
+  if(stage==='momentum')for(const index of ruleIndices.momentum)if(fields[index]?.type==='text'&&!t.stages[stage].ruleCatalogues?.[index]?.controlTypes)throw Error('Invalid strategy search rule association.');
   if(s.template===true){t.stages[stage].template=true;t.stages[stage].origin=s.origin==='verified-layout'?'verified-layout':'template';}
  }
  const m=t.stages.momentum.fields,x=t.stages.execution.fields;
@@ -132,6 +165,7 @@ function fieldsForUI(input,config={}){
    parent.cachedCategories=parent.options.filter(o=>owns(catalogue.categories,o.value)).map(o=>o.value);
    parent.help='Choose a category to see its loaded rules. Refresh choices after changing rules in RZone.';
    child.sourceKey=parent.key;child.categoryKey=category;
+   if(catalogue.controlTypes){child.nativeType=catalogue.controlTypes[category]||m[at+1].type;child.searchable=child.nativeType==='text';if(child.searchable)child.searchQuery=catalogue.searchQueries?.[category]??null;}
    if(owns(catalogue.categories,category))child.options=clone(catalogue.categories[category]);
    else if(category!==parent.value)child.options=[];
    if(category!==parent.value)child.value='';
@@ -163,8 +197,8 @@ function validateConfig(config,input){
   }
   else if(f.type==='select'){
    const unchangedInactive=(f.disabled||f.enabledBy&&config[f.enabledBy]===false)&&v===f.value;
-   const emptyUnusedRule=f.rule&&f.options.length===0&&f.value===''&&v===''&&config[f.enabledBy]===false;
-   if(f.rule&&f.options.length===0&&config[f.enabledBy]===true)throw Error('No '+f.label.toLowerCase()+' choices are available. Turn the rule off or refresh choices.');
+   const emptyUnusedRule=f.rule&&(f.options.length===0&&f.value===''||f.nativeType==='text')&&v===''&&config[f.enabledBy]===false;
+   if(f.rule&&f.options.length===0&&config[f.enabledBy]===true)throw Error(f.searchable&&!f.searchQuery?'Search RZone for '+f.label.toLowerCase()+' before enabling it.':'No '+f.label.toLowerCase()+' choices are available. Turn the rule off or '+(f.searchable?'search again.':'refresh choices.'));
    if(typeof v!=='string'||!emptyUnusedRule&&!f.options.some(o=>o.value===v&&(!o.disabled||unchangedInactive)))throw Error('Choose an available '+f.label.toLowerCase()+'.');
    if(f.rule&&config[f.enabledBy]===true&&(!v.trim()||/^\s*--|select.*(?:system|rule|radar)/i.test(v)))throw Error('Choose a '+f.label.toLowerCase()+' before enabling it.');
   }
@@ -182,7 +216,11 @@ function configToBaseline(config,input,{id='vault-setup',name='New strategy',dem
  if(!idOK(id)||typeof name!=='string'||!name.trim()||name.length>120)throw Error('Give this setup a short name.');
  if(demo!==undefined&&demo!==t.demo)throw Error('Real and fictional setup cannot be mixed.');
  const p=parameters(t),get=stage=>stage==='momentum'?p.strategy.main.fields:stage==='execution'?p.strategy.execution.fields:p.settings.fields;
- for(const d of fieldsForUI(t,values).flatMap(g=>g.fields)){const f=get(d.stage),v=values[d.key];if(d.indices){for(const i of d.indices)f[i].checked=String(i)===v;}else if(d.type==='boolean')f[d.index].checked=v;else f[d.index].value=String(v);}
+ for(const d of fieldsForUI(t,values).flatMap(g=>g.fields)){const f=get(d.stage),v=values[d.key];if(d.indices){for(const i of d.indices)f[i].checked=String(i)===v;}else if(d.type==='boolean')f[d.index].checked=v;else{f[d.index].value=String(v);if(d.nativeType)f[d.index].type=d.nativeType;}}
+ for(const [key,catalogue] of Object.entries(t.stages.momentum.ruleCatalogues||{})){
+  const f=get('momentum'),child=Number(key),labels=catalogue.fieldLabels?.[f[catalogue.parentIndex].value];if(!labels)continue;
+  const indices=child===36?[catalogue.parentIndex,child,catalogue.gateIndex]:[catalogue.parentIndex,child,child+1,catalogue.gateIndex];indices.forEach((index,n)=>{f[index].label=labels[n];});
+ }
  // Disabled is a recorded UI condition, not a user setting. Keep dependencies
  // consistent for presentation while the runner always verifies source values.
  for(const d of fieldsForUI(t,values).flatMap(g=>g.fields)){if(d.enabledBy&&d.index!==undefined)get(d.stage)[d.index].disabled=!values[d.enabledBy];}

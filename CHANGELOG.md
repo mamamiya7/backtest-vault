@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.8 preview - 2026-09-16
+
+- Fix connection discovery for STR My/Public: RZone replaces native dropdowns with searchable fields, so an empty search is no longer mistaken for a stuck dropdown.
+- Search My/Public from Vault with a name or keyword. Keep search-required, no matches and loaded choices distinct; identical names remain unavailable for automatic selection.
+- Preserve each category's actual source control type in setup validation and saved plans. Resolve an exact unique search result before execution; preserve source settings during choice reads.
+- Add search-control transition, empty-result, restoration, request-session and stale-response regression coverage. Installed acceptance remains separate from automated checks.
+
 ## 0.8.7 preview - 2026-09-16
 
 - Load every offered Radar category alongside Strategy 1–3. Restore the original source controls and keep each category's rule and Test values separate in Vault; empty account lists stay empty.

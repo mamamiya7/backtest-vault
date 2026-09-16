@@ -27,6 +27,9 @@ body:has(.has-workbench) main{max-width:none}
 .source-row-controls{display:flex;align-items:flex-start;gap:9px;min-width:0;flex-wrap:wrap}
 .source-field{min-width:0;position:relative;flex:0 1 auto}
 .source-control-line{display:flex;align-items:center;gap:5px;min-width:0}
+.source-rule-search{display:flex;gap:4px;align-items:center;margin-top:5px;min-width:0;flex-wrap:wrap}
+.source-workbench .source-rule-search input:not([type=checkbox]):not([type=radio]){width:100%;flex:1 1 80px;min-width:0}
+.source-workbench .source-rule-search button{padding:4px 6px;min-height:30px;font-size:11px;flex:0 0 auto}
 .source-workbench .source-field input:not([type=checkbox]):not([type=radio]),.source-workbench .source-field select,.setup-backtest-dialog .source-field input:not([type=checkbox]):not([type=radio]),.setup-backtest-dialog .source-field select{min-height:30px;height:30px;margin:0;padding:4px 9px;border:1px solid #2a2e39;border-radius:4px;background:#111318;color:#ddd;font:13px "Segoe UI",system-ui,sans-serif;width:120px;min-width:0}
 .source-workbench .source-field input[type=number]{width:56px;text-align:right;font-variant-numeric:tabular-nums;padding-right:5px}
 .source-workbench .source-field input[type=number]::-webkit-inner-spin-button{appearance:none}
@@ -71,7 +74,7 @@ body:has(.has-workbench) main{max-width:none}
 .source-strategies{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin:7px 0 10px}
 .source-strategy{display:flex;gap:6px;min-width:0;align-items:flex-start}
 .source-strategy>.source-row-label{flex-shrink:0}
-.source-strategy>.source-field:nth-child(2){width:70px;flex-shrink:0}
+.source-strategy>.source-field:nth-child(2){width:90px;flex-shrink:0}
 .source-strategy>.source-field:nth-child(3){flex:1}
 .source-strategy>.source-field:nth-child(4){width:85px;flex-shrink:0}
 .source-strategy>.source-field:last-child{flex-shrink:0}
@@ -244,7 +247,7 @@ body:has(.has-workbench) main{max-width:none}
 @media(max-width:560px){
  .source-pair-heading{font-size:11px}
  .source-period-row .source-field .source-state-select{font-size:11px;padding:4px}
- .source-strategy{grid-template-columns:42px 70px minmax(90px,1fr) 85px;gap:6px}
+ .source-strategy{grid-template-columns:42px 90px minmax(0,1fr) 85px;gap:6px}
  .source-strategy>.source-field:last-child{grid-column:2/4}
  .source-strategy .source-row-label{padding-top:10px}
  .source-workbench .source-test-values,.setup-backtest-dialog .source-test-values{min-height:32px;font-size:10px}

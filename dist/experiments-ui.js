@@ -57,7 +57,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
    const request=chrome.runtime.sendMessage({type:'vault-experiment',action,...data});
    // Bound the whole connection request, including time spent waiting for the
    // background queue. A late reply must not replace a newer setup or retry.
-   const r=action==='configure'?await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('RZone did not finish connecting. Check its tab, close any open dialog, then retry the connection here. No backtest was started.')),70000);})]):await request;
+   const r=['configure','lookup-rule'].includes(action)?await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error(action==='lookup-rule'?'RZone did not finish searching. Check its tab, then search again. No backtest was started.':'RZone did not finish connecting. Check its tab, close any open dialog, then retry the connection here. No backtest was started.')),70000);})]):await request;
    if(!r?.ok)throw Error(r?.error||'Extension disconnected.');return r;
   }finally{clearTimeout(timeout);}
 
@@ -105,7 +105,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
  }
 
  function newTest(){
-  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
+  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');wizard.template=S.demoTemplate();wizard.config=S.defaults(wizard.template);wizard.step=1;}
   setupPage();
  }
@@ -133,6 +133,22 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;acceptSetupSource(state,response.source);notice.textContent='Choices refreshed from RZone. Review any unavailable selections.';}
   catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;throw error;}
   finally{state.connecting=false;if(alive()&&wizard===state)setupPage();}
+ }
+
+ async function searchSetupRule(state,field,rawQuery){
+  if(wizard!==state||state.connecting||state.ruleLookup||!setupSourceValid())return;
+  const query=rawQuery.trim();if(!query||query.length>200||/[\u0000-\u001f\u007f]/.test(query))throw Error('Enter a rule name to search (up to 200 characters).');
+  const category=state.config[field.sourceKey],draftKey=field.key+'|'+category,generation=state.generation,session=state.sourceSession,sourceId=state.sourceId,template=state.template;
+  const request={fieldKey:field.key,category,query};state.ruleLookup=request;state.ruleSearchDrafts.set(draftKey,query);setupPage();
+  const current=()=>alive()&&wizard===state&&state.generation===generation&&state.sourceSession===session&&state.sourceId===sourceId&&state.template===template&&state.config[field.sourceKey]===category&&state.ruleSearchDrafts.get(draftKey)?.trim()===query;
+  try{
+   const response=await command('lookup-rule',{tabId:Number(sourceId),session,parentIndex:field.index-1,category,query});if(!current()||!setupSourceValid())return;
+   const result=response.result;if(!result||result.parentIndex!==field.index-1||result.childIndex!==field.index||result.category!==category||result.query!==query||result.controlType!=='text'||!Array.isArray(result.options))throw Error('RZone returned choices for a different rule search. Search again.');
+   const next=structuredClone(template),stage=next.stages.momentum,catalogue=stage.ruleCatalogues[field.index];catalogue.categories[category]=result.options;(catalogue.searchQueries||={})[category]=query;
+   if(stage.fields[field.index-1].value===category)stage.options[field.index]=result.options;
+   state.template=S.template(next);notice.textContent='';
+  }catch(error){if(current())throw error;}
+  finally{if(state.ruleLookup===request)state.ruleLookup=null;if(alive()&&wizard===state)setupPage();}
  }
 
  function setupPage(){
@@ -196,7 +212,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
    if(saved?.dimension)dimensions.push(structuredClone(saved.dimension));
   }
   if(dimensions.length>6){notice.textContent='Use at most six changing settings in one test batch. Remove a test range before restoring this category.';return false;}
-  state.config=nextConfig;state.dimensions=dimensions;state.editorOpen=null;setupPage();
+  state.generation++;state.config=nextConfig;state.dimensions=dimensions;state.editorOpen=null;setupPage();
   content.querySelector('[data-setup-field="'+field.key+'"]')?.focus();return true;
  }
  function workbenchChanged(state){
@@ -253,8 +269,9 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
    if(stateChoice){control=select([['false','Off'],['true','On'],...(variableState?[['both','Test both']]:[])]);control.classList.add('source-state-select');control.value=selectedState();control.dataset.mode=control.value;}
    else if(field.type==='boolean'){control=input('','checkbox');control.checked=!!value;}
    else if(field.type==='select'){
-    const options=field.options||[];control=select(options.map(o=>[String(o.value),o.label||String(o.value)]));options.forEach((o,i)=>control.options[i].disabled=!!o.disabled);
-    if(!options.length){const empty=el('option','No choices available');empty.value='';empty.disabled=true;control.append(empty);}
+    const options=field.options||[];control=select(options.map(o=>[String(o.value),(o.label||String(o.value))+(field.rule&&o.disabled?' · unavailable':'')]));options.forEach((o,i)=>{control.options[i].disabled=!!o.disabled;if(field.rule&&o.disabled)control.options[i].title='RZone did not provide a unique selectable rule for this choice.';});
+    if(field.nativeType==='text'&&options.length&&!options.some(o=>o.value==='')){const placeholder=el('option','Select a rule');placeholder.value='';placeholder.disabled=true;control.prepend(placeholder);}
+    if(!options.length){const empty=el('option',field.searchable?(field.searchQuery?'No matching choices':'Search RZone to load choices'):'No choices available');empty.value='';empty.disabled=true;control.append(empty);}
     if(!options.some(o=>String(o.value)===String(value))&&String(value??'')){const missing=el('option',String(value)+' · unavailable');missing.value=String(value);missing.disabled=true;control.append(missing);unavailable=true;}control.value=String(value??'');
    }else if(field.type==='combobox'){
     control=input(value??'');combo=el('div',undefined,'source-combobox');const menu=el('div',undefined,'source-choice-menu'),status=el('span','','source-choice-status'),options=field.options||[];let shown=[],active=-1;
@@ -292,6 +309,11 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
     update();if(field.refreshOnChange&&extension)void action(()=>refreshSetupChoices({[field.stage]:{[field.index]:control.value}}));
    });state.controls.push({field,control});
   }
+  if(field.searchable&&extension){
+   const draftKey=field.key+'|'+field.categoryKey,search=el('div',undefined,'source-rule-search'),query=input(state.ruleSearchDrafts.get(draftKey)??field.searchQuery??''),pending=state.ruleLookup?.fieldKey===field.key&&state.ruleLookup.category===field.categoryKey;
+   query.placeholder='Search rules';query.maxLength=200;query.setAttribute('aria-label','Search '+caption+' in '+field.categoryKey);query.dataset.ruleSearch=field.key;query.addEventListener('input',()=>state.ruleSearchDrafts.set(draftKey,query.value));
+   const find=button(pending?'Searching…':'Search',()=>action(()=>searchSetupRule(state,field,query.value)),'quiet');find.setAttribute('aria-label','Search RZone for '+caption+' in '+field.categoryKey);find.disabled=!!state.ruleLookup||state.connecting;query.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();event.stopPropagation();if(!find.disabled)find.click();}});search.append(query,find);wrap.append(search);
+  }
   if(field.disabled)wrap.classList.add('source-fixed');if(variation){const editor=variationEditor(state,field);if(editor)wrap.append(editor);}return wrap;
  }
 
@@ -313,7 +335,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const limitations=el('p','Candle automation · P&F, Renko, Market Trend Filter and Relative Strength are unavailable for automatic execution.','source-availability');form.append(limitations);
   buildBacktestSettings(form,state);
   const bar=el('div',undefined,'source-count-bar'),count=el('div',undefined,'source-combination-count'),backtest=button('Backtest',()=>openBacktest(state),'primary');bar.append(count,backtest);shell.append(bar);
-  const update=()=>{try{const dimensions=state.dimensions.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget);count.replaceChildren(el('strong',planned+' '+(planned===1?'test':'tests')),el('span',dimensions.length?combinations+' '+(combinations===1?'combination':'combinations')+' · '+dimensions.length+' changing '+(dimensions.length===1?'setting':'settings'):'Current settings'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting;};state.countUpdates.push(update);update();
+  const update=()=>{try{const dimensions=state.dimensions.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget);count.replaceChildren(el('strong',planned+' '+(planned===1?'test':'tests')),el('span',dimensions.length?combinations+' '+(combinations===1?'combination':'combinations')+' · '+dimensions.length+' changing '+(dimensions.length===1?'setting':'settings'):'Current settings'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting||!!state.ruleLookup;};state.countUpdates.push(update);update();
   if(state.reviewOpen)openBacktest(state);
  }
 
@@ -331,7 +353,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
  }
 
  function openBacktest(state){
-  if(wizard!==state||!setupSourceValid())return;
+  if(wizard!==state||state.ruleLookup||!setupSourceValid())return;
   const previous=content.querySelector('.setup-backtest-dialog');if(previous?.open)return;previous?.remove();state.reviewOpen=true;
   const dialog=el('dialog',undefined,'setup-backtest-dialog');dialog.setAttribute('aria-label','Review backtest');dialog.setAttribute('aria-modal','true');const title=el('div',undefined,'source-dialog-heading');title.append(el('h3','Review backtest'),button('Close',()=>closeDialog(),'quiet'));dialog.append(title);
   const form=el('form',undefined,'setup-form source-review-form');dialog.append(form);content.append(dialog);

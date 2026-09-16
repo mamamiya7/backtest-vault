@@ -80,7 +80,10 @@
     const chart=fields[0]?.value,variant=['P&F','Renko'].includes(chart),shift=variant?2:0;
     const extended=fields.length===(variant?62:56),rs=51+shift,chartStart=rs+1+(extended?2:0);
     const common='stcsc tsrrrr ctctctct trr tttt ctctctc s';
-    const signature=(common+(variant?' rr c ss ct sstc sstc sstc c':' c ss ct sssc sssc sssc c')+(extended?'st':'')+(variant?'tsrr':'')+(extended?'ss':'')).replace(/ /g,'');
+    let signature=(common+(variant?' rr c ss ct sstc sstc sstc c':' c ss ct sssc sssc sssc c')+(extended?'st':'')+(variant?'tsrr':'')+(extended?'ss':'')).replace(/ /g,'');
+    // Candle My/Public strategy rules use a search input in the observed
+    // source layout. Other control positions retain the exact type signature.
+    if(chart==='Candle')for(const parent of [39,43,47])if(['My','Public'].includes(fields[parent]?.value)&&fields[parent+1]?.type==='text')signature=signature.slice(0,parent+1)+'t'+signature.slice(parent+2);
     const anchors=[[0,/Chart Type/i],[1,/Group/i],[4,/Retracement/i],[11,/^Period/i],[22,/Weight/i],[26,/EMA/i],[33,/Timeframe/i],[34+shift,/Radar/i],[39+shift,/Str 1/i],[43+shift,/Str 2/i],[47+shift,/Str 3/i],[rs,/Relative Strength/i]];
     if(variant)anchors.push([34,/Running.*Fresh/i],[chartStart,chart==='Renko'?/Brick Size/i:/Box Size/i]);
     if (!['Candle','P&F','Renko'].includes(chart) || !matches(fields,signature,anchors)) return null;

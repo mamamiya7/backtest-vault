@@ -198,13 +198,27 @@ function setupVariationTests(){
  const changedCandidate=clone(rules);changedCandidate.trials.at(-1).patch['momentum.strategy.1.rule']=decision.leader.trial.patch['momentum.strategy.1.rule']==='Demo trend rule'?'Trend, Momentum':'Demo trend rule';assert.throws(()=>E.validate(changedCandidate),/preserve its candidate/,'An allowed enum is still forbidden if it changes the frozen validation candidate');
  const changedDiscovery=clone(rules);changedDiscovery.trials[0].period={from:'2026-01-01',to:'2026-06-01'};assert.throws(()=>E.validate(changedDiscovery),/Discovery dates/);
 }
+async function ruleSearchBridgeTests(){
+ const memory={},runtime={id:'search-extension',getURL:p=>'chrome-extension://search-extension/'+p},session='search-session',calls=[];
+ const storage={get:async key=>clone(key?{[key]:memory[key]??null}:memory),set:async value=>Object.assign(memory,clone(value))},dashboard={id:runtime.id,url:runtime.getURL('index.html')},source={id:runtime.id,url:'https://zone.definedgesecurities.com/index.html#research',tab:{id:42}};
+ let responsePatch=null,replySession=session;
+ const c=createCoordinator({storage,runtime,clock:()=>100000,probe:async()=>({session,ready:true,capable:true,chart:'Candle'}),configure:async(id,changes,request)=>{calls.push({id,changes:clone(changes),request:clone(request)});return {ok:true,session:replySession,result:{...request,childIndex:request.parentIndex+1,controlType:'text',options:[{value:'Fictional match',label:'Fictional match',disabled:false}],...responsePatch}};}}),call=(data={},sender=dashboard)=>c.handle({action:'lookup-rule',tabId:42,session,parentIndex:39,category:'Public',query:'trend',...data},sender);
+ await c.handle({action:'hello',session,ready:true,capable:true,chart:'Candle'},source);
+ const first=await call();assert.equal(first.result.options[0].label,'Fictional match');assert.deepEqual(calls[0],{id:42,changes:{},request:{parentIndex:39,category:'Public',query:'trend',session}});assert.deepEqual(Object.keys(memory),['runner:tab:42'],'Searching cannot write a run, experiment or lease');
+ for(const patch of [{parentIndex:35},{parentIndex:'39'},{parentIndex:40},{category:'Pre'},{category:'Popular'},{category:'Unknown'},{query:''},{query:'   '},{query:' padded'},{query:'x'.repeat(201)},{query:'line\nfeed'},{query:'\u007f'},{query:5}]){const count=calls.length;await assert.rejects(call(patch),/strategy search/);assert.equal(calls.length,count,'Invalid lookup cannot reach the source');}
+ await assert.rejects(call({session:'old-document'}),/changed or reloaded/);await assert.rejects(call({},source),/Experiment not found/);await assert.rejects(call({},{...dashboard,url:'https://unrelated.invalid/'}),/cannot control/);
+ replySession='changed';await assert.rejects(call(),/reloaded during/);replySession=session;
+ for(const patch of [{parentIndex:43},{childIndex:44},{category:'My'},{query:'other'},{controlType:'select-one'},{options:{}},{options:new Array(3001).fill('too many')}]){responsePatch=patch;await assert.rejects(call(),/different strategy search/);}responsePatch=null;
+ memory['runner:lease']={seenAt:100000};await assert.rejects(call(),/Finish or pause/);delete memory['runner:lease'];memory['experiment:running']={status:'running'};await assert.rejects(call(),/Finish or pause/);delete memory['experiment:running'];
+ for(const parentIndex of [39,43,47])for(const category of ['My','Public'])assert.equal((await call({parentIndex,category})).result.category,category);
+}
 function setupCachedCategoryTests(){
  const S=require('../dist/setup.js'),source=S.demoTemplate(),m=source.stages.momentum,categories=['Pre','My','Public','Popular'];m.ruleCatalogues={};
  const option=(label,disabled=false)=>({value:label,label,disabled});
  for(let n=0;n<=3;n++){
   const parent=35+4*n,child=parent+1,gate=n?parent+3:34,lists={};m.options[parent]=categories.map(x=>option(x));m.fields[parent].value='Pre';m.fields[gate].checked=true;
   for(const category of categories)lists[category]=[option(`${n} ${category} first`),option(`${n} ${category} second`),option(`${n} ${category} unavailable`,true)];
-  m.options[child]=clone(lists.Pre);m.fields[child].value=`${n} Pre first`;m.ruleCatalogues[child]={parentIndex:parent,gateIndex:gate,categories:lists};
+  m.options[child]=clone(lists.Pre);m.fields[child].value=`${n} Pre first`;m.ruleCatalogues[child]={parentIndex:parent,gateIndex:gate,categories:lists,...(n?{controlTypes:{Pre:'select-one',My:'text',Public:'text',Popular:'select-one'},searchQueries:{My:'private',Public:'public'}}:{})};
  }
  const t=S.template(source),defaults=S.defaults(t);
  for(const category of categories){
@@ -215,7 +229,7 @@ function setupCachedCategoryTests(){
    assert.ok(!catalog.some(f=>f.key===prefix+'.source'),'A category remains fixed within a batch');dimensions.push({key:prefix+'.rule',values:rule.options.map(o=>o.value)});
   }
   const plan=E.create({id:'plan-'+category,name:'Rules for '+category,baseline,dimensions,budget:20,objective:'returns'});assert.equal(plan.trials.length,16);assert.equal(E.validate(reordered(plan)).id,plan.id);
-  for(const trial of plan.trials){const expected=E.expected(plan,trial);for(let n=0;n<=3;n++){const prefix=n?`momentum.strategy.${n}`:'momentum.radar';assert.equal(E.fields(expected,'momentum')[35+4*n].value,category);assert.equal(E.fields(expected,'momentum')[36+4*n].value,trial.patch[prefix+'.rule']);}S.validateBaseline(expected);}
+  for(const trial of plan.trials){const expected=E.expected(plan,trial);for(let n=0;n<=3;n++){const prefix=n?`momentum.strategy.${n}`:'momentum.radar';assert.equal(E.fields(expected,'momentum')[35+4*n].value,category);assert.equal(E.fields(expected,'momentum')[36+4*n].value,trial.patch[prefix+'.rule']);assert.equal(E.fields(expected,'momentum')[36+4*n].type,n&&['My','Public'].includes(category)?'text':'select-one','Each trial expects the actual source control for its category');}S.validateBaseline(expected);}
   for(let n=0;n<=3;n++){
    const prefix=n?`momentum.strategy.${n}`:'momentum.radar',key=prefix+'.rule',other=category==='My'?'Public':'My';
    assert.throws(()=>E.create({id:'wrong-category',name:'Wrong category',baseline,dimensions:[{key,values:[`${n} ${other} first`]}]}),/source values/);
@@ -231,4 +245,4 @@ function setupCachedCategoryTests(){
   assert.equal(make([false]).trials.length,1);assert.throws(()=>make([false,true]),/available (strategy|radar) .* before enabling/,'Every combination must block enabling an empty category, including unsampled trials');
  }
 }
-(async()=>{setupVariationTests();setupCachedCategoryTests();await coordinatorTests();await decisionTests();await setupBridgeTests();console.log('PASS: bounded numeric/boolean/source-enum variations, cached strategy-category isolation, all-combination constraints, compound radio settings, fixed context, reproducible sampling, immutable settings, queue ownership/recovery, saved evidence, categorical ranking and Vault-first setup without fabricated results.');})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{setupVariationTests();setupCachedCategoryTests();await coordinatorTests();await decisionTests();await setupBridgeTests();await ruleSearchBridgeTests();console.log('PASS: bounded numeric/boolean/source-enum variations, cached strategy-category isolation, native search types and authorized lookup bridge, all-combination constraints, compound radio settings, fixed context, reproducible sampling, immutable settings, queue ownership/recovery, saved evidence, categorical ranking and Vault-first setup without fabricated results.');})().catch(e=>{console.error(e);process.exitCode=1;});

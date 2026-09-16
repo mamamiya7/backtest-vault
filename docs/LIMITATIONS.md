@@ -1,8 +1,9 @@
 # Known limitations
 
 - Preview release; not listed in the Chrome Web Store.
-- Experiments includes a Candle DOM runner, finite/sample/adaptive planner and durable journal. New test in v0.8.7 preview configures a complete Candle/Price setup in Vault and refreshes available rule menus from RZone. Live acceptance of this new flow remains pending. The v0.7.3 three-trial period sweep covered one fixed saved baseline. P&F/Renko execution, dynamic RS and Market Trend Filter remain gated. See [Experiments](EXPERIMENTS.md).
+- Experiments includes a Candle DOM runner, finite/sample/adaptive planner and durable journal. New test in v0.8.8 preview configures a complete Candle/Price setup in Vault and refreshes available rule menus from RZone. Live acceptance of this new flow remains pending. The v0.7.3 three-trial period sweep covered one fixed saved baseline. P&F/Renko execution, dynamic RS and Market Trend Filter remain gated. See [Experiments](EXPERIMENTS.md).
 - The extension depends on Definedge's visible form and report structure. Future changes may require new adapters.
+- STR My/Public expose keyword searches rather than complete blank-query dropdowns. Vault loads matching results on request; no matches does not prove the entire category is empty. Duplicate names cannot be selected automatically. Finish or clear an unverified source search before reconnecting; Vault cannot infer whether arbitrary text is a committed source rule.
 - Five exported Candle runs have been checked against live references. Three P&F and three Renko saves completed live, but their exported archive verification is pending.
 - The dashboard and v0.4.0 strategy analysis were exercised in a standalone Chrome preview. Automation could not inspect the installed extension dashboard or complete its file-picker import flow.
 - Renko execution can retain two checked price-mode controls in the source. The app warns and preserves both values.
