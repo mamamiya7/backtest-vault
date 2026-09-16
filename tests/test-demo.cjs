@@ -3,6 +3,18 @@ const base=path.resolve(__dirname,'../dist'),Demo=require('../dist/demo.js'),V=r
 const fixtures=Demo.create();assert.equal(fixtures.length,6);
 for(const run of fixtures){V.validate(run);assert.equal(run.demo,true);assert.equal(run.trades.rows.length,V.metrics(run).trades);for(const s of P.settings(run)){assert.notEqual(s.groups[0].name,'Captured settings');assert.deepEqual(s.groups.flatMap(g=>g.rows.flatMap(r=>r.sourceIndices)).sort((a,b)=>a-b),s.snapshot.fields.map(f=>f.index));}}
 assert.match(V.assessment(fixtures[4]).join(' '),/both selected/);
+// Settings-only demo trials must keep money values consistent with the chosen capital.
+const Setup=require('../dist/setup.js'),Experiments=require('../dist/experiments.js'),Intelligence=require('../dist/intelligence.js');
+const setup=Setup.demoTemplate(),config=Setup.defaults(setup);config['portfolio.capital']=250000;
+const plan=Experiments.create({id:'sample-capital',name:'Sample capital',baseline:Setup.configToBaseline(config,setup,{id:'sample-setup',name:'Sample setup',demo:true}),dimensions:[]});
+const sample=Demo.createTrial(plan,plan.trials[0]);
+assert.equal(sample.quickStats.find(s=>s.label==='Initial Capital').value,'250000.00');
+assert.equal(sample.trades.rows[0][5],'250000.00');
+assert.deepEqual(Intelligence.inspect(sample).errors,[]);
+const categorical=Experiments.create({id:'sample-rule',name:'Sample rule',baseline:plan.baseline,dimensions:[{key:'momentum.strategy.1.rule',values:['Demo trend rule']}]});
+const categoricalRun=Demo.createTrial(categorical,categorical.trials[0]);
+assert.ok(Number.isFinite(V.metrics(categoricalRun).returns),'Fictional menu-choice trials need finite synthetic returns');
+assert.deepEqual(Intelligence.inspect(categoricalRun).errors,[]);
 const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/?demo=1'}),w=dom.window,d=w.document;
 let durableCalls=0;const downloads=[];
 Object.defineProperty(w,'indexedDB',{get(){durableCalls++;throw Error('Demo opened IndexedDB');}});

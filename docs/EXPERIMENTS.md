@@ -1,43 +1,72 @@
 # Experiments and decision intelligence
 
-Version 0.7.3 includes the experiment planner, local queue, Decision Desk and fictional simulation, with direct RZone connection checks and stable tab selection. **A real three-trial Candle batch completed in the installed extension on 2026-09-16, with its export checked against live source evidence.** The automated suites also cover stale results and interrupted execution. P&F/Renko plans can be prepared, but live execution is gated until their write adapters pass separate acceptance tests.
+Version 0.8.0 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
 ```mermaid
 flowchart LR
-    A[Saved baseline] --> B[Choose settings and values]
-    B --> C[Preview finite run count]
-    C --> D[Freeze decision rules]
-    D --> E[Select RZone tab and Start]
-    E --> F[Watch evidence arrive]
-    F --> G[Freeze validation candidate]
-    G --> H[Later validation period]
-    H --> J[Final untouched holdout]
-    style F fill:#b2f7dc,stroke:#247456,color:#122b22
+    A[New test in Vault] --> B[Connect signed-in RZone]
+    B --> C[Familiar RZone form]
+    C --> D[Test values beside a setting]
+    D --> E[Backtest]
+    E --> F[Dates, exits, portfolio and run count]
+    F --> G[Run]
+    G --> H[Saved results and Decision desk]
+    style A fill:#b2f7dc,stroke:#247456,color:#122b22
 ```
 
-1. Open a saved run and choose **Create experiment**, or open **Experiments → New experiment**.
-2. Choose one to six settings. Enter explicit values, such as `126,180,252`, or `100:200:25` for start/end/step. These are input examples, not trading recommendations.
-3. Choose All combinations, Budgeted sample or Adaptive. Freeze Calmar, Return or Drawdown as the objective, together with a drawdown ceiling and minimum reported trades.
-4. Save the plan. Review **All trials** and **Baseline & locked context**.
-5. In the installed extension, a single ready Candle RZone tab is selected automatically. With several tabs, choose one and Start. That tab must have the matching baseline configured, with existing report/settings dialogs closed. Use one designated tab for the batch.
-6. Stop after current finishes capturing the active report. Resume starts the next queued trial. Closing Vault does not stop an active source tab; closing or refreshing the source tab requires recovery review.
+1. Open the **installed Vault** and choose **New test** or **Experiments → Start a new test**.
+2. **Connect:** open RZone and sign in if needed. Select that tab and choose **Connect RZone**. Close any existing RZone report/settings dialog first; preserve an unsaved report before leaving it. Connecting does not submit a backtest.
+3. **Set up the strategy in one form:** chart, market, four periods and weights, timeframe, retracement, volume, EMA/TMA, Radar, Trend Quality and Strategy 1–3 follow RZone's arrangement. For Group, enter the exact RZone group name; execution must resolve its source autocomplete choice.
+4. **Add Test values beside eligible controls:** use explicit numbers such as `252,500`, a numeric From/To/Step range, On/Off choices, or multiple available menu choices. Leave them unused for one test. Up to six settings can vary together. Every combination must be valid, including enabled periods, weights, rules and exits. These values are examples, not recommendations.
+5. **Backtest:** review dates, rank criteria, target, stop loss, any exit rule, allocation, capital and position limits. Exit settings can also have test values. Portfolio defaults are editable and checked against RZone before submission. Choose your comparison measure and limits, then check the total combination count.
+6. Choose **Run 1 test** or **Run … tests**. Vault applies the full approved setup, runs momentum and portfolio calculations, saves the report, and advances only after verifying the save. Leave the RZone tab's settings alone while it works.
+7. Open saved trials or **Decision desk** for results. **Export experiment** downloads a backup; it is optional and does not trigger another test. **Stop after current** lets the active report finish saving before pausing.
 
-The localhost viewer can prepare and export plans. It has no bridge to the installed extension. Import the plan JSON into the extension, then select a source tab. Import never starts execution automatically.
+### Refresh the available choices
+
+**Refresh choices** reads the dropdowns currently available to your signed-in RZone account. Changing a rule source, such as **Pre**, **My**, **Public** or **Popular** when offered by RZone, refreshes that source's rule menu. Vault does not invent extra rule names. A previous choice that disappears needs review rather than being silently replaced.
+
+Refreshing can open and close the RZone setup dialog and change the selected rule source. It does **not** click its submission button or create a backtest result. This is separate from **Run**.
+
+```mermaid
+flowchart LR
+    A["Available RZone choices"] -->|"Connect / Refresh choices"| B["Editable setup"]
+    B -->|"Review"| C["Settings-only plan"]
+    C -->|"Run"| D["RZone backtests"]
+    D --> E["Saved results"]
+    E --> F["Compare / Export"]
+```
+
+| Item | What it contains |
+| --- | --- |
+| Available choices | Current source labels and dropdown options; no calculated performance |
+| Setup and plan | Your selected settings, permitted variations and run count; no invented baseline result |
+| Saved trial | The actual submitted settings, source statistics, all reported trade rows and six chart snapshots |
+
+### Continue from a saved run
+
+Choose **Experiments → Use a saved run**, or **Create experiment** on an existing run, to keep the older workflow. Choose the baseline, variation values and decision rules, then save the plan and select **Start experiment**. This route changes the chosen variation fields; the RZone tab must already match the saved baseline's fixed settings. **New test** is the route that applies a complete setup from Vault.
+
+The localhost viewer can inspect archives and prepare/export saved-run plans. It has no connection to the installed extension. New connected setup and real execution require the installed Vault. Importing a plan JSON restores it paused and never starts execution automatically.
 
 Vault asks registered source tabs for their current readiness instead of treating a delayed timer as a missing tab. It checks again before Start and wakes the chosen runner. A disconnected selection stays visible, with Start disabled; Vault never silently switches it to another tab. Keep Chrome, RZone and the computer running. Source execution can slow or stop if Chrome suspends the page. These readiness checks do not renew an active trial's lease or authorize replay.
 
-## What can vary now
+## Setup choices and variations
 
-| Family | Planner support | Live executor status |
+| Control | New test setup | Variation picker |
 | --- | --- | --- |
-| Candle | Active periods and weights, active EMA lengths, TMA toggle, volume, active retracement/trend-quality values, active target/stop values | Three real period trials completed and export verified for one fixed baseline; other variable combinations need their own checks |
-| P&F | Above applicable fields, box size and reversal size | Planning only; live gate remains closed |
-| Renko | Above applicable fields and brick-size input in the baseline's fixed mode | Planning only; live gate remains closed |
-| Relative Strength, rules, chart type/mode, universe, timeframe, capital and sizing | Recorded baseline context | Locked; dynamic-layout write adapters remain on the roadmap |
+| Periods, weights, EMA, TMA | Values and enable checkboxes | Numeric values and On/Off choices |
+| Retracement, volume, Trend Quality | Values, references and applicable enable checkboxes | Numeric values, switches and offered references |
+| Radar, Strategy 1–3, exit rule | Enable controls, source menus and loaded rule choices | Switches and rules within the selected source catalogue; Strategy rule timeframe |
+| Group, market, timeframe, dates, rank criteria | Selected in Vault | Fixed within discovery |
+| Target and stop loss | Values and enable checkboxes | Numeric values and On/Off choices; every combination needs an exit |
+| Allocation, capital, open trades and daily limit | Selected in Vault | Fixed within that plan |
+| Relative Strength and Market Trend Filter | Must remain off for this adapter | Unavailable |
+| P&F and Renko | Automatic setup/execution gated | Existing saved runs can still prepare plans; execution remains gated |
 
-An inactive length is excluded from the current sweep picker. Enable the relevant field in RZone and save a new baseline first. Market Trend Filter baselines are rejected because their separate dialog values are not captured. Named custom/RS rules remain names; their hidden numeric definitions are not inferred.
+The current new-test adapter is **Candle with Price selection**. Other source choices remain visibly unavailable where their dependent controls need a separate adapter. Shared context and source-menu parents stay fixed during a batch so comparisons use the same assumptions. Change a rule source and refresh its choices before selecting the rules to test. In the saved-run route, inactive fields remain excluded from that baseline's sweep picker. Named rules are recorded as names; hidden rule definitions are never inferred.
 
 ## Search modes
 
@@ -99,25 +128,25 @@ flowchart TD
 
 - The leading trial is provisional while work remains. Ties are shown. Repeated report evidence stays in the journal but does not add independent ranked evidence.
 - Derived Calmar uses **source CAGR / positive maximum drawdown**. Annualized Returns remains a display fallback elsewhere, not a substitute for this calculation. Missing CAGR or zero drawdown withholds Calmar.
-- Neighbor checks examine trials that differ in one adjacent setting value, with every other dimension equal. The desk shows how many pass the frozen rules and their objective range. This is descriptive sensitivity, not a statistical confidence score or a causal explanation.
-- Return versus baseline is a difference in percentage points. The original source numbers and the full baseline report remain available.
+- Neighbor checks examine trials that differ in one adjacent numeric or On/Off setting value, with every other dimension equal. Menu choices are categorical and are not described as adjacent numbers. The desk shows how many checks pass the frozen rules and their objective range. This is descriptive sensitivity, not a statistical confidence score or a causal explanation.
+- For a saved-run baseline, return versus baseline is a difference in percentage points and the original report remains available. A new settings-only setup has no baseline performance; Vault does not invent a comparison against it.
 - Index reference uses a local benchmark collection and the chosen discovery leader's dates. Missing, sparse, fictional/real mismatch and source/basis issues remain visible. No real Nifty series is bundled or fetched. Full analysis offers additional reference inspection.
 - Validation freezes one discovery candidate. Holdout freezes that validation candidate. Dates must be strictly later; scores remain separate. Selecting dates after viewing their performance does not create an untouched holdout.
 - Summary returns and drawdowns are never averaged into a purported portfolio. Costs, liquidity, slippage, historical universe membership and execution assumptions remain unverified when absent from the source.
 
 ## Demo and acceptance
 
-Open `?demo=1&view=experiments`, create a plan and choose **Generate sample results**. The sample workspace uses a distinct color and reports **Sample results ready** when finished. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary experiments and runs. Navigation pauses a simulation; reload resets it. The standalone viewer identifies itself separately and cannot execute RZone plans. An imported fictional experiment cannot enable real execution controls.
+Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the same form and inline ranges using fictional choices. In the Backtest dialog, **Generate … sample results** produces examples; the saved-run demo route retains **Generate sample results**. The sample workspace uses a distinct color and reports **Sample results ready** when finished. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary experiments and runs. Navigation pauses a simulation; reload resets it. The standalone viewer identifies itself separately and cannot execute RZone plans. An imported fictional experiment cannot enable real execution controls.
 
 Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, a three-trial full Candle DOM flow, complete backup/import and demo isolation. These are simulated tests, not proof of the installed extension operating the live service.
 
-Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. This is acceptance for the tested baseline, not every possible input combination.
+Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.0's new full-setup and dropdown-refresh flow.**
 
 ## Remaining delivery plan
 
-1. **Expand Candle coverage:** the initial live three-trial period sweep passed. Validate additional supported variable combinations and recovery behavior on the live source before relying on broader unattended batches.
+1. **Accept the Vault-first flow live:** verify connection, rule-menu refreshes, full settings application, a single run and a finite variation batch in the installed extension. The earlier saved-baseline period sweep is a separate acceptance result.
 2. **P&F and Renko adapters:** validate three writes/runs per family, including conditional dropdowns and price-mode controls; only then open their live gates.
-3. **Broader trader experiments:** RS On/Off with captured dependencies, EMA/period enable switches, predefined strategy selections, sizing experiments split into comparable cohorts, and starting from the current unsaved RZone setup.
+3. **Broader trader experiments:** dynamic RS/market-filter dependencies, wider variation dimensions, sizing studies separated into comparable groups, and more supported source layouts. Expand live checks for the newly editable Candle controls and recovery behavior.
 4. **Stronger research validation:** reserve dates before discovery, multiple forward windows, neighbor heatmaps, benchmark-relative objectives with sufficient source coverage, and optional cost/liquidity gates when underlying data supports them.
 5. **Optional language planning:** translate a trader's brief to the same bounded schema, show its ranges for review, and let the deterministic executor operate it. A local model/optimizer remains optional; no LLM runtime or broad network access has been added.
 

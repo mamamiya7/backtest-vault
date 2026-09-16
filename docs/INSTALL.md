@@ -6,13 +6,23 @@ Load the unpacked **dist** directory, which contains manifest.json. Selecting th
 
 Use the same folder for future reloads. Back up first, then reload the extension and refresh both Definedge and Vault to load changed scripts. Removing the extension is not required for an update.
 
-Sign in to Definedge as usual. Run the momentum submission, then the portfolio submission. Wait until the report and trade rows appear before clicking **Save backtest**. Wait for completion while the saver visits every trade page. Open Vault using the extension toolbar.
+Sign in to RZone as usual, then open Vault using the extension toolbar. **You do not need to complete or save a backtest first.**
+
+1. Choose **New test** in Vault.
+2. Select your signed-in RZone tab and click **Connect RZone**. Connecting reads the available controls without submitting a backtest. If Vault cannot find Momentum Trading BackTesting, open RZone's Research menu as prompted, then reconnect.
+3. Set up the strategy in the RZone-style form. Add **Test values** beside a setting to compare explicit values, a numeric range or available choices. Use **Refresh choices** to reread your account's current menus.
+4. Click **Backtest**, review dates, exits, portfolio settings and the test count, then click **Run … tests**. Leaving all variation controls unused runs the current setup once.
+5. Leave RZone open and avoid editing its settings while the queue runs. Vault saves each completed report automatically. Use **Export experiment** for a backup of that test, or **Back up all** on the main library page.
+
+This preview's new-test adapter uses Candle and Price selection, with Relative Strength and Market Trend Filter off. P&F/Renko automatic execution remains gated. The new full-setup workflow needs its own live acceptance; the earlier saved-baseline three-trial Candle test does not establish that acceptance.
+
+To continue an existing saved baseline, use **Experiments → Use a saved run**. That workflow requires the RZone tab's fixed settings to match the saved baseline. You can also work manually in RZone: submit the momentum and portfolio tests, wait for the report and all trade rows, then click **Save backtest**.
 
 ## Standalone viewer
 
 Run `npm run preview`. The demo URL uses fictional records. Remove `?demo=1` to open this browser origin's separate archive and import a JSON backup. Serving the files over localhost is the supported viewer workflow.
 
-The standalone viewer cannot directly read Chrome extension storage. Export from the extension and import the JSON file in the viewer.
+The standalone viewer cannot directly read Chrome extension storage or connect to RZone. Export from the extension and import the JSON file in the viewer. Use the installed Vault for a new connected test; the demo uses fictional choices and results only.
 
 ## Common problems
 
@@ -25,7 +35,11 @@ The standalone viewer cannot directly read Chrome extension storage. Export from
 | Settings were not linked | Submit both strategy and portfolio backtests after capture has loaded. Do not reinterpret the currently visible form as evidence for an older report. |
 | Blank library in the viewer | It has separate storage. Import an exported JSON backup. |
 | Import is disabled | You are in demo mode. Open my archive to import. |
-| An experiment finishes almost instantly | Check the workspace label. **Generate sample results** creates fictional examples without contacting RZone. Real execution uses **Start experiment** inside the installed extension. Inspect **Execution evidence** for source submission and capture times. |
+| No source tab is available | Open RZone, sign in and return to the installed Vault. Refresh RZone after an extension update. Close existing dialogs only after preserving any unsaved report. |
+| A dropdown is missing a recently added rule | Use **Refresh choices**. Confirm the intended source, such as Pre or My, and choose from the refreshed list. Unavailable old selections need review. |
+| Group could not be confirmed | Use the exact RZone group name. Execution requires a matching source autocomplete selection; typing arbitrary text is insufficient. |
+| Refreshing choices seems to open RZone settings | This reads the available controls and may change a rule source. It does not submit a backtest. **Run** starts the calculations. |
+| An experiment finishes almost instantly | Check the workspace label. **Generate … sample results** creates fictional examples without contacting RZone. Real execution uses **Run … tests**, or **Start experiment** for a saved plan, inside the installed extension. Inspect **Execution evidence** for source submission and capture times. |
 | A duplicate import adds zero runs | Existing IDs stay unchanged. This prevents accidental overwrites. |
 | CAGR / annualized return is missing | Neither source value was available. The summary prefers CAGR and otherwise shows Annualized return, with the matching label. |
 | Both Renko price modes are selected | This is an ambiguous source form state. Review the record; Vault preserves both settings. |
@@ -44,6 +58,6 @@ Chrome requires both the extension and host page to reload after content-script 
 
 ## Enable Experiments after an update
 
-Reload Backtest Vault on Chrome's Extensions page, refresh the RZone tab, and reopen Vault. Choose Experiments or Create experiment on a saved run. Live controls are available only inside the installed extension; the localhost viewer can prepare plans and run a fictional simulation. Begin with a small Candle plan and a matching source baseline. P&F/Renko live execution remains gated pending separate acceptance tests. See [Experiments](EXPERIMENTS.md).
+Reload the existing Backtest Vault extension on Chrome's Extensions page, refresh RZone, and reopen Vault. Preserve any pending recovery download before refreshing. Choose **New test** for the guided setup; **Experiments → Use a saved run** keeps the existing-baseline route. Live controls are available only inside the installed extension. Begin with a small Candle/Price test. P&F/Renko live execution remains gated pending separate acceptance tests. See [Experiments](EXPERIMENTS.md).
 
 After an interrupted trial, inspect its source report before refreshing. **Check saved result** verifies the saved trial's identity, submitted settings and source lifecycle. An older result without this receipt stays available in the archive but cannot prove a new automatic trial completed. An expired execution lease cannot be revived by a late heartbeat; review the interrupted trial rather than submitting it again automatically.

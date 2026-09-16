@@ -1,5 +1,11 @@
 # UI / UX audit
 
+## Source-style test form — v0.8.0 preview
+
+The setup now follows RZone's single-screen arrangement: chart, market, four periods and weights on the left; group, retracement, volume, EMA and Radar on the right; Strategy 1–3 below. Every eligible control has a small Test values editor for numeric lists/ranges, On/Off or available menu choices. Backtest opens dates, exits and portfolio settings together. The original four-step wizard was removed after screenshot feedback.
+
+The setup uses compact charcoal controls, explicit labels and keyboard-accessible native inputs. Source refresh preserves drafts and identifies unavailable choices. Connecting or refreshing never submits a backtest. Unsupported automatic chart/filter modes stay visibly unavailable. The live full-setup acceptance boundary remains documented in the README; fictional preview checks do not substitute for it.
+
 ## Compact controls and drag ordering — v0.6.1
 
 The user's follow-up screenshot identified unnecessary column counts, sorting instructions and repeated ranking-direction labels. Removed them from the table surface. Columns is now a compact menu with visibility checkboxes and vertical drag handles. Ranking directions appear inside the Rank by menu. Optional headings can also be dragged directly across the table; fixed identity columns remain first.

@@ -57,10 +57,20 @@ function withCagr(configOverride){return createOriginal(configOverride).map(run=
 function createTrial(e,t){
  if(!e.demo)throw Error('Simulation is restricted to fictional experiments.');
  const E=root.VaultExperiments,b=E.expected(e,t),m=E.fields(b,'momentum'),x=E.fields(b,'execution');
- const wave=Object.values(t.patch).reduce((sum,v)=>sum+(typeof v==='boolean'?Number(v)*3:Number(v)),0);
+ const wave=Object.values(t.patch).reduce((sum,v)=>{
+  if(typeof v==='boolean')return sum+Number(v)*3;
+  const numeric=Number(v);if(Number.isFinite(numeric))return sum+numeric;
+  let hash=0;for(const char of String(v))hash=(Math.imul(hash,31)+char.codePointAt(0))>>>0;return sum+hash%10000;
+ },0);
  const returns=Array.from({length:12},(_,i)=>Number((1.2+2.8*Math.sin(i*1.7+wave*.014)).toFixed(2)));
  const run=withCagr([[e.name+' · simulated '+t.ordinal,m[0].value,180,false,'Percent',returns]])[0];
  run.id=t.runId;run.parameters=b.parameters;run.experiment={id:e.id,trialId:t.id,phase:t.phase};run.savedAt=new Date().toISOString();
+ // A setup contains no earlier result or submission. The isolated demo adds
+ // its own fictional completion state only when generating a sample result.
+ if(b.origin==='vault-setup'){run.parameters.strategy.started=true;run.parameters.strategy.completed=true;run.parameters.strategy.auxiliarySettingsUncaptured=false;}
+ const capital=Number(String(E.fields(b,'portfolio')[2].value).replace(/,/g,'')),scale=capital/100000;
+ for(const stat of run.quickStats)if(['Initial Capital','Final Capital','Total PL'].includes(stat.label))stat.value=(Number(stat.value)*scale).toFixed(2);
+ for(const row of run.trades.rows)for(const column of [5,6,8])row[column]=(Number(row[column])*scale).toFixed(2);
  run.statistics[0].rows=[['Group',m[1].value],['Segment',m[3].value],['Start Date',x[1].value],['End Date',x[2].value],['Timeframe',m[33].value],['Data type','Fictional experiment simulation']];
  const span=Date.parse(x[2].value)-Date.parse(x[1].value);run.trades.rows.forEach((r,i)=>{r[2]=new Date(Date.parse(x[1].value)+span*i/12).toISOString().slice(0,10);r[3]=new Date(Date.parse(x[1].value)+span*(i+1)/12).toISOString().slice(0,10);});
  const gross=Number(run.quickStats[0].value.replace('%',''));run.quickStats.find(s=>s.label==='CAGR').value=(((1+gross/100)**(365.25/(span/86400000))-1)*100).toFixed(2)+'%';

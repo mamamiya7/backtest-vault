@@ -4,7 +4,7 @@
 
 'use strict';
 
-const E=root.VaultExperiments,P=root.VaultPresentation,I=root.VaultIntelligence;
+const E=root.VaultExperiments,P=root.VaultPresentation,I=root.VaultIntelligence,S=root.VaultSetup;
 
 const el=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
 
@@ -25,10 +25,10 @@ const elapsed=(from,to)=>{const start=Date.parse(from),end=Date.parse(to);if(!Nu
 
 let cleanup=()=>{};
 
-async function render({target,store,runs,onOpen,onExit,onNotice,table,download,baselineRun}){
+async function render({target,store,runs,onOpen,onExit,onNotice,table,download,baselineRun,startNew=false}){
 
  cleanup();document.body.classList.add('experiments-mode');let timer,selected=null,experiments=[],tabs=[],disposed=false,simulation=false,refreshing=false;
- let refreshSource=()=>{};const sourceChoices=new Map();
+ let refreshSource=()=>{},wizard=null;const sourceChoices=new Map();
 
  const extension=!store.demo&&location.protocol==='chrome-extension:'&&typeof chrome!=='undefined'&&!!chrome.runtime?.sendMessage;
 
@@ -38,9 +38,9 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  const panel=el('div',undefined,'experiment-workspace');target.replaceChildren(panel);panel.append(notice);
 
- const mode=el('div',undefined,'experiment-environment '+(store.demo?'is-sample':extension?'is-extension':'is-viewer'));
- mode.append(el('strong',store.demo?'Sample workspace':extension?'RZone automation':'Archive viewer'),el('span',store.demo?'Fictional results · no RZone backtests run.':extension?'Runs execute in your selected RZone tab.':'Review results and prepare plans. Execution is available in the installed Vault.'));
- panel.append(mode);
+ const environment=el('div',undefined,'experiment-environment '+(store.demo?'is-sample':extension?'is-extension':'is-viewer'));
+ environment.append(el('strong',store.demo?'Sample workspace':extension?'RZone automation':'Archive viewer'),el('span',store.demo?'Fictional results · no RZone backtests run.':extension?'Runs execute in your selected RZone tab.':'Review results and prepare plans. Execution is available in the installed Vault.'));
+ panel.append(environment);
 
  const content=el('div');panel.append(content);
 
@@ -58,7 +58,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  async function load(){if(extension){const r=await command('list');experiments=r.experiments;tabs=r.tabs;}else experiments=await store.allExperiments();runs=await store.all();}
 
- async function action(fn){try{notice.textContent='';await fn();}catch(e){notice.textContent=e.message;notice.className='notice error';}}
+ async function action(fn){try{notice.textContent='';notice.className='notice';await fn();}catch(e){notice.textContent=e.message;notice.className='notice error';}}
 
  function sourceControls(id,state){
   const picker=select([['','Select RZone tab']]),help=el('p','','mini');
@@ -89,7 +89,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  function heading(title,back){const h=el('div',undefined,'comparison-intro');const text=el('div');text.append(el('p','EXPERIMENTS','eyebrow'),el('h2',title));h.append(text,button(back?'All experiments':'Run library',back?()=>list():onExit,'quiet'));return h;}
 
- function list(){selected=null;content.replaceChildren(heading('From an idea to evidence.'));const intro=el('div',undefined,'experiment-intro');intro.append(el('p','Choose a baseline. Vary a few settings. Keep the rest fixed.','muted'),button('New experiment',()=>builder(),'primary'));content.append(intro);
+ function list(){selected=null;wizard=null;environment.hidden=false;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('From an idea to evidence.'));const intro=el('div',undefined,'experiment-intro');intro.append(el('p','Set up a strategy, run a test, then explore what changes.','muted'),button('Start a new test',()=>newTest(),'primary'),button('Use a saved run',()=>builder(),'quiet'));content.append(intro);
 
   if(!experiments.length){const empty=el('div',undefined,'experiment-empty');empty.append(el('span','01 → 02 → 03','experiment-flow'),el('h3','Plan → Run → Decide'),el('p','Your ranges become a finite queue. Each result keeps its settings, charts and trades.'));content.append(empty);}
 
@@ -97,9 +97,185 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  }
 
+ function newTest(){
+  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
+  if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');wizard.template=S.demoTemplate();wizard.config=S.defaults(wizard.template);wizard.step=1;}
+  setupPage();
+ }
+
+ function setupSourceValid(){
+  if(!wizard||store.demo||!wizard.template)return true;
+  const source=tabs.find(t=>String(t.id)===wizard.sourceId);
+  if(!source||source.session!==wizard.sourceSession){
+   wizard.generation++;wizard.template=null;wizard.sourceSession=null;wizard.step=0;wizard.stale=true;wizard.connecting=false;
+   notice.textContent='RZone changed or disconnected. Your entries are kept; reconnect and review them before running.';setupPage();return false;
+  }
+  return true;
+ }
+
+ function acceptSetupSource(state,source){
+  const template=S.template(source),config=S.defaults(template);
+  if(state.config)for(const group of S.fieldsForUI(template))for(const field of group.fields)if(!field.disabled&&Object.hasOwn(state.config,field.key))config[field.key]=state.config[field.key];
+  state.template=template;state.sourceSession=source.session;state.config=config;state.stale=false;
+ }
+
+ async function refreshSetupChoices(changes){
+  const state=wizard;if(!state||state.connecting||store.demo)return;if(!setupSourceValid())return;
+  const generation=++state.generation;state.connecting=true;for(const control of content.querySelectorAll('.setup-form input,.setup-form select,.setup-form button,.setup-builder button'))control.disabled=true;
+  notice.textContent='Refreshing the choices from RZone…';
+  try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;acceptSetupSource(state,response.source);notice.textContent='Choices refreshed from RZone. Review any unavailable selections.';}
+  finally{state.connecting=false;if(alive()&&wizard===state)setupPage();}
+ }
+
+ function setupPage(){
+  if(!wizard)return;const state=wizard;selected=null;panel.classList.add('is-setup');const globalDemo=document.getElementById('demo-banner');environment.hidden=!!(store.demo&&globalDemo&&!globalDemo.hidden)||!!(extension&&state.step>0);panel.classList.toggle('has-workbench',state.step>0);content.replaceChildren(heading(state.step>0?'Momentum Trading BackTesting':'Start a new test',true));
+  const shell=el('div',undefined,'experiment-builder setup-builder');content.append(shell);
+  if(!store.demo&&!extension){shell.append(el('h3','Open your installed Vault'),el('p','New tests use the settings and available choices from your RZone session. Open Backtest Vault from Chrome’s extensions to connect it.','muted'),button('Use a saved run',()=>builder(),'quiet'));return;}
+  if(state.step===0){
+   shell.append(el('h3','Connect to RZone'),el('p','Vault collects the available settings from your signed-in RZone tab. No backtest starts yet.','muted'));
+   if(state.stale)shell.append(el('p','Your previous entries will be available to review after reconnecting.','setup-kept'));
+   const picker=select([['','Choose RZone tab']]),hint=el('p','','mini'),actions=el('div',undefined,'setup-actions'),connect=button('Connect RZone',()=>action(async()=>{
+    const tab=tabs.find(t=>String(t.id)===state.sourceId);if(!tab||!(tab.capable??tab.ready))throw Error(tab?.reason||'Open RZone and sign in before connecting.');
+    const generation=++state.generation;state.connecting=true;sync();
+    try{
+     const response=await command('configure',{tabId:tab.id});if(!alive()||wizard!==state||generation!==state.generation)return;
+     acceptSetupSource(state,response.source);state.step=1;state.connecting=false;notice.textContent='';setupPage();
+    }finally{state.connecting=false;if(wizard===state&&state.step===0)sync();}
+   }),'primary');picker.dataset.rzone='setup';picker.setAttribute('aria-label','RZone tab');
+   function sync(){
+    if(wizard!==state||state.step!==0)return;const available=tabs.filter(t=>t.capable??t.ready);if(!state.sourceId&&available.length===1)state.sourceId=String(available[0].id);
+    if(document.activeElement!==picker){const options=[['','Choose RZone tab'],...tabs.map(t=>[String(t.id),'RZone'+((t.capable??t.ready)?'':' · unavailable')+' · tab '+t.id])];if(state.sourceId&&!tabs.some(t=>String(t.id)===state.sourceId))options.push([state.sourceId,'RZone · not connected']);if(JSON.stringify([...picker.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(options))picker.replaceChildren(...[...select(options).options]);picker.value=state.sourceId;}
+    const source=tabs.find(t=>String(t.id)===state.sourceId);connect.disabled=state.connecting||!source||!(source.capable??source.ready);connect.textContent=state.connecting?'Reading available settings…':'Connect RZone';picker.disabled=state.connecting;hint.textContent=source?.reason||(!source?'Open RZone and sign in. Vault will detect the tab here.':'');hint.hidden=!hint.textContent;
+   }
+   picker.onchange=()=>{state.sourceId=picker.value;state.template=null;state.sourceSession=null;state.generation++;sync();};picker.onblur=sync;refreshSource=sync;sync();
+   actions.append(connect,button('Open RZone',()=>action(async()=>{await command('open-source');await load();sync();}),'quiet'));shell.append(label('Source',picker),hint,actions);return;
+  }
+  if(!state.template){state.step=0;setupPage();return;}
+  if(extension){const sourceBar=el('div',undefined,'setup-source-bar');sourceBar.append(el('span','Connected to RZone','mini'),button('Refresh choices',()=>action(()=>refreshSetupChoices()),'quiet'));shell.append(sourceBar);}
+  shell.classList.add('source-workbench');
+  buildWorkbench(shell,state);
+ }
+
+ function setupPlan(state){
+  return {id:'preview',name:state.name,baseline:S.configToBaseline(state.config,state.template,{id:'setup-preview',name:state.name,demo:store.demo}),dimensions:state.dimensions.map(d=>({key:d.key,values:d.values})),mode:state.mode,budget:state.budget,objective:state.objective,ceiling:state.ceiling,minTrades:state.minTrades,seed:state.seed,timeoutMinutes:state.timeout};
+ }
+
+ function workbenchChanged(state){
+  for(const item of state.controls||[]){
+   if(!item.control.isConnected)continue;
+   const f=item.field,inspect=f.key.endsWith('.chart')&&f.options?.length>1;
+   item.control.disabled=!!(f.disabled&&!inspect)||!!(f.enabledBy&&!state.config[f.enabledBy]);
+  }
+  for(const update of state.countUpdates||[])update();
+ }
+
+ function variationEditor(state,field){
+  const candidate=state.catalog.find(f=>f.key===field.key);if(!candidate||candidate.type==='enum'&&!candidate.options.length)return null;
+  const holder=el('div',undefined,'source-variation'),toggle=button('Test values',()=>{},'source-test-values'),editor=el('div',undefined,'source-values-editor');holder.dataset.variationFor=field.key;editor.dataset.editorFor=field.key;editor.hidden=state.editorOpen!==field.key;holder.append(toggle,editor);
+  const dimension=()=>state.dimensions.find(d=>d.key===field.key);
+  const summary=()=>{const d=dimension();toggle.textContent=d?'Edit values':candidate.type==='boolean'?'On/off':'Test values';toggle.setAttribute('aria-label','Test values for '+field.label);toggle.classList.toggle('is-active',!!d);toggle.setAttribute('aria-expanded',String(!editor.hidden));};
+  function draw(){
+   const d=dimension();editor.replaceChildren();if(!d)return;editor.append(el('strong',field.label));
+   const current=state.config[field.key];
+   if(candidate.type==='enum'||candidate.type==='boolean'){
+    const choices=candidate.type==='boolean'?[{value:true,label:'On'},{value:false,label:'Off'}]:candidate.options;
+    const list=el('div',undefined,'source-value-choices');
+    for(const option of choices){const checkbox=input('','checkbox');checkbox.checked=Array.isArray(d.values)&&d.values.includes(option.value);checkbox.onchange=()=>{const values=Array.isArray(d.values)?d.values:[];d.values=checkbox.checked?[...values,option.value]:values.filter(v=>v!==option.value);workbenchChanged(state);};list.append(label(option.label,checkbox));}editor.append(list);
+   }else{
+    const modes=el('div',undefined,'source-value-modes');for(const mode of ['Values','Range']){const b=button(mode,()=>{d.editorMode=mode.toLowerCase();draw();},'quiet');b.setAttribute('aria-pressed',String((d.editorMode||'values')===mode.toLowerCase()));modes.append(b);}editor.append(modes);
+    if(d.editorMode==='range'){
+     const fields=el('div',undefined,'source-range-inputs');d.range||={from:String(current),to:String(current),step:'1'};
+     for(const [key,title] of [['from','From'],['to','To'],['step','Step']]){const n=input(d.range[key],'number');n.step=candidate.integer?'1':'any';n.setAttribute('aria-label',field.label+' range '+title.toLowerCase());n.oninput=()=>{d.range[key]=n.value;d.values=d.range.from+':'+d.range.to+':'+d.range.step;workbenchChanged(state);};fields.append(label(title,n));}d.values=d.range.from+':'+d.range.to+':'+d.range.step;editor.append(fields);workbenchChanged(state);
+    }else{
+     if(typeof d.values!=='string'||d.values.includes(':'))d.values=String(current);
+     const n=input(d.values);n.placeholder='126, 180, 252';n.setAttribute('aria-label',field.label+' test values');n.oninput=()=>{d.values=n.value;workbenchChanged(state);};editor.append(label('Values, separated by commas',n));
+    }
+   }
+   const actions=el('div',undefined,'source-value-actions');actions.append(button('Use current value',()=>{state.dimensions=state.dimensions.filter(d=>d.key!==field.key);state.editorOpen=null;editor.hidden=true;summary();workbenchChanged(state);},'quiet'),button('Done',()=>{state.editorOpen=null;editor.hidden=true;summary();workbenchChanged(state);},'secondary'));editor.append(actions);summary();
+  }
+  toggle.onclick=()=>{
+   if(!dimension()){if(state.dimensions.length>=6){notice.textContent='Use at most six changing settings in one test batch.';return;}state.dimensions.push({key:field.key,values:candidate.type==='boolean'||candidate.type==='enum'?[state.config[field.key]]:String(state.config[field.key]),editorMode:'values'});}
+   const open=editor.hidden;for(const n of content.querySelectorAll('.source-values-editor'))n.hidden=true;state.editorOpen=open?field.key:null;editor.hidden=!open;draw();summary();workbenchChanged(state);
+  };draw();summary();return holder;
+ }
+
+ function sourceField(state,key,{text='',radios=false,showLabel=false,variation=true}={}){
+  const field=state.fields.get(key);if(!field)return el('span','Setting unavailable','mini');const value=state.config[key],wrap=el('div',undefined,'source-field');wrap.dataset.sourceField=key;
+  const caption=field.label.replace(/^Use /,'');if(showLabel&&field.type!=='boolean')wrap.append(el('span',caption,'source-control-label'));
+  const line=el('div',undefined,'source-control-line');wrap.append(line);
+  if(radios){
+   const options=el('div',undefined,'source-radios');for(const option of field.options||[]){const n=input(option.value,'radio');n.name='setup-'+key;n.checked=String(value)===String(option.value);n.disabled=!!field.disabled||!!option.disabled||!!(field.enabledBy&&!state.config[field.enabledBy]);n.dataset.setupField=key;n.setAttribute('aria-label',caption+' · '+option.label);n.onchange=()=>{if(n.checked){state.config[key]=n.value;workbenchChanged(state);}};state.controls.push({field,control:n});options.append(label(option.label,n));}line.append(options);
+  }else{
+   let control,unavailable=false;
+   if(field.type==='boolean'){control=input('','checkbox');control.checked=!!value;}
+   else if(field.type==='select'){
+    const options=field.options||[];control=select(options.map(o=>[String(o.value),o.label||String(o.value)]));options.forEach((o,i)=>control.options[i].disabled=!!o.disabled);
+    if(!options.length){const empty=el('option','No choices available');empty.value='';empty.disabled=true;control.append(empty);}
+    if(!options.some(o=>String(o.value)===String(value))&&String(value??'')){const missing=el('option',String(value)+' · unavailable');missing.value=String(value);missing.disabled=true;control.append(missing);unavailable=true;}control.value=String(value??'');
+   }else{control=input(value??'',field.type==='number'?'number':field.type==='date'?'date':'text');if(field.min!==undefined)control.min=field.min;if(field.max!==undefined)control.max=field.max;if(field.type==='number')control.step=field.integer?'1':'any';}
+   control.dataset.setupField=key;control.setAttribute('aria-label',caption);control.title=field.reason||field.help||caption;if(key==='momentum.group')control.placeholder='Search Group';control.required=!field.disabled&&field.type!=='boolean';const inspectChart=key.endsWith('.chart')&&field.options?.length>1;control.disabled=!!(field.disabled&&!inspectChart)||!!(field.enabledBy&&!state.config[field.enabledBy]);
+   if(field.type==='boolean'){const l=label(text,control);l.className='source-check';line.append(l);}else line.append(control);
+   if(unavailable){wrap.classList.add('setup-unavailable');control.setAttribute('aria-invalid','true');line.title='This choice is no longer available. Select another option.';if(field.rule&&!field.options?.length)wrap.append(button('Clear unavailable choice',()=>{state.config[key]='';if(field.enabledBy)state.config[field.enabledBy]=false;setupPage();},'quiet'));}
+   const update=()=>{state.config[key]=control.type==='checkbox'?control.checked:control.value;workbenchChanged(state);};
+   control.addEventListener('input',update);control.addEventListener('change',()=>{update();if(field.refreshOnChange&&extension)void action(()=>refreshSetupChoices({[field.stage]:{[field.index]:control.value}}));});state.controls.push({field,control});
+  }
+  if(field.disabled)wrap.classList.add('source-fixed');if(variation){const editor=variationEditor(state,field);if(editor)wrap.append(editor);}return wrap;
+ }
+
+ function buildWorkbench(shell,state){
+  const groups=S.fieldsForUI(state.template);state.fields=new Map(groups.flatMap(g=>g.fields).map(f=>[f.key,f]));state.catalog=E.catalogFromSetup?E.catalogFromSetup(state.template,state.config):[];state.controls=[];state.countUpdates=[];
+  const form=el('form',undefined,'setup-form source-main-form');form.onsubmit=event=>{event.preventDefault();openBacktest(state);};shell.append(form);
+  const main=el('div',undefined,'source-main-grid'),left=el('section',undefined,'source-main-left'),right=el('section',undefined,'source-main-right');left.setAttribute('aria-label','Chart, periods and timeframe');right.setAttribute('aria-label','Group and filters');main.append(left,right);form.append(main);
+  const field=(key,opts)=>sourceField(state,'momentum.'+key,opts);
+  const row=(title,children,cls='')=>{const n=el('div',undefined,'source-row '+cls);n.append(el('span',title,'source-row-label'));const values=el('div',undefined,'source-row-controls');values.append(...children);n.append(values);return n;};
+  left.append(row('Chart Type :',[field('chart',{variation:false})]),row('Market :',[field('market',{variation:false})]));
+  const periods=[],weights=[];for(let i=1;i<=4;i++){const pair=el('div',undefined,'source-period-pair');pair.append(field('period.'+i+'.enabled'),field('period.'+i));periods.push(pair);weights.push(field('period.'+i+'.weight'));}
+  left.append(row('Period :',periods,'source-period-row'),row('Weight :',weights,'source-weight-row'),row('Timeframe :',[field('timeframe',{variation:false})]));
+  right.append(row('Group :',[field('group',{variation:false}),field('market-filter',{text:'MARKET TREND FILTER',variation:false})],'source-group-row'));
+  right.append(row('Retracement :',[field('retracement.enabled'),field('retracement'),field('retracement.mode'),field('retracement.reference',{radios:true})],'source-retracement-row'));
+  right.append(row('Volume above :',[field('volume'),field('volume.reference',{radios:true})],'source-volume-row'));
+  const emas=[];for(let i=1;i<=3;i++){const pair=el('div',undefined,'source-period-pair');pair.append(field('ema.'+i+'.enabled'),field('ema.'+i));emas.push(pair);}emas.push(field('tma',{text:'TMA Trend'}));right.append(row('EMA :',emas,'source-ema-row'));
+  const quality=el('div',undefined,'source-quality');quality.append(field('trend-quality.enabled',{text:'Trend Quality >'}),field('trend-quality'));right.append(row('Radar :',[field('radar.enabled'),field('radar.source',{variation:false}),field('radar.rule'),quality],'source-radar-row'));
+  const strategies=el('div',undefined,'source-strategies');for(let i=1;i<=3;i++){const n=el('section',undefined,'source-strategy');n.setAttribute('aria-label','Strategy '+i);n.append(el('span','Str '+i+' :','source-row-label'),field('strategy.'+i+'.source',{variation:false}),field('strategy.'+i+'.rule'),field('strategy.'+i+'.timeframe'),field('strategy.'+i+'.enabled'));strategies.append(n);}form.append(strategies,field('rs',{text:'Relative Strength :',variation:false}));
+  const limitations=el('p','Candle automation · P&F, Renko, Market Trend Filter and Relative Strength are unavailable for automatic execution.','source-availability');form.append(limitations);
+  const bar=el('div',undefined,'source-count-bar'),count=el('div',undefined,'source-combination-count'),backtest=button('Backtest',()=>openBacktest(state),'primary');bar.append(count,backtest);shell.append(bar);
+  const update=()=>{try{const dimensions=state.dimensions.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget);count.replaceChildren(el('strong',planned+' '+(planned===1?'test':'tests')),el('span',dimensions.length?combinations+' '+(combinations===1?'combination':'combinations')+' · '+dimensions.length+' changing '+(dimensions.length===1?'setting':'settings'):'Current settings'));}catch(error){count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting;};state.countUpdates.push(update);update();
+  if(state.reviewOpen)openBacktest(state);
+ }
+
+ function openBacktest(state){
+  if(wizard!==state||!setupSourceValid())return;
+  const previous=content.querySelector('.setup-backtest-dialog');if(previous?.open)return;previous?.remove();state.reviewOpen=true;
+  const dialog=el('dialog',undefined,'setup-backtest-dialog');dialog.setAttribute('aria-label','Momentum Trading BackTest');dialog.setAttribute('aria-modal','true');const title=el('div',undefined,'source-dialog-heading');title.append(el('h3','Momentum Trading BackTest'),button('Close',()=>closeDialog(),'quiet'));dialog.append(title);
+  const form=el('form',undefined,'setup-form source-review-form');dialog.append(form);content.append(dialog);
+  function closeDialog(){state.reviewOpen=false;if(typeof dialog.close==='function')dialog.close();dialog.remove();state.controls=state.controls.filter(c=>c.control.isConnected);state.countUpdates=state.countUpdates.filter(fn=>fn!==update);}
+  dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});dialog.addEventListener('close',()=>{state.reviewOpen=false;});
+  const body=el('div',undefined,'source-dialog-body'),columns=el('div',undefined,'source-review-columns'),execution=el('section'),portfolio=el('section');execution.append(el('h4','Backtest settings'));portfolio.append(el('h4','Portfolio Backtesting'));columns.append(execution,portfolio);form.append(body);body.append(columns);
+  const field=(key,opts={})=>sourceField(state,key,{showLabel:true,variation:key.startsWith('execution.'),...opts});
+  const pair=(keys,className='')=>{const grid=el('div',undefined,'source-review-fields '+className);grid.append(...keys.map(key=>field(key)));return grid;};
+  const toggleRow=(key,value,title)=>{const row=el('div',undefined,'source-review-toggle-row');row.append(field(key,{showLabel:false,text:title}),field(value,{showLabel:false}));return row;};
+  execution.append(pair(['execution.from','execution.to'],'source-date-pair'),pair(['execution.rank','execution.chart','execution.selection'],'source-execution-options'),toggleRow('execution.target.enabled','execution.target','Profit target (%)'),toggleRow('execution.stop.enabled','execution.stop','Stop loss (%)'));
+  const exit=el('div',undefined,'source-review-exit-row');exit.append(field('execution.exit.enabled',{showLabel:false,text:'Exit strategy'}),field('execution.exit.source',{showLabel:false}),field('execution.exit.rule',{showLabel:false}));execution.append(exit);
+  portfolio.append(field('portfolio.enabled',{showLabel:false,text:'Portfolio testing'}),pair(['portfolio.allocation'],'source-allocation-row'),pair(['portfolio.capital','portfolio.max-open']),toggleRow('portfolio.daily-limit.enabled','portfolio.daily-limit','Limit new stocks per day'));
+  for(const group of S.fieldsForUI(state.template).filter(g=>g.stage==='portfolio'))if(group.note)portfolio.append(el('p',group.note,'mini source-portfolio-note'));
+  const name=input(state.name);name.required=true;name.maxLength=120;name.oninput=()=>{state.name=name.value;workbenchChanged(state);};body.append(label('Test name',name));
+  const rules=el('div',undefined,'experiment-form-grid');for(const [key,title,choices] of [['objective','Rank by',[['returns','Return · higher is better'],['calmar','Calmar · higher is better'],['drawdown','Drawdown · lower is better']]],['mode','Search',[['grid','All combinations'],['sample','Budgeted sample'],['adaptive','Adaptive · bounded neighborhood']]]]){const n=select(choices);n.value=state[key];n.onchange=()=>{state[key]=n.value;workbenchChanged(state);};rules.append(label(title,n));}
+  for(const [key,title,min,max] of [['budget','Maximum runs',1,500],['ceiling','Max drawdown (%)',0,100],['minTrades','Minimum reported trades',0,1000000],['seed','Sample seed',0,4294967295],['timeout','Timeout per trial (minutes)',1,120]]){const n=input(state[key],'number');n.min=min;n.max=max;n.step='1';n.oninput=()=>{state[key]=+n.value;workbenchChanged(state);};rules.append(label(title,n));}body.append(disclosure('Decision rules & advanced',rules));
+  const footer=el('div',undefined,'source-dialog-footer'),preview=el('div',undefined,'experiment-preview'),actions=el('div',undefined,'source-dialog-actions'),run=button('Run test',()=>{},'primary');run.type='submit';actions.append(button('Back to strategy',()=>closeDialog(),'quiet'),run);footer.append(preview,actions);form.append(footer);
+  function update(){if(!dialog.isConnected)return;try{const e=E.create(setupPlan(state));preview.replaceChildren(el('strong',e.trials.length+' planned '+(e.trials.length===1?'test':'tests')),el('span',store.demo?'Fictional sample results. RZone will not run.':'Apply settings in RZone, run each test, and save completed reports.'));run.textContent=store.demo?'Generate '+e.trials.length+' sample '+(e.trials.length===1?'result':'results'):'Run '+e.trials.length+' '+(e.trials.length===1?'test':'tests');run.disabled=false;}catch(error){preview.replaceChildren(el('span',error.message));run.disabled=true;}}
+  state.countUpdates.push(update);
+  form.onsubmit=event=>{event.preventDefault();void action(async()=>{
+   if(!form.reportValidity()||!setupSourceValid()||wizard!==state)return;const p=setupPlan(state);E.create(p);run.disabled=true;let created;
+   try{
+    if(store.demo){created=E.create({...p,id:crypto.randomUUID()});await store.putExperiment(created);await load();wizard=null;detail(created.id);void simulate(created.id);}
+    else{const source=tabs.find(t=>String(t.id)===state.sourceId);if(!source||(source.capable??source.ready)!==true)throw Error(source?.reason||'RZone is unavailable. Reconnect before running.');created=(await command('create',{plan:p})).experiment;sourceChoices.set(created.id,state.sourceId);try{await command('start',{id:created.id,tabId:source.id});}finally{await load();wizard=null;detail(created.id);}}
+   }finally{if(!created&&wizard===state&&run.isConnected)update();}
+  });};update();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
+ }
+
  function builder(initial=baselineRun){
 
-  selected=null;content.replaceChildren(heading('Design your experiment',true));const form=el('form',undefined,'experiment-builder');content.append(form);
+  selected=null;wizard=null;environment.hidden=false;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('Design your experiment',true));const form=el('form',undefined,'experiment-builder');content.append(form);
 
   const usable=runs.filter(r=>{try{E.baseline(r);return (r.demo===true)===store.demo;}catch{return false;}});
 
@@ -205,7 +381,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  function detail(id){
 
-  selected=id;const e=experiments.find(e=>e.id===id);if(!e){list();return;}const saved=e.trials.filter(t=>t.status==='saved').length,d=E.decisions(e,runs),hero=el('section',undefined,'experiment-hero');
+  selected=id;wizard=null;environment.hidden=false;panel.classList.remove('is-setup','has-workbench');const e=experiments.find(e=>e.id===id);if(!e){list();return;}const saved=e.trials.filter(t=>t.status==='saved').length,d=E.decisions(e,runs),hero=el('section',undefined,'experiment-hero');
 
   const sample=store.demo||e.demo===true,active=e.trials.find(t=>E.active.includes(t.status));
   const headline=sample?(e.status==='complete'?'Sample results ready':e.status==='running'?'Generating sample results':e.status==='pausing'?'Finishing current sample':e.status==='paused'?'Sample generation paused':'Preview the experiment workflow'):active?'Trial '+active.ordinal+' · '+stateName(active.status):e.status==='running'?'Starting next trial':e.status==='needs-review'?'Review interrupted trial':d.headline;
@@ -240,7 +416,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
   if(d.leader){const baseline=runs.find(r=>r.id===e.baseline.id),b=baseline?I.inspect(baseline):null,metrics=el('dl',undefined,'map-metrics');const add=(label,value)=>{const cell=el('div');cell.append(el('dt',label),el('dd',value));metrics.append(cell);};
 
-   add('Return vs baseline',b?fmt(d.leader.item.metrics.returns-b.metrics.returns,false,true)+' pp':'Baseline report unavailable');add('Max drawdown',fmt(d.leader.item.metrics.drawdown,true));add('Neighbor checks',d.neighbors.filter(x=>x.eligible).length+' / '+d.neighbors.length+' meet rules');evidence.append(metrics);
+   if(e.baseline.origin!=='vault-setup')add('Return vs baseline',b?fmt(d.leader.item.metrics.returns-b.metrics.returns,false,true)+' pp':'Baseline report unavailable');add('Max drawdown',fmt(d.leader.item.metrics.drawdown,true));if(e.baseline.origin!=='vault-setup'||e.trials.filter(t=>t.phase==='discovery').length>1)add('Neighbor checks',d.neighbors.filter(x=>x.eligible).length+' / '+d.neighbors.length+' meet rules');evidence.append(metrics);
 
    if(d.neighbors.length){const vals=d.neighbors.filter(x=>x.eligible).map(x=>x.value);evidence.append(el('p',vals.length?'Nearby eligible '+metricName(e.objective)+': '+fmt(Math.min(...vals))+' to '+fmt(Math.max(...vals))+'. Descriptive sensitivity; no confidence score.':'Nearby results fail the rules. Review sensitivity before proceeding.','mini'));}
 
@@ -256,7 +432,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
   if(!sample)content.append(executionEvidence(e));
 
-  const fixed=el('div');for(const s of P.settings(e.baseline)){const dl=el('dl',undefined,'map-settings');for(const g of s.groups)for(const r of g.rows){const n=el('div');n.append(el('dt',s.title+' · '+r.label),el('dd',P.settingText(r)));dl.append(n);}fixed.append(dl);}content.append(disclosure('Baseline & locked context',fixed));
+  const fixed=el('div');for(const s of P.settings(e.baseline)){const dl=el('dl',undefined,'map-settings');for(const g of s.groups)for(const r of g.rows){const n=el('div');n.append(el('dt',s.title+' · '+r.label),el('dd',P.settingText(r)));dl.append(n);}fixed.append(dl);}content.append(disclosure(e.baseline.origin==='vault-setup'?'Test settings':'Baseline & locked context',fixed));
 
   if(e.trials.every(t=>['saved','skipped'].includes(t.status))){const phase=e.trials.some(t=>t.phase==='validation')?'holdout':'validation';if(!e.trials.some(t=>t.phase===phase)){const sourcePhase=phase==='validation'?'discovery':'validation',available=E.decisions(e,runs,sourcePhase).eligible;const section=el('section',undefined,'experiment-validation');section.append(el('h3',phase==='validation'?'Freeze a candidate for validation':'Final holdout'));
 
@@ -268,9 +444,9 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  }
 
- await load();if(baselineRun)builder(baselineRun);else list();
+ await load();if(startNew)newTest();else if(baselineRun)builder(baselineRun);else list();
 
- timer=setInterval(async()=>{if(!alive()){cleanup();return;}if(refreshing)return;refreshing=true;try{const before=selected&&experiments.find(e=>e.id===selected)?.revision;await load();if(content.querySelector('[data-rzone]'))refreshSource();const after=selected&&experiments.find(e=>e.id===selected)?.revision;if(selected&&before!==after&&!content.contains(document.activeElement))detail(selected);}catch(error){notice.textContent=error.message;}finally{refreshing=false;}},3000);
+ timer=setInterval(async()=>{if(!alive()){cleanup();return;}if(refreshing)return;refreshing=true;try{const before=selected&&experiments.find(e=>e.id===selected)?.revision;await load();if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();const after=selected&&experiments.find(e=>e.id===selected)?.revision;if(selected&&before!==after&&!content.contains(document.activeElement))detail(selected);}catch(error){notice.textContent=error.message;}finally{refreshing=false;}},3000);
 
 }
 

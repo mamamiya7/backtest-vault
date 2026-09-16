@@ -3,7 +3,7 @@
 'use strict';
 const E=typeof module!=='undefined'?require('./experiments.js'):root.VaultExperiments;
 const V=typeof module!=='undefined'?require('./core.js'):root.Vault;
-function createCoordinator({storage,runtime,probe,clock=()=>Date.now(),uuid=()=>crypto.randomUUID()}){
+function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=>Date.now(),uuid=()=>crypto.randomUUID()}){
  let serial=Promise.resolve();
  const get=async k=>(await storage.get(k))[k];
  const put=e=>storage.set({['experiment:'+e.id]:e});
@@ -14,7 +14,7 @@ function createCoordinator({storage,runtime,probe,clock=()=>Date.now(),uuid=()=>
   // A direct reply does not depend on background-page interval scheduling.
   // Probing never renews a trial lease or changes its document owner.
   try{const r=await probe(tab.id);if(!r||r.session!==tab.session)return null;
-   return {...tab,ready:r.ready===true,chart:String(r.chart||'').slice(0,30),reason:String(r.reason||'').slice(0,180)};
+   return {...tab,ready:r.ready===true,capable:r.capable===true||r.ready===true,chart:String(r.chart||'').slice(0,30),reason:String(r.reason||'').slice(0,180)};
   }catch{return null;}
  }
  async function reviewLease(){
@@ -27,7 +27,7 @@ function createCoordinator({storage,runtime,probe,clock=()=>Date.now(),uuid=()=>
   if(!r||r.id!==t.runId||r.experiment?.id!==e.id||r.experiment?.trialId!==t.id||r.experiment?.phase!==t.phase||r.provenance!=='recorded-at-submit')throw Error('A matching durable capture has not been saved.');
   if(e.demo||r.demo===true)throw Error('A fictional result cannot complete a real RZone trial.');
   V.validate(r);if(r.charts.length!==6||r.trades.rows.length!==V.metrics(r).trades)throw Error('The saved report is incomplete.');
-  for(const s of ['momentum','execution','portfolio'])E.verify(E.fields(E.expected(e,t),s),E.fields(r,s));
+  const planned=E.expected(e,t);for(const s of ['momentum','execution','portfolio'])E.verify(E.fields(planned,s),E.fields(r,s));
   E.verifyEvidence(e,t,r);
  }
  async function execute(m,sender){
@@ -36,7 +36,7 @@ function createCoordinator({storage,runtime,probe,clock=()=>Date.now(),uuid=()=>
   if(!source&&!dashboard)throw Error('This page cannot control experiments.');
   if(source&&m.action==='hello'){
    if(typeof m.session!=='string'||m.session.length>80)throw Error('Invalid source session.');
-   await storage.set({['runner:tab:'+sender.tab.id]:{id:sender.tab.id,session:m.session,seenAt:clock(),ready:m.ready===true,chart:String(m.chart||'').slice(0,30)}});
+   await storage.set({['runner:tab:'+sender.tab.id]:{id:sender.tab.id,session:m.session,seenAt:clock(),ready:m.ready===true,capable:m.capable===true||m.ready===true,chart:String(m.chart||'').slice(0,30)}});
    // Review the old deadline before accepting a late heartbeat. A returning tab
    // cannot erase a period during which its submission outcome was unknown.
    const l=await reviewLease();if(l?.tabId===sender.tab.id&&l.session===m.session&&!m.failed){const owned=await get('experiment:'+l.experimentId),trial=owned?.trials.find(t=>t.id===l.trialId);if(['running','pausing'].includes(owned?.status)&&E.active.includes(trial?.status)){l.seenAt=clock();await storage.set({'runner:lease':l});}}
@@ -49,6 +49,23 @@ function createCoordinator({storage,runtime,probe,clock=()=>Date.now(),uuid=()=>
   if(dashboard&&m.action==='create'){
    const e=E.create({...m.plan,id:uuid()});if(e.demo)throw Error('Fictional experiments cannot control RZone.');
    if(await get('experiment:'+e.id))throw Error('Experiment ID already exists.');await put(e);return {ok:true,experiment:e};
+  }
+  if(dashboard&&['configure','open-source'].includes(m.action)){
+   if(await reviewLease()||(await collection('experiment:')).some(x=>['running','pausing'].includes(x.status)))throw Error('Finish or pause the current tests before changing the RZone setup.');
+   if(m.action==='open-source'){
+    if(!openSource)throw Error('Open RZone in Chrome and sign in, then reconnect here.');
+    return {ok:true,...await openSource(await collection('runner:tab:'))};
+   }
+   if(!configure)throw Error('Reload the updated extension and refresh RZone to connect the setup editor.');
+   const tab=await sourceStatus(await get('runner:tab:'+m.tabId));
+   if(!tab?.capable&&!tab?.ready)throw Error(tab?.reason||'Open RZone and sign in, then connect again.');
+   const changes=m.changes??{};
+   if(!changes||typeof changes!=='object'||Array.isArray(changes)||Object.keys(changes).some(k=>!['momentum','execution'].includes(k)))throw Error('Invalid source choices request.');
+   for(const values of Object.values(changes))if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>10||Object.entries(values).some(([index,value])=>!/^\d{1,2}$/.test(index)||typeof value!=='string'||value.length>2000))throw Error('Invalid source choices request.');
+   const r=await configure(tab.id,changes);
+   if(!r?.ok)throw Error(r?.error||'RZone setup could not be read.');
+   if(r.session!==tab.session||r.config?.session!==tab.session)throw Error('RZone reloaded while connecting. Connect again.');
+   return {ok:true,source:r.config};
   }
   const e=await get('experiment:'+m.id);if(!e)throw Error('Experiment not found.');E.validate(e);
   if(dashboard){

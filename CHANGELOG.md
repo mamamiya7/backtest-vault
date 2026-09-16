@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.0 preview - 2026-09-16
+
+- Add **New test**: connect a signed-in RZone tab and configure a single form arranged like RZone. Inline Test values controls add numeric lists/ranges, On/Off alternatives and eligible menu choices. Backtest opens dates, exits, portfolio and final run review. A saved baseline is no longer required; **Use a saved run** preserves the previous workflow.
+- Read dropdown choices from the current source session. **Refresh choices** and available rule-source changes refresh dependent menus without submitting a backtest. Keep removed choices visible for review rather than silently substituting another rule.
+- Use familiar period checkboxes, values and weights, EMA/TMA, retracement, volume, available Radar/strategy/exit rules, dates and portfolio controls. Confirm the exact group through RZone autocomplete before execution.
+- Store new setups as settings-only plans, with no fabricated baseline performance or submission history. Apply the full reviewed setup and verify source values before running; preserve complete capture, durable save acknowledgement and fresh submission evidence.
+- Support single-run plans and retain bounded variation queues. Keep fictional sample setup/results separate from RZone execution and local research storage.
+- Limit the new automatic setup adapter to Candle/Price with Relative Strength and Market Trend Filter off. P&F/Renko execution stays gated. Live acceptance of the new full-setup and dropdown-refresh flow remains pending; v0.7.3's verified three-trial batch covered the older saved-baseline route.
+
 ## 0.7.3 - 2026-09-16
 
 - Require an observed fresh running-to-completed strategy lifecycle. A preceding Completed label cannot finish a new trial while the source is still calculating.

@@ -122,4 +122,80 @@ async function decisionTests(){
   w.VaultExperiments.validate(plan);
  }finally{dom.window.close();}
 }
-(async()=>{await coordinatorTests();await decisionTests();console.log('PASS: bounded planning, reproducible sampling, immutable settings, queue ownership/restart/uncertainty, save acknowledgements, source verification, eligibility, CAGR-only Calmar and isolated validation.');})().catch(e=>{console.error(e);process.exitCode=1;});
+async function setupBridgeTests(){
+ const S=require('../dist/setup.js'),memory={},runtime={id:'setup-extension',getURL:p=>'chrome-extension://setup-extension/'+p};
+ const storage={get:async key=>clone(key?{[key]:memory[key]??null}:memory),set:async data=>Object.assign(memory,clone(data))};
+ const dashboard={id:runtime.id,url:runtime.getURL('index.html')},source={id:runtime.id,url:'https://zone.definedgesecurities.com/index.html#research',tab:{id:42}};
+ const config=S.demoTemplate();config.demo=false;config.session='setup-session';let replySession='setup-session',calls=0,opened=0;
+ const c=createCoordinator({storage,runtime,clock:()=>100000,uuid:()=> 'new-from-vault',
+  probe:async()=>({session:'setup-session',ready:true,capable:true,chart:'Candle'}),
+  configure:async(id,changes)=>{assert.equal(id,42);calls++;if(calls===2)assert.deepEqual(changes,{momentum:{35:'My'}});return {ok:true,session:replySession,config:{...config,session:replySession}};},
+  openSource:async known=>{opened++;assert.equal(known[0].id,42);return {tabId:42};}});
+ const call=(action,data={},sender=dashboard)=>c.handle({action,...data},sender);
+ await call('hello',{session:'setup-session',ready:true,capable:true,chart:'Candle'},source);
+ assert.equal((await call('open-source')).tabId,42);assert.equal(opened,1);
+ const connected=await call('configure',{tabId:42});assert.equal(connected.source.session,'setup-session');
+ await call('configure',{tabId:42,changes:{momentum:{35:'My'}}});
+ await assert.rejects(call('configure',{tabId:42,changes:{portfolio:{2:'999'}}}),/Invalid source choices/);
+ await assert.rejects(call('configure',{tabId:42,changes:{momentum:{unknown:'bad'}}}),/Invalid source choices/);
+ await assert.rejects(call('configure',{tabId:42},source),/Experiment not found/);
+ replySession='replacement-document';await assert.rejects(call('configure',{tabId:42}),/reloaded/);replySession='setup-session';
+ const setup=S.configToBaseline(S.defaults(config),config,{id:'new-strategy',name:'Configured in Vault'});
+ const created=await call('create',{plan:{name:'First test',baseline:setup,dimensions:[],objective:'returns'}});
+ assert.equal(created.experiment.trials.length,1);assert.deepEqual(created.experiment.trials[0].patch,{});
+ assert.equal(E.validate(reordered(created.experiment)).id,created.experiment.id);
+ assert.equal(Object.keys(memory).filter(k=>k.startsWith('run:')).length,0,'Setup must not manufacture a saved baseline result');
+ const altered=clone(created.experiment);altered.baseline.parameters.settings.fields[2].value='999';assert.throws(()=>E.validate(altered),/altered/);
+ assert.throws(()=>E.create({...config,id:'old-empty',name:'old empty',baseline:b,dimensions:[]}),/one and six/);
+ memory['runner:lease']={seenAt:100000};await assert.rejects(call('configure',{tabId:42}),/Finish or pause/);await assert.rejects(call('open-source'),/Finish or pause/);
+}
+function setupVariationTests(){
+ const S=require('../dist/setup.js'),source=S.demoTemplate();
+ const offer=(stage,index,options)=>{source.stages[stage].options[index]=options.map(value=>({value,label:value,disabled:false}));};
+ offer('momentum',36,['Demo momentum screen','Radar, quality']);offer('momentum',40,['Demo trend rule','Trend, Momentum','-- Select Predefined System --']);offer('momentum',41,['Daily','Weekly']);offer('execution',7,['Demo exit rule','Exit, reversal']);
+ const t=S.template(source),config=S.defaults(t),base=S.configToBaseline(config,t,{id:'variation-setup',name:'Inline variations'}),unchanged=clone(base),catalog=E.catalog(base);
+ for(const key of ['momentum.period.1.enabled','momentum.period.2','momentum.period.2.weight','momentum.ema.1.enabled','momentum.ema.1','momentum.tma','momentum.retracement.enabled','momentum.retracement','momentum.retracement.mode','momentum.retracement.reference','momentum.volume.reference','momentum.radar.enabled','momentum.radar.rule','momentum.trend-quality.enabled','momentum.strategy.1.enabled','momentum.strategy.1.rule','momentum.strategy.1.timeframe','execution.target.enabled','execution.stop.enabled','execution.exit.enabled','execution.exit.rule'])assert.ok(catalog.some(f=>f.key===key),key+' must be available beside its setup control');
+ for(const key of ['momentum.group','momentum.market','momentum.timeframe','momentum.chart','momentum.radar.source','momentum.strategy.1.source','momentum.rs','momentum.market-filter','execution.from','execution.to','execution.rank','execution.selection','execution.exit.source','portfolio.capital','portfolio.max-open','portfolio.daily-limit'])assert.ok(!catalog.some(f=>f.key===key),key+' must remain fixed context or a source-catalogue control');
+ const blank=clone(t);blank.stages.momentum.fields[1].value='';blank.stages.execution.fields[1].value='';blank.stages.execution.fields[2].value='';assert.ok(E.catalogFromSetup(blank).some(f=>f.key==='momentum.period.1'),'Inline variation choices do not depend on a completed main form');
+ assert.deepEqual(catalog.find(f=>f.key==='momentum.retracement.reference').indices,[7,8,9,10]);assert.equal(catalog.find(f=>f.key==='momentum.radar.rule').type,'enum');
+ const make=(dimensions,extra={})=>E.create({id:'variation-test',name:'Inline variations',baseline:base,dimensions,budget:100,objective:'returns',minTrades:0,...extra});
+ const plan=make([
+  {key:'momentum.period.2.enabled',values:[false,true]},
+  {key:'momentum.ema.1',values:'100:200:100'},
+  {key:'momentum.retracement.reference',values:['7','10']},
+  {key:'momentum.volume.reference',values:['20','21']},
+  {key:'momentum.strategy.1.rule',values:['Demo trend rule','Trend, Momentum']},
+  {key:'execution.target.enabled',values:'On, Off'}
+ ]);
+ assert.equal(plan.trials.length,64);assert.deepEqual(plan.dimensions.find(f=>f.key==='momentum.strategy.1.rule').values,['Demo trend rule','Trend, Momentum'],'Comma-containing rule names remain one enum value');
+ assert.equal(E.validate(reordered(plan)).id,plan.id);
+ for(const trial of plan.trials){const expected=E.expected(plan,trial),m=E.fields(expected,'momentum');S.validateBaseline(expected);assert.equal(m[13].checked,trial.patch['momentum.period.2.enabled']);assert.equal(m[14].disabled,!m[13].checked);assert.equal(m[27].value,String(trial.patch['momentum.ema.1']));assert.equal(m.filter((f,i)=>i>=7&&i<=10&&f.checked).length,1);assert.equal(m[Number(trial.patch['momentum.retracement.reference'])].checked,true);assert.equal(m[Number(trial.patch['momentum.volume.reference'])].checked,true);assert.equal(m[40].value,trial.patch['momentum.strategy.1.rule']);assert.equal(E.fields(expected,'execution')[8].checked,trial.patch['execution.target.enabled']);}
+ assert.deepEqual(base,unchanged,'Expected trials never mutate their immutable setup baseline');
+ assert.throws(()=>make([{key:'momentum.strategy.1.rule',values:'Demo trend rule,Trend, Momentum'}]),/source values/,'Enums cannot be parsed by splitting labels on commas');
+ assert.throws(()=>make([{key:'momentum.strategy.1.rule',values:['Unknown rule']}]),/source values/);
+ assert.throws(()=>make([{key:'momentum.period.1.enabled',values:[1]}]),/On, Off/);
+ assert.throws(()=>make([{key:'momentum.ema.1',values:[true]}]),/valid whole/);
+ assert.throws(()=>make([{key:'momentum.period.1.enabled',values:[true,false]}],{mode:'sample',budget:1}),/positive weight/,'Validate unsampled combinations too; sampling cannot hide an all-periods-off case');
+ assert.throws(()=>make([{key:'execution.target.enabled',values:[true,false]},{key:'execution.stop.enabled',values:[true,false]}]),/enabled target, stop loss or exit/);
+ assert.throws(()=>make([{key:'momentum.strategy.1.rule',values:['Demo trend rule','-- Select Predefined System --']}],{mode:'sample',budget:1}),/before enabling/,'A placeholder cannot be an enabled rule in an unselected combination');
+ const empty=clone(t);empty.stages.momentum.fields[36].value='';empty.stages.momentum.options[36]=[];empty.stages.momentum.fields[34].checked=false;const emptyBase=S.configToBaseline(S.defaults(empty),empty);assert.throws(()=>make([{key:'momentum.radar.enabled',values:[false,true]}],{baseline:emptyBase}),/before enabling/);
+ for(const key of ['momentum.group','momentum.radar.source','execution.from','portfolio.capital'])assert.throws(()=>make([{key,values:['changed']}]),/Unknown/);
+ const noExits={...config,'execution.target.enabled':false,'execution.stop.enabled':false,'execution.exit.enabled':false};assert.throws(()=>make([],{baseline:S.configToBaseline(noExits,t)}),/enabled target, stop loss or exit/);
+ const damaged=reordered(plan);damaged.dimensions.find(f=>f.key==='momentum.retracement.reference').indices.reverse();assert.throws(()=>E.validate(damaged),/settings were altered/);
+ assert.throws(()=>E.decisions(damaged,[]),/settings were altered/,'The ranking batch must validate before using its lightweight field reconstruction');
+ const changedOptions=reordered(plan);changedOptions.dimensions.find(f=>f.key==='momentum.strategy.1.rule').options.push({value:'Injected rule',label:'Injected rule'});assert.throws(()=>E.validate(changedOptions),/settings were altered/);
+ const forgedPatch=clone(plan.trials[0]);forgedPatch.patch['momentum.group']='Different universe';assert.throws(()=>E.expected(plan,forgedPatch),/approved ranges/);
+ const unknownRule=clone(plan.trials[0]);unknownRule.patch['momentum.strategy.1.rule']='Unknown rule';assert.throws(()=>E.expected(plan,unknownRule),/approved ranges/);
+ const sample=make([{key:'momentum.radar.rule',values:['Demo momentum screen','Radar, quality']},{key:'momentum.tma',values:[true,false]}],{mode:'sample',budget:3,seed:18});assert.deepEqual(sample.trials,make(sample.dimensions,{mode:'sample',budget:3,seed:18}).trials);
+ const mixed=clone(plan),mixedRuns=[0,7,31,63].map(index=>{mixed.trials[index].status='saved';return D.createTrial(mixed,mixed.trials[index]);});const batched=E.decisions(mixed,mixedRuns);
+ for(const item of batched.items){const direct=E.result(mixed,item.trial,item.run);assert.equal(item.eligible,direct.eligible);assert.deepEqual(item.reasons,direct.reasons);assert.equal(item.value,direct.value);}
+ const wrongReference=clone(mixedRuns[0]);wrongReference.parameters.strategy.main.fields[7].checked=!wrongReference.parameters.strategy.main.fields[7].checked;const mismatched=E.decisions(mixed,[wrongReference,...mixedRuns.slice(1)]).items.find(item=>item.run?.id===wrongReference.id);assert.equal(mismatched.eligible,false);assert.match(mismatched.reasons.join(' '),/read-back/,'Batch ranking still rejects a captured reference checkbox that differs from the trial');
+ // Label alternatives are categorical, not ordered numerical neighbors.
+ const rules=make([{key:'momentum.strategy.1.rule',values:['Demo trend rule','Trend, Momentum']}]);const runs=rules.trials.map(trial=>{trial.status='saved';return D.createTrial(rules,trial);});rules.status='complete';const decision=E.decisions(rules,runs);assert.equal(decision.eligible.length,2);assert.ok(decision.leader);assert.equal(decision.neighbors.length,0);
+ E.validation(rules,decision.leader.trial.id,{from:'2026-01-01',to:'2026-06-01'});const validation=rules.trials.at(-1),expected=E.expected(rules,validation);assert.equal(E.fields(expected,'execution')[1].value,'2026-01-01');assert.equal(expected.setup.config['execution.from'],'2026-01-01');assert.deepEqual(validation.patch,decision.leader.trial.patch);E.validate(rules);
+ const invalidDate=clone(rules);invalidDate.trials.at(-1).period.from='2026-02-30';assert.throws(()=>E.validate(invalidDate),/Invalid validation dates/,'Setup archives still verify real dates without rebuilding every trial');
+ const earlierDate=clone(rules);earlierDate.trials.at(-1).period.from='2025-12-31';assert.throws(()=>E.validate(earlierDate),/preserve its candidate/);
+ const changedCandidate=clone(rules);changedCandidate.trials.at(-1).patch['momentum.strategy.1.rule']=decision.leader.trial.patch['momentum.strategy.1.rule']==='Demo trend rule'?'Trend, Momentum':'Demo trend rule';assert.throws(()=>E.validate(changedCandidate),/preserve its candidate/,'An allowed enum is still forbidden if it changes the frozen validation candidate');
+ const changedDiscovery=clone(rules);changedDiscovery.trials[0].period={from:'2026-01-01',to:'2026-06-01'};assert.throws(()=>E.validate(changedDiscovery),/Discovery dates/);
+}
+(async()=>{setupVariationTests();await coordinatorTests();await decisionTests();await setupBridgeTests();console.log('PASS: bounded numeric/boolean/source-enum variations, all-combination constraints, compound radio settings, fixed context, reproducible sampling, immutable settings, queue ownership/recovery, saved evidence, categorical ranking and Vault-first setup without fabricated results.');})().catch(e=>{console.error(e);process.exitCode=1;});

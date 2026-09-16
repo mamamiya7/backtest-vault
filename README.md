@@ -2,10 +2,10 @@
 
 **Keep the evidence behind every backtest.**
 
-A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Save the settings behind a result, compare matching runs, and understand why a strategy leads.
+A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.7.3 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.8.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
@@ -13,43 +13,73 @@ A local Chrome extension and research workspace for Definedge momentum and portf
 
 [Try it](#try-the-demo) · [Install](#install-the-extension) · [Compare strategies](#how-the-ranking-works) · [Understand the numbers](#cagr-or-annualized-return) · [Backups](#where-your-data-lives) · [Develop](#development)
 
-## Plan, run and decide
+## Start in Vault
 
-**Experiments** turns a saved baseline into a bounded research queue. Compare explicit ranges, follow a visual Decision Desk, then freeze a candidate for a later validation period.
+**You do not need a saved backtest to begin.** Open the installed Vault and choose **New test**. RZone calculates the results; Vault applies your setup and saves each completed report.
+
+![A RZone-style strategy form with an inline period range and planned test count; fictional sample setup](docs/images/11-test-setup.png)
 
 ```mermaid
 flowchart LR
-    A[Baseline] --> B[Setting ranges]
-    B --> C[Grid / Sample / Adaptive]
-    C --> D[Read back settings]
-    D --> E[Momentum + Portfolio]
-    E --> F[Capture and verify saved run]
-    F --> G[Decision Desk]
-    F --> C
-    G --> H[Freeze candidate]
-    H --> I[Validation → Holdout]
+    A["New test"] --> B["Connect signed-in RZone"]
+    B --> C["Familiar RZone form"]
+    C --> D["Test values / range beside a setting"]
+    D --> E["Backtest"]
+    E --> F["Dates, exits, portfolio and test count"]
+    F --> G["Run"]
+    G --> H["Results saved in Vault"]
+    style A fill:#b2f7dc,stroke:#247456,color:#122b22
 ```
 
-[Open the fictional experiment demo](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [workflow, recovery model and delivery plan](docs/EXPERIMENTS.md).
+1. **Connect:** keep RZone signed in, choose its tab, then click **Connect RZone**. Connecting reads choices; it does not run a backtest.
+2. **Set up:** work in one form arranged like RZone, with periods and weights together, filters alongside them and Strategy 1–3 below. Enter the exact group name; RZone must confirm its autocomplete selection before execution.
+3. **Add variations beside a setting:** Period 1 = `252,500` means two tests. A numeric range also needs a step. Switches can test On and Off; eligible rule menus can test selected choices from the loaded source catalogue.
+4. **Backtest:** review dates, exits, allocation, capital, position limits and the combination count, then choose **Run … tests**. Leave the range controls unused to run the current setup once.
+5. **Results:** Vault saves each report automatically. Open a saved trial or compare the batch in **Decision desk**. Exporting is an optional backup, not a step required to finish a run.
 
-| Available in 0.7.3 | Acceptance boundary |
+**Refresh choices** reads the current dropdowns from your signed-in RZone account. Changing a rule source such as Pre or My refreshes its dependent rules. Review a previous selection if it is no longer available. Refreshing may open and close RZone settings, but it does not submit a backtest.
+
+Keep RZone open during execution and leave its settings alone until the batch finishes. **Use a saved run** remains available in Experiments for an existing research baseline.
+
+```mermaid
+flowchart LR
+    A["Period 1: 252, 500<br/>2 values"] --> C["2 × 2 = 4 tests"]
+    B["Stop loss: 8, 10<br/>2 values"] --> C
+    C --> D["Save every result"]
+    D --> E["Rank by Return, Drawdown or Calmar"]
+```
+
+Dates, universe, market, chart model and portfolio assumptions stay shared within a batch. The highlighted setting is the best of the tested candidates under the chosen rules, not a guarantee of future returns.
+
+```mermaid
+flowchart LR
+    A["RZone dropdown choices"] -->|"Connect / Refresh choices"| B["Editable Vault setup"]
+    B -->|"Review"| C["Settings-only plan<br/>No result yet"]
+    C -->|"Run"| D["RZone calculates<br/>Momentum and portfolio"]
+    D --> E["Verified saved results<br/>Settings, trades and charts"]
+```
+
+[Open the fictional experiment demo](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [full workflow and recovery guide](docs/EXPERIMENTS.md).
+
+| Available in 0.8.0 preview | Acceptance boundary |
 | --- | --- |
+| Vault-first Candle/Price setup, source dropdown refresh and single or multiple tests | New flow covered by local checks; live acceptance of this full setup flow remains pending |
 | Finite plans, reproducible samples, bounded adaptive neighborhood search | Local planner and isolated simulation tested |
-| Persistent queue, one source tab, save acknowledgement, pause/recovery | Three real Candle trials completed in the installed extension; exported settings, source metrics, complete trades and charts verified |
+| Persistent queue, one source tab, save acknowledgement, pause/recovery | The preceding v0.7.3 saved-baseline flow completed three real Candle trials; this does not validate every new setup option |
 | Frozen decision rules, neighboring-setting checks, baseline/index context, validation and holdout stages | Descriptive research evidence; no predictive or pooled portfolio score |
 | P&F and Renko plans | Live execution gated pending separate write tests |
 
 ![Experiment Decision Desk with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
 
-No LLM setup is required. Dynamic RS/rule switching, additional chart write adapters, forward-window studies and optional language planning are tracked in the delivery plan.
+No LLM setup is required. Current automatic setup uses **Candle**, **Price**, **Relative Strength off** and **Market Trend Filter off**. P&F/Renko execution and dynamic RS/filter adapters remain on the delivery plan. Existing captures from those chart families can still be inspected and compared.
 
 ### Sample results or a real backtest?
 
 | Workspace | What happens when you run a plan |
 | --- | --- |
-| Demo (`?demo=1`) | **Generate sample results** creates fictional examples in seconds. RZone receives no submissions. |
-| Standalone viewer (`localhost`) | Prepare plans and inspect imported archives. Run the exported plan from the installed extension. |
-| Installed Chrome extension | **Start experiment** operates the selected signed-in RZone tab and saves its completed reports. |
+| Demo (`?demo=1`) | **Generate … sample results** creates fictional examples in seconds. RZone receives no submissions. |
+| Standalone viewer (`localhost`) | Inspect imported archives or prepare plans from saved runs. Open the installed extension for a new connected setup or real execution. |
+| Installed Chrome extension | **Run … tests** applies your new setup to the selected signed-in RZone tab. Existing saved plans use **Start experiment**. Both save completed reports automatically. |
 
 ```mermaid
 flowchart LR
@@ -64,7 +94,9 @@ flowchart LR
 
 For a real trial, expand **Execution evidence** to inspect submission, running, completion, report and capture times. The receipt links the exact source submissions and document session to the saved trial. Elapsed time alone does not prove correctness: a missing or ambiguous source lifecycle stops the queue for review.
 
-## From a backtest to a research record
+## Save a manually run backtest too
+
+Prefer working directly in RZone? The original capture workflow remains available:
 
 ```mermaid
 flowchart LR
@@ -122,9 +154,9 @@ backtest-vault/
 1. Clone the repository, or download and extract its ZIP.
 2. Open Chrome's Extensions page and enable **Developer mode**.
 3. Choose **Load unpacked → dist**. The manifest is inside that folder.
-4. Open Definedge and refresh its page. Complete both the momentum and portfolio backtests.
-5. Click **Save backtest** and wait for the saved confirmation.
-6. Open Vault from the extension toolbar, then choose **Back up all**.
+4. Sign in to RZone and refresh its page so the extension can connect.
+5. Open Vault from the extension toolbar and choose **New test**. Connect your RZone tab and configure the test in Vault.
+6. Review and run. Use **Export experiment** for that test or **Back up all** on the library page when you want a backup.
 
 For a dashboard-only update, refresh or reopen Vault. When capture code changes, reload the same extension and refresh Definedge before submitting new runs. Back up any pending recovery before refreshing. Keep the existing extension installed to preserve its local archive. [Setup and troubleshooting](docs/INSTALL.md)
 
@@ -283,6 +315,7 @@ The extension and standalone viewer have separate libraries. Transfer records wi
 | Export | Use it for | Complete backup? |
 | --- | --- | --- |
 | **Back up all · JSON** | Restore the library, including imported benchmarks | Yes |
+| **Export experiment · JSON** | Keep a plan and its saved trials together | That experiment only |
 | **Export run · JSON** | Move one complete run | That run only |
 | **Library / selected / analysis CSV** | Review values and settings in a spreadsheet | No |
 | **Trades CSV** | Inspect trade rows | No |
@@ -312,7 +345,7 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 
 | Supported | Limits to keep visible |
 | --- | --- |
-| Manual saving plus Candle batch runner | One live three-trial baseline verified; other chart execution remains gated; no order execution |
+| Vault-first Candle setup, manual saving and finite trial queues | New full-setup live acceptance pending; one earlier saved-baseline batch verified; no order execution |
 | Settings recorded at submission | Named rules may not expose their underlying numerical definition |
 | Static report chart snapshots | No underlying price-series or hover-data capture |
 | Separate, comparable strategy groups | No promised future winner or combined-portfolio performance from averaged summaries |
@@ -321,9 +354,9 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 
 **Validation evidence:** all nine local test suites passed for v0.7.3. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
 
-On 2026-09-16, a real three-trial Candle experiment completed through the installed extension. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This proves that tested baseline and flow; it does not validate every source layout or P&F/Renko execution. Private reports remain outside this repository.
+On 2026-09-16, a real three-trial Candle experiment completed through the installed extension's **v0.7.3 saved-baseline flow**. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This establishes the tested older flow; it does not validate v0.8.0's new full setup, every source layout or P&F/Renko execution. Private reports remain outside this repository.
 
-Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. The current dashboard was checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
+Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. Earlier dashboard revisions were checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
 
 Definedge's Renko execution form can select **Close Only** and **High & Low** simultaneously. Vault preserves both and flags the ambiguous source state. [Known limitations](docs/LIMITATIONS.md)
 
@@ -352,9 +385,12 @@ npm run preview
 | `dist/presentation.js` | Number formatting and verified form adapters |
 | `dist/intelligence.js` | Comparable groups, rankings and local index calculations |
 | `dist/intelligence-ui.js` | Leaderboard, plot and explanations |
+| `dist/setup.js` | Source choices, editable settings and settings-only plan validation |
+| `dist/experiments-ui.js` | Guided setup, finite trial planning and Decision desk |
+| `dist/experiments.js` / `experiment-coordinator.js` / `runner.js` | Approved trials, durable ownership and verified RZone execution |
 | `dist/dashboard.js` | Library, report views, comparison, imports and exports |
 | `dist/demo.js` | Deterministic fictional fixtures |
-| `tests/` | Six capture, dashboard, presentation, demo and intelligence suites |
+| `tests/` | Capture, setup, runner, queue, dashboard, presentation, demo and intelligence checks |
 
 </details>
 
@@ -368,7 +404,7 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/U
 npm run package:public
 ```
 
-This copies an explicit public-file allowlist into `releases/backtest-vault-0.7.3-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.8.0-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
 
 ## License and affiliation
 
