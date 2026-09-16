@@ -25,6 +25,7 @@ The standalone viewer cannot directly read Chrome extension storage. Export from
 | Settings were not linked | Submit both strategy and portfolio backtests after capture has loaded. Do not reinterpret the currently visible form as evidence for an older report. |
 | Blank library in the viewer | It has separate storage. Import an exported JSON backup. |
 | Import is disabled | You are in demo mode. Open my archive to import. |
+| An experiment finishes almost instantly | Check the workspace label. **Generate sample results** creates fictional examples without contacting RZone. Real execution uses **Start experiment** inside the installed extension. Inspect **Execution evidence** for source submission and capture times. |
 | A duplicate import adds zero runs | Existing IDs stay unchanged. This prevents accidental overwrites. |
 | CAGR / annualized return is missing | Neither source value was available. The summary prefers CAGR and otherwise shows Annualized return, with the matching label. |
 | Both Renko price modes are selected | This is an ambiguous source form state. Review the record; Vault preserves both settings. |
@@ -44,3 +45,5 @@ Chrome requires both the extension and host page to reload after content-script 
 ## Enable Experiments after an update
 
 Reload Backtest Vault on Chrome's Extensions page, refresh the RZone tab, and reopen Vault. Choose Experiments or Create experiment on a saved run. Live controls are available only inside the installed extension; the localhost viewer can prepare plans and run a fictional simulation. Begin with a small Candle plan and a matching source baseline. P&F/Renko live execution remains gated pending separate acceptance tests. See [Experiments](EXPERIMENTS.md).
+
+After an interrupted trial, inspect its source report before refreshing. **Check saved result** verifies the saved trial's identity, submitted settings and source lifecycle. An older result without this receipt stays available in the archive but cannot prove a new automatic trial completed. An expired execution lease cannot be revived by a late heartbeat; review the interrupted trial rather than submitting it again automatically.

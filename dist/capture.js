@@ -7,8 +7,12 @@
   const popup = title => [...document.querySelectorAll('.popupContent')].find(p => visible(p) && caption(p) === title);
   const main = () => [...document.querySelectorAll('.account-right')].find(p => visible(p) && p.textContent.includes('Retracement') && p.textContent.includes('Period'));
   const onMomentum = () => !!main() && document.body.innerText.includes('Momentum Trading BackTesting');
-  let strategy = null, portfolio = null, busy = false, sawRunning = false, lastReport = null, pendingRun = null;
+  let strategy = null, portfolio = null, busy = false, sawRunning = false, sawCleared = false, lastReport = null, pendingRun = null;
+  let reportsAtSubmit = new Set(), portfolioLinked = false;
   const reportLinks = new WeakMap();
+  const reports = () => [...document.querySelectorAll('.popupContent')].filter(p=>caption(p)==='Portfolio Backtesting Report');
+  const running = () => [...(main()?.querySelectorAll('button') || [])].some(b=>visible(b)&&/Cancel BackTest/i.test(text(b)));
+  const completed = () => !!main()?.innerText.includes('BackTest Completed.');
   const now = () => new Date().toISOString();
   function fields(container) {
     if (!container) return [];
@@ -30,7 +34,7 @@
   function snapshot(container) {return {at:now(), fields:fields(container)};}
   function status(message) {statusEl.textContent = message;}
   const host = document.createElement('div'); host.id = 'definedge-backtest-vault';
-  host.dataset.version = '0.7.2';
+  host.dataset.version = '0.7.3';
   host.style.cssText = 'position:fixed;right:16px;bottom:14px;z-index:2147483646;';
   const shadow = host.attachShadow({mode:'closed'});
   shadow.innerHTML = `<style>:host{font:14px system-ui;color:#f3f8fc}.bar{background:#112639;border:1px solid #34536e;border-radius:12px;padding:10px;box-shadow:0 6px 26px #0007;max-width:390px}button{font:600 14px system-ui;border:0;border-radius:7px;padding:9px 12px;cursor:pointer;background:#52d8ca;color:#072923;margin-right:6px}button.secondary{background:#2b455b;color:white}button:disabled{opacity:.5;cursor:wait}p{margin:8px 2px 0;line-height:1.35;font-size:13px}</style><div class="bar"><button id="save">Save backtest</button><button class="secondary" id="open">Open vault</button><p id="status" role="status">Recording settings when you run a backtest.</p></div>`;
@@ -86,10 +90,14 @@
     if (caption(p) === 'Momentum Trading BackTest') {
       const extraSettings = [...main().querySelectorAll('button')].some(b=>/Market Trend Filter/i.test(text(b)) && !b.disabled);
       strategy = {id:crypto.randomUUID(), at:now(), main:snapshot(main()), execution:snapshot(p), completed:false, auxiliarySettingsUncaptured:extraSettings};
-      portfolio = null; sawRunning = false;
+      // An already-running source cannot establish a new submission lifecycle.
+      if(running()) strategy = null;
+      portfolio = null; sawRunning = false; sawCleared = !completed();
+      reportsAtSubmit = new Set(); portfolioLinked = false;
       status('Strategy settings recorded. Waiting for Definedge to start.');
     } else if (caption(p) === 'Portfolio Backtesting') {
-      portfolio = {id:crypto.randomUUID(), at:now(), settings:snapshot(p), strategy:strategy?.completed ? structuredClone(strategy) : null};
+      reportsAtSubmit = new Set(reports()); portfolioLinked = false;
+      portfolio = {id:crypto.randomUUID(), at:now(), settings:snapshot(p), strategy:strategy?.completed && !running() ? structuredClone(strategy) : null};
       status('Portfolio settings recorded. Save when the report opens.');
     }
   }, true);
@@ -100,29 +108,42 @@
     const activePopup = [...document.querySelectorAll('.popupContent')].filter(visible).at(-1);
     const parent = activePopup || document.body;
     if (host.parentElement !== parent) parent.append(host);
-    if (!active) {strategy = null; portfolio = null; lastReport = null; return;}
-    if (strategy && !strategy.completed && popup('Error')) {
-      strategy = null; portfolio = null; sawRunning = false;
-      status('Definedge rejected the strategy submission. Correct the error shown and submit BackTest again.');
+    if (!active) {strategy = null; portfolio = null; lastReport = null; reportsAtSubmit.clear(); return;}
+    if (popup('Error') && (portfolio || strategy && !strategy.completed)) {
+      const which=portfolio?'portfolio':'strategy';
+      strategy = null; portfolio = null; sawRunning = false; sawCleared = false;
+      status('Definedge rejected the '+which+' submission. Correct the error shown and submit BackTest again.');
     }
     if (strategy && !strategy.completed) {
-      const buttons = [...main().querySelectorAll('button')];
-      if (!sawRunning && buttons.some(b => visible(b) && /Cancel BackTest/i.test(text(b)))) {
-        sawRunning = true; status('Strategy running. Waiting for completion.');
+      const isRunning=running(), isComplete=completed();
+      if (!isComplete) sawCleared = true;
+      if (!sawRunning && isRunning) {
+        sawRunning = true; strategy.started=true; strategy.startedAt=now(); status('Strategy running. Waiting for completion.');
       }
-      if (sawRunning && main().innerText.includes('BackTest Completed.')) {
-        strategy.completed = true; status('Strategy completed. Portfolio settings will be recorded on submission.');
+      if (sawRunning && sawCleared && !isRunning && isComplete) {
+        strategy.completed = true; strategy.completedAt=now(); status('Strategy completed. Portfolio settings will be recorded on submission.');
       }
     }
     const report = popup('Portfolio Backtesting Report');
     if (report && report !== lastReport) {
-      reportLinks.set(report, portfolio ? structuredClone(portfolio) : null);
+      // Never relabel a stale/reopened report with a later portfolio submission.
+      if(!reportLinks.has(report)) {
+        const fresh=portfolio && !portfolioLinked && !reportsAtSubmit.has(report);
+        reportLinks.set(report, fresh ? {...structuredClone(portfolio),reportOpenedAt:now()} : null);
+        if(fresh)portfolioLinked=true;
+      }
       lastReport = report;
     }
     if (!report) lastReport = null;
   }
   const timer = setInterval(monitor, 700); monitor();
-  window.addEventListener('pagehide',()=>clearInterval(timer),{once:true});
+  // Observe real DOM state changes as well as polling; a short source run must
+  // not be "proved" by a fixed delay or by the preceding Completed label.
+  const observer=new MutationObserver(changes=>{
+    if(typeof document!=='undefined'&&document?.body&&changes.some(change=>change.target!==host&&!host.contains(change.target)))monitor();
+  });
+  observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['style','class','hidden']});
+  window.addEventListener('pagehide',()=>{clearInterval(timer);observer.disconnect();},{once:true});
   const delay = ms => new Promise(resolve => setTimeout(resolve,ms));
   async function waitFor(check, error, timeout=12000) {
     const start = Date.now();
@@ -221,7 +242,11 @@
       if(linked?.strategy?.auxiliarySettingsUncaptured) run.warnings.push('Market Trend Filter is enabled. Its separate dialog values are not captured by this version; record them in Notes.');
       const expected=V.metrics(run).trades;
       if(expected!==null && trades.rows.length!==expected) throw new Error(`Trade capture incomplete: ${trades.rows.length} of ${expected}. Nothing was saved.`);
-      if(options.strict){if(!linked?.strategy||extracted.charts.length!==6)throw Error('Experiments require linked submissions and all six charts.');options.verify?.(run);}
+      if(options.strict){
+        if(!linked?.strategy||extracted.charts.length!==6)throw Error('Experiments require linked submissions and all six charts.');
+        if(!options.submission||linked.id!==options.submission.portfolioId||linked.strategy.id!==options.submission.strategyId||!linked.strategy.startedAt||!linked.strategy.completedAt||!linked.reportOpenedAt)throw Error('The report does not belong to this trial\'s confirmed submissions.');
+        options.verify?.(run);
+      }
       if(options.runId){run.id=options.runId;run.name=options.name;run.experiment=options.experiment;}
       pendingRun=run;
       return await persistPending(options.strict);
@@ -235,6 +260,9 @@
   // This facade exists in the extension's isolated world, not the site's page world.
   window.VaultCapture={capture,fields,snapshot,main,popup,visible,monitor,status,host,
     getStrategy:()=>strategy?structuredClone(strategy):null,
+    getPortfolio:()=>portfolio?structuredClone(portfolio):null,
+    running,
+    awaitingResult:()=>!!(strategy&&!strategy.completed||portfolio&&!portfolioLinked),
     pending:()=>!!pendingRun,
     addControl:button=>statusEl.before(button)};
 })();

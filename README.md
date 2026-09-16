@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Save the settings behind a result, compare matching runs, and understand why a strategy leads.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.7.2 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.7.3 preview** · Chrome · Local storage · MIT · No cloud account
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
@@ -32,16 +32,37 @@ flowchart LR
 
 [Open the fictional experiment demo](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [workflow, recovery model and delivery plan](docs/EXPERIMENTS.md).
 
-| Available in 0.7.2 | Acceptance boundary |
+| Available in 0.7.3 | Acceptance boundary |
 | --- | --- |
 | Finite plans, reproducible samples, bounded adaptive neighborhood search | Local planner and isolated simulation tested |
-| Persistent queue, one source tab, save acknowledgement, pause/recovery | Three-trial Candle DOM integration passed; installed/live acceptance pending |
+| Persistent queue, one source tab, save acknowledgement, pause/recovery | Three real Candle trials completed in the installed extension; exported settings, source metrics, complete trades and charts verified |
 | Frozen decision rules, neighboring-setting checks, baseline/index context, validation and holdout stages | Descriptive research evidence; no predictive or pooled portfolio score |
 | P&F and Renko plans | Live execution gated pending separate write tests |
 
 ![Experiment Decision Desk with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
 
 No LLM setup is required. Dynamic RS/rule switching, additional chart write adapters, forward-window studies and optional language planning are tracked in the delivery plan.
+
+### Sample results or a real backtest?
+
+| Workspace | What happens when you run a plan |
+| --- | --- |
+| Demo (`?demo=1`) | **Generate sample results** creates fictional examples in seconds. RZone receives no submissions. |
+| Standalone viewer (`localhost`) | Prepare plans and inspect imported archives. Run the exported plan from the installed extension. |
+| Installed Chrome extension | **Start experiment** operates the selected signed-in RZone tab and saves its completed reports. |
+
+```mermaid
+flowchart LR
+    A[Experiment plan] --> B{Workspace}
+    B -->|Demo| C[Fictional sample results]
+    B -->|Installed extension| D[Submit to RZone]
+    D --> E[Observe fresh start and completion]
+    E --> F[Capture a new portfolio report]
+    F --> G[Verify saved run and submission evidence]
+    G --> H[Next trial]
+```
+
+For a real trial, expand **Execution evidence** to inspect submission, running, completion, report and capture times. The receipt links the exact source submissions and document session to the saved trial. Elapsed time alone does not prove correctness: a missing or ambiguous source lifecycle stops the queue for review.
 
 ## From a backtest to a research record
 
@@ -291,14 +312,16 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 
 | Supported | Limits to keep visible |
 | --- | --- |
-| Manual saving plus experimental Candle batch runner | No order execution; installed/live batch acceptance pending |
+| Manual saving plus Candle batch runner | One live three-trial baseline verified; other chart execution remains gated; no order execution |
 | Settings recorded at submission | Named rules may not expose their underlying numerical definition |
 | Static report chart snapshots | No underlying price-series or hover-data capture |
 | Separate, comparable strategy groups | No promised future winner or combined-portfolio performance from averaged summaries |
 | Candle, P&F and Renko display adapters | Unknown layouts retain individual fields rather than guessed labels |
 | Brief animations respecting reduced motion | Financial values display immediately, without animated counting |
 
-**Validation evidence:** all nine local test suites passed for v0.7.2. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
+**Validation evidence:** all nine local test suites passed for v0.7.3. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
+
+On 2026-09-16, a real three-trial Candle experiment completed through the installed extension. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This proves that tested baseline and flow; it does not validate every source layout or P&F/Renko execution. Private reports remain outside this repository.
 
 Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. The current dashboard was checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
 
@@ -345,7 +368,7 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/U
 npm run package:public
 ```
 
-This copies an explicit public-file allowlist into `releases/backtest-vault-0.7.2-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.7.3-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
 
 ## License and affiliation
 

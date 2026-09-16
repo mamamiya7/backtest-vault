@@ -75,12 +75,24 @@ function verify(expectedFields,actualFields){
  for(let i=0;i<expectedFields.length;i++){const a=expectedFields[i],b=actualFields[i];if(a.type!==b.type||V.clean(a.label)!==V.clean(b.label))throw Error('Setting label/layout changed at field '+(i+1)+'.');if(!fieldEqual(a,b))throw Error('Setting read-back differs: '+a.label+' (field '+(i+1)+').');}
  return true;
 }
+function verifyEvidence(e,t,run){
+ const proof=run.experiment?.evidence,s=run.parameters?.strategy,p=run.parameters,execution=t.execution;
+ if(!proof||proof.version!==1||!execution||typeof execution.sourceSession!=='string'||!execution.sourceSession||execution.sourceSession.length>80||proof.sourceSession!==execution.sourceSession)throw Error('Fresh source execution evidence is missing or belongs to another source session.');
+ if(!idOK(s?.id)||!idOK(p?.id)||proof.strategySubmissionId!==s.id||proof.portfolioSubmissionId!==p.id||s.started!==true||s.completed!==true)throw Error('Source submissions do not match this result.');
+ const pairs=[['strategySubmittedAt',s.at],['strategyStartedAt',s.startedAt],['strategyCompletedAt',s.completedAt],['portfolioSubmittedAt',p.at],['reportOpenedAt',p.reportOpenedAt],['capturedAt',run.savedAt]];
+ if(pairs.some(([key,value])=>!value||proof[key]!==value))throw Error('Source execution timestamps do not match this result.');
+ const times=[execution.claimedAt,...pairs.map(([key])=>proof[key])];
+ if(times.some(x=>typeof x!=='string'||!Number.isFinite(Date.parse(x))||new Date(x).toISOString()!==x)||times.some((x,i)=>i&&Date.parse(x)<Date.parse(times[i-1])))throw Error('Source execution order could not be verified.');
+ return true;
+}
 function validate(e){
  if(!e||e.schemaVersion!==1||!idOK(e.id)||!Array.isArray(e.trials)||e.trials.length>1000||!['draft','running','pausing','paused','complete','needs-review'].includes(e.status))throw Error('Invalid experiment archive.');
  const fresh=create({...e,dimensions:e.dimensions,now:e.createdAt});
  if(!same(fresh.dimensions,e.dimensions)||fresh.combinationCount!==e.combinationCount||fresh.demo!==e.demo)throw Error('Experiment settings were altered.');
  const discovery=e.trials.filter(t=>t.phase==='discovery');
  if(discovery.length!==fresh.trials.length||discovery.some((t,i)=>t.id!==fresh.trials[i].id||t.ordinal!==fresh.trials[i].ordinal||!same(t.patch,fresh.trials[i].patch)))throw Error('The planned discovery queue was altered.');
+ if(discovery.some(t=>t.period!==undefined||t.parentTrialId!==undefined))throw Error('Discovery dates must remain fixed to the baseline.');
+ if(e.trials.some((t,i)=>t.ordinal!==i+1||t.id!==e.id+'-t'+(i+1))||e.trials.slice(0,discovery.length).some(t=>t.phase!=='discovery')||e.trials.slice(discovery.length).some((t,i)=>t.phase!==(i?'holdout':'validation')))throw Error('The planned trial stage order was altered.');
  if(e.trials.filter(t=>t.phase==='validation').length>1||e.trials.filter(t=>t.phase==='holdout').length>1)throw Error('Validation stages must remain frozen.');
  const ids=new Set(),validStates=['queued',...active,'saved','uncertain','skipped'];
  if(!Array.isArray(e.events)||e.events.length>10000)throw Error('Invalid experiment history.');
@@ -97,7 +109,7 @@ function transition(e,t,status,now=new Date().toISOString()){
 function result(e,t,run){
  const issues=[];let item;
  if(!run)return {trial:t,eligible:false,reasons:['Saved result is missing.']};
- try{V.validate(run);if(run.id!==t.runId||run.experiment?.id!==e.id||run.experiment?.trialId!==t.id)throw Error('Result does not belong to this experiment trial.');for(const s of stages)verify(fields(expected(e,t),s),fields(run,s));if((run.demo===true)!==e.demo)throw Error('Real and fictional results cannot be mixed.');item=I.inspect(run);issues.push(...item.errors);if(item.metrics.drawdown>e.ceiling)issues.push('Drawdown exceeds '+e.ceiling+'%.');if(item.metrics.trades===null||item.metrics.trades<e.minTrades)issues.push('Below '+e.minTrades+' reported trades.');if(!Number.isFinite(e.objective==='calmar'?item.calmar:item.metrics[e.objective]))issues.push('Selected ranking measure is unavailable.');}
+ try{V.validate(run);if(run.id!==t.runId||run.experiment?.id!==e.id||run.experiment?.trialId!==t.id||run.experiment?.phase!==t.phase)throw Error('Result does not belong to this experiment trial.');for(const s of stages)verify(fields(expected(e,t),s),fields(run,s));if((run.demo===true)!==e.demo)throw Error('Real and fictional results cannot be mixed.');if(!e.demo)verifyEvidence(e,t,run);item=I.inspect(run);issues.push(...item.errors);if(item.metrics.drawdown>e.ceiling)issues.push('Drawdown exceeds '+e.ceiling+'%.');if(item.metrics.trades===null||item.metrics.trades<e.minTrades)issues.push('Below '+e.minTrades+' reported trades.');if(!Number.isFinite(e.objective==='calmar'?item.calmar:item.metrics[e.objective]))issues.push('Selected ranking measure is unavailable.');}
  catch(error){issues.push(error.message);}
  const value=item?(e.objective==='calmar'?item.calmar:item.metrics[e.objective]):null;
  return {trial:t,run,item,value,eligible:issues.length===0,reasons:issues};
@@ -130,6 +142,6 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
  const n=e.trials.length+1;e.trials.push({id:e.id+'-t'+n,runId:e.id+'-t'+n,ordinal:n,patch:clone(t.patch),status:'queued',phase,period:clone(period),parentTrialId:t.id,events:[]});e.status='paused';journal(e,'Frozen '+phase+' candidate: trial '+t.ordinal,now);return e;
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
-const api={baseline,catalog,fields,stageSnapshot,values,dimensions,combos,create,expected,verify,validate,journal,transition,result,decisions,nextTrial,validation,restored,active,clone};
+const api={baseline,catalog,fields,stageSnapshot,values,dimensions,combos,create,expected,verify,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,active,clone};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -24,18 +24,22 @@ function createCoordinator({storage,runtime,probe,clock=()=>Date.now(),uuid=()=>
   return l;
  }
  function validateCapture(e,t,r){
-  if(!r||r.experiment?.id!==e.id||r.experiment?.trialId!==t.id||r.provenance!=='recorded-at-submit')throw Error('A matching durable capture has not been saved.');
+  if(!r||r.id!==t.runId||r.experiment?.id!==e.id||r.experiment?.trialId!==t.id||r.experiment?.phase!==t.phase||r.provenance!=='recorded-at-submit')throw Error('A matching durable capture has not been saved.');
+  if(e.demo||r.demo===true)throw Error('A fictional result cannot complete a real RZone trial.');
   V.validate(r);if(r.charts.length!==6||r.trades.rows.length!==V.metrics(r).trades)throw Error('The saved report is incomplete.');
   for(const s of ['momentum','execution','portfolio'])E.verify(E.fields(E.expected(e,t),s),E.fields(r,s));
+  E.verifyEvidence(e,t,r);
  }
  async function execute(m,sender){
-  const source=sender.id===runtime.id&&sender.tab&&new URL(sender.url||'https://invalid/').origin==='https://zone.definedgesecurities.com';
+  const source=sender.id===runtime.id&&sender.tab&&(sender.frameId===undefined||sender.frameId===0)&&new URL(sender.url||'https://invalid/').origin==='https://zone.definedgesecurities.com';
   const url=runtime.getURL('index.html'),dashboard=sender.id===runtime.id&&(sender.url===url||sender.url?.startsWith(url+'?'));
   if(!source&&!dashboard)throw Error('This page cannot control experiments.');
   if(source&&m.action==='hello'){
    if(typeof m.session!=='string'||m.session.length>80)throw Error('Invalid source session.');
    await storage.set({['runner:tab:'+sender.tab.id]:{id:sender.tab.id,session:m.session,seenAt:clock(),ready:m.ready===true,chart:String(m.chart||'').slice(0,30)}});
-   const l=await get('runner:lease');if(l?.tabId===sender.tab.id&&l.session===m.session&&!m.failed){l.seenAt=clock();await storage.set({'runner:lease':l});}
+   // Review the old deadline before accepting a late heartbeat. A returning tab
+   // cannot erase a period during which its submission outcome was unknown.
+   const l=await reviewLease();if(l?.tabId===sender.tab.id&&l.session===m.session&&!m.failed){const owned=await get('experiment:'+l.experimentId),trial=owned?.trials.find(t=>t.id===l.trialId);if(['running','pausing'].includes(owned?.status)&&E.active.includes(trial?.status)){l.seenAt=clock();await storage.set({'runner:lease':l});}}
    const mine=(await collection('experiment:')).find(e=>e.status==='running'&&e.owner?.tabId===sender.tab.id&&e.owner.session===m.session);
    return {ok:true,id:mine?.id||null};
   }
@@ -77,12 +81,17 @@ function createCoordinator({storage,runtime,probe,clock=()=>Date.now(),uuid=()=>
   if(e.owner?.tabId!==sender.tab.id||e.owner?.session!==m.session)throw Error('This source tab does not own the experiment.');
   if(m.action==='claim'){
    if(e.status!=='running'||await reviewLease())return {ok:true,trial:null};
+   const interrupted=e.trials.find(t=>E.active.includes(t.status));if(interrupted){interrupted.status='uncertain';interrupted.error='The active trial lost its saved ownership record. Review the source result before continuing.';e.status='needs-review';E.journal(e,interrupted.error);await put(e);return {ok:true,trial:null};}
    const evidence=e.mode==='adaptive'?(await Promise.all(e.trials.filter(t=>t.phase==='discovery'&&t.status==='saved').map(t=>get('run:'+t.runId)))).filter(Boolean):[];const t=E.nextTrial(e,evidence);if(!t){e.status='complete';delete e.owner;E.journal(e,'Stage complete');await put(e);return {ok:true,trial:null};}
-   const token=uuid();E.transition(e,t,'applying');await storage.set({['experiment:'+e.id]:e,'runner:lease':{experimentId:e.id,trialId:t.id,token,tabId:sender.tab.id,session:m.session,seenAt:clock()}});
+   // Never overwrite an existing record under a queued trial's ID. This can
+   // happen after a partial backup/import or a lost acknowledgement.
+   if(await get('run:'+t.runId)){t.status='uncertain';t.error='A saved record already exists for this trial. Review it before continuing.';e.status='needs-review';E.journal(e,t.error);await put(e);return {ok:true,trial:null};}
+   const token=uuid();t.execution={sourceSession:m.session,claimedAt:new Date(clock()).toISOString()};E.transition(e,t,'applying');await storage.set({['experiment:'+e.id]:e,'runner:lease':{experimentId:e.id,trialId:t.id,token,tabId:sender.tab.id,session:m.session,seenAt:clock()}});
    return {ok:true,experiment:e,trial:t,token};
   }
-  const l=await get('runner:lease'),t=e.trials.find(t=>t.id===m.trialId);
+  const l=await reviewLease(),t=e.trials.find(t=>t.id===m.trialId);
   if(!l||l.experimentId!==e.id||l.trialId!==t?.id||l.token!==m.token||l.session!==m.session)throw Error('Trial ownership changed. Stop and review.');
+  if(clock()-l.seenAt>=90000)throw Error('Trial ownership expired. Stop and review the current source result.');
   if(m.action==='fail'){t.status='uncertain';t.error=String(m.error||'Interrupted').slice(0,1000);e.status='needs-review';E.journal(e,'Trial '+t.ordinal+': '+t.error);await put(e);return {ok:true};}
   if(m.action==='checkpoint'){
    if(!['running','pausing'].includes(e.status))throw Error('Experiment is paused for review.');

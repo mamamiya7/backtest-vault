@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.3 - 2026-09-16
+
+- Require an observed fresh running-to-completed strategy lifecycle. A preceding Completed label cannot finish a new trial while the source is still calculating.
+- Bind each automatic capture to its exact strategy and portfolio submissions, source document session and observed timestamps. Existing or reopened report nodes cannot become a new trial's evidence. Preserve manual capture and recovery.
+- Verify the stored run's identity, phase, real-data status, settings and execution receipt before advancing. Stop on expired or missing ownership; late messages cannot revive an expired trial. Review existing run IDs instead of overwriting them.
+- Keep discovery dates and validation stage order fixed. Older experiment results without execution evidence remain available, with their ranking withheld.
+- Separate the sample workspace visually, rename its action to Generate sample results, and label finished examples Sample results ready. Imported sample plans cannot offer real execution controls. Add collapsed Execution evidence for real trials.
+- Expand regressions for stale completion, missing running state, source rejection, reused/hidden reports, interrupted saves, storage reordering and queue recovery.
+- Complete a real three-trial Candle batch in the installed extension. Verify exported settings, source metrics, full trade counts, six charts per run, distinct submission receipts and save acknowledgement before each next trial. P&F/Renko execution remains gated.
+
 ## 0.7.2 - 2026-09-13
 
 - Validate saved experiments by their values, ignoring object-property order returned by storage. Unchanged plans no longer fail with "Experiment settings were altered" solely because their properties were reordered.

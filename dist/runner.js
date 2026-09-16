@@ -9,7 +9,7 @@ const send=async data=>{const r=await chrome.runtime.sendMessage({type:'vault-ex
 const inputs=p=>[...p.querySelectorAll('input,select,textarea')].filter(e=>C.visible(e)&&!['password','hidden','submit','button'].includes(e.type)&&!e.closest('[role="tab"]'));
 const popups=()=>[...document.querySelectorAll('.popupContent')].filter(C.visible);
 function sourceStatus(){
- const main=C.main();const reason=failed?'RZone runner stopped. Refresh RZone after preserving any open report.':active?'A trial is running in RZone.':C.pending()?'Recover the pending save in RZone first.':!main||!document.body.innerText.includes('Momentum Trading BackTesting')?'Open Momentum Trading BackTesting in RZone.':popups().length?'Close the open report or settings dialog in RZone.':'';
+ const main=C.main();const reason=failed?'RZone runner stopped. Refresh RZone after preserving any open report.':active?'A trial is running in RZone.':C.pending()?'Recover the pending save in RZone first.':!main||!document.body.innerText.includes('Momentum Trading BackTesting')?'Open Momentum Trading BackTesting in RZone.':C.running()?'A backtest is already running in RZone.':C.awaitingResult()?'An earlier source submission is still awaiting a confirmed result.':popups().length?'Close the open report or settings dialog in RZone.':'';
  return {session,ready:!reason,chart:C.fields(main)[0]?.value||'',reason};
 }
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
@@ -35,6 +35,8 @@ async function run(job){
  active=true;interrupted=false;const deadline=Date.now()+e.timeoutMinutes*60000;
  try{
   if(C.pending())throw Error('Recover the pending manual save before starting an experiment.');
+  if(C.running())throw Error('A backtest is already running in RZone. Wait for it to finish before starting an experiment.');
+  if(C.awaitingResult())throw Error('An earlier source submission is still awaiting a confirmed result.');
   if(popups().length)throw Error('Close existing RZone dialogs before starting. Your open report was left intact.');
   C.status(e.name+' · Trial '+t.ordinal+' of '+e.trials.length);
   await apply(C.main(),e,t,'momentum');
@@ -44,17 +46,32 @@ async function run(job){
   E.verify(E.fields(E.expected(e,t),'momentum'),C.fields(C.main()));
   await checkpoint('strategy-submitting'); // Persist the intent before a source side effect.
   const previous=C.getStrategy()?.id;button(setup,/^Backtest$/i).click();
-  await wait(()=>{C.monitor();const s=C.getStrategy();return s?.id!==previous&&s?.completed;},deadline,'Momentum completion could not be confirmed.');
+  const submitted=C.getStrategy();
+  if(!submitted||submitted.id===previous)throw Error('The strategy submission was not recorded.');
+  const completed=await wait(()=>{C.monitor();const s=C.getStrategy();if(s&&s.id!==submitted.id)throw Error('The strategy submission changed during this trial.');return s?.completed&&s.startedAt&&s.completedAt?s:null;},deadline,'A fresh running-to-completed Momentum backtest could not be confirmed.');
   await checkpoint('strategy-complete');
   if(C.visible(setup))await close(setup);
   button(C.main(),/^Portfolio Testing$/i).click();
   const portfolio=await wait(()=>C.popup('Portfolio Backtesting'),Math.min(deadline,Date.now()+10000),'Portfolio settings did not open.');
   await apply(portfolio,e,t,'portfolio');
   E.verify(E.fields(E.expected(e,t),'momentum'),C.fields(C.main()));
-  await checkpoint('portfolio-submitting');button(portfolio,/^Backtest$/i).click();
+  await checkpoint('portfolio-submitting');
+  const previousPortfolio=C.getPortfolio()?.id;button(portfolio,/^Backtest$/i).click();
+  const submittedPortfolio=C.getPortfolio();
+  if(!submittedPortfolio||submittedPortfolio.id===previousPortfolio||submittedPortfolio.strategy?.id!==completed.id)throw Error('The portfolio submission was not linked to this trial.');
   const report=await wait(()=>C.popup('Portfolio Backtesting Report'),deadline,'Portfolio report did not arrive.');
   C.monitor();await checkpoint('capturing');
-  await C.capture({strict:true,runId:t.runId,name:e.name+' · '+t.phase+' '+t.ordinal,experiment:{id:e.id,trialId:t.id,phase:t.phase},verify:r=>{check();for(const stage of ['momentum','execution','portfolio'])E.verify(E.fields(E.expected(e,t),stage),E.fields(r,stage));}});
+  const experiment={id:e.id,trialId:t.id,phase:t.phase};
+  await C.capture({strict:true,runId:t.runId,name:e.name+' · '+t.phase+' '+t.ordinal,submission:{strategyId:completed.id,portfolioId:submittedPortfolio.id},experiment,verify:r=>{
+   check();
+   if(!report.isConnected||C.popup('Portfolio Backtesting Report')!==report||C.getStrategy()?.id!==completed.id||C.getPortfolio()?.id!==submittedPortfolio.id)throw Error('The source report or submission changed during capture.');
+   for(const stage of ['momentum','execution','portfolio'])E.verify(E.fields(E.expected(e,t),stage),E.fields(r,stage));
+   const p=r.parameters,s=p.strategy;
+   const evidence={version:1,sourceSession:session,strategySubmissionId:s.id,strategySubmittedAt:s.at,strategyStartedAt:s.startedAt,strategyCompletedAt:s.completedAt,portfolioSubmissionId:p.id,portfolioSubmittedAt:p.at,reportOpenedAt:p.reportOpenedAt,capturedAt:r.savedAt};
+   const times=[s.at,s.startedAt,s.completedAt,p.at,p.reportOpenedAt,r.savedAt].map(Date.parse);
+   if(times.some((value,index)=>!Number.isFinite(value)||index>0&&value<times[index-1]))throw Error('Submission timing could not be verified.');
+   experiment.evidence=evidence;
+  }});
   // Close only this trial's saved report. A failed close stops further submissions.
   await close(report);if(C.visible(portfolio))await close(portfolio);
   await checkpoint('saved');

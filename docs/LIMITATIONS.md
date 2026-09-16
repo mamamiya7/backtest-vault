@@ -1,7 +1,7 @@
 # Known limitations
 
 - Preview release; not listed in the Chrome Web Store.
-- Experiments v0.7.0 adds a Candle DOM runner, finite/sample/adaptive planner and durable journal. Installed/live batch acceptance is pending; P&F/Renko execution remains gated. Dynamic RS/rule changes are locked. See [Experiments](EXPERIMENTS.md).
+- Experiments includes a Candle DOM runner, finite/sample/adaptive planner and durable journal. A three-trial period sweep passed installed/live acceptance on one fixed baseline in v0.7.3; this does not validate every parameter combination. P&F/Renko execution remains gated. Dynamic RS/rule changes are locked. See [Experiments](EXPERIMENTS.md).
 - The extension depends on Definedge's visible form and report structure. Future changes may require new adapters.
 - Five exported Candle runs have been checked against live references. Three P&F and three Renko saves completed live, but their exported archive verification is pending.
 - The dashboard and v0.4.0 strategy analysis were exercised in a standalone Chrome preview. Automation could not inspect the installed extension dashboard or complete its file-picker import flow.

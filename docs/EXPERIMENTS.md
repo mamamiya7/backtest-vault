@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.7.2 includes the experiment planner, local queue, Decision Desk and fictional simulation, with direct RZone connection checks and stable tab selection. The Candle executor has passed a three-trial DOM integration test. **Installed-extension and live RZone batch acceptance are still pending.** P&F/Renko plans can be prepared, but live execution is gated until their write adapters pass separate acceptance tests.
+Version 0.7.3 includes the experiment planner, local queue, Decision Desk and fictional simulation, with direct RZone connection checks and stable tab selection. **A real three-trial Candle batch completed in the installed extension on 2026-09-16, with its export checked against live source evidence.** The automated suites also cover stale results and interrupted execution. P&F/Renko plans can be prepared, but live execution is gated until their write adapters pass separate acceptance tests.
 
 ## Trader workflow
 
@@ -32,7 +32,7 @@ Vault asks registered source tabs for their current readiness instead of treatin
 
 | Family | Planner support | Live executor status |
 | --- | --- | --- |
-| Candle | Active periods and weights, active EMA lengths, TMA toggle, volume, active retracement/trend-quality values, active target/stop values | Implemented; simulated integration verified; live acceptance pending |
+| Candle | Active periods and weights, active EMA lengths, TMA toggle, volume, active retracement/trend-quality values, active target/stop values | Three real period trials completed and export verified for one fixed baseline; other variable combinations need their own checks |
 | P&F | Above applicable fields, box size and reversal size | Planning only; live gate remains closed |
 | Renko | Above applicable fields and brick-size input in the baseline's fixed mode | Planning only; live gate remains closed |
 | Relative Strength, rules, chart type/mode, universe, timeframe, capital and sizing | Recorded baseline context | Locked; dynamic-layout write adapters remain on the roadmap |
@@ -70,9 +70,13 @@ stateDiagram-v2
 
 The background worker serializes commands. A persisted lease ties one trial to one tab and document session. Before each source submission, the journal records the intent. Read-back checks cover every captured value and checkbox, not only the varied fields. Manual changes, an unexpected layout, a missing dialog or a rejected source calculation stop the experiment.
 
-The existing saver still snapshots settings at the two submission clicks. The runner checks those frozen snapshots against its plan, uses the preassigned run ID, and captures all pages and six charts. The worker reads the stored run back before acknowledging completion. An incomplete capture never advances the queue.
+The existing saver still snapshots settings at the two submission clicks. A fresh strategy lifecycle requires the old completion marker to clear, the running control to appear, and the running state to end before completion is accepted. A report already present before portfolio submission cannot be attached to that new submission. Missing observations stop execution for review rather than assuming a quick response was valid.
 
-An expired heartbeat marks an active trial uncertain; it does **not** make it available for automatic retry. This is deliberate: a source submission may have happened even when its acknowledgement was lost. **Check saved result** reconciles the preassigned run ID. Otherwise inspect the source and choose **Skip this trial** after the interrupted session disconnects. Create a separate deliberate run if it must be repeated. Vault prevents automatic replay; it cannot guarantee exactly-once calculation inside Definedge's service.
+The runner checks the frozen settings against its plan, uses the preassigned run ID, and captures all pages and six charts. Each real trial records its source document session, strategy/portfolio submission IDs, and observed submission, running, completion, report and capture times. Expand **Execution evidence** in the experiment to inspect this receipt and the trial journal. These timestamps describe observations in the browser, not independently attested server timing.
+
+The worker reads the stored run back and verifies its exact run ID, experiment, stage, real-data status, settings and lifecycle receipt before acknowledging completion. A queued ID that already has a saved record is sent for review instead of overwritten. An incomplete or mismatched capture never advances the queue. Older results without lifecycle evidence remain in the archive but cannot establish successful execution of a new automatic trial.
+
+An expired heartbeat marks an active trial uncertain; it does **not** make it available for automatic retry. A late heartbeat or checkpoint cannot revive it. This is deliberate: a source submission may have happened even when its acknowledgement was lost. **Check saved result** reconciles the preassigned run ID and recorded execution evidence. Otherwise inspect the source and choose **Skip this trial** after the interrupted session disconnects. Create a separate deliberate run if it must be repeated. Vault prevents automatic replay; it cannot guarantee exactly-once calculation inside Definedge's service.
 
 Storage failure retains a completed pending capture in that source tab's memory, with the existing recovery download. Refreshing loses that pending memory. An imported experiment is always paused, loses source ownership, and marks in-flight trials uncertain. Back up all includes runs, benchmarks and experiment journals; appearance preferences remain excluded. Backups containing experiments use envelope version 2 while individual run records remain schema version 1. Older archives still import.
 
@@ -103,13 +107,15 @@ flowchart TD
 
 ## Demo and acceptance
 
-Open `?demo=1&view=experiments`, create a plan and choose **Simulate queue**. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary experiments and runs. Navigation pauses a simulation; reload resets it.
+Open `?demo=1&view=experiments`, create a plan and choose **Generate sample results**. The sample workspace uses a distinct color and reports **Sample results ready** when finished. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary experiments and runs. Navigation pauses a simulation; reload resets it. The standalone viewer identifies itself separately and cannot execute RZone plans. An imported fictional experiment cannot enable real execution controls.
 
 Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, a three-trial full Candle DOM flow, complete backup/import and demo isolation. These are simulated tests, not proof of the installed extension operating the live service.
 
+Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. This is acceptance for the tested baseline, not every possible input combination.
+
 ## Remaining delivery plan
 
-1. **Live Candle acceptance:** reload the updated extension, use a matching saved baseline, run three small explicitly reviewed trials, and compare exported settings, trade counts and chart counts against the source.
+1. **Expand Candle coverage:** the initial live three-trial period sweep passed. Validate additional supported variable combinations and recovery behavior on the live source before relying on broader unattended batches.
 2. **P&F and Renko adapters:** validate three writes/runs per family, including conditional dropdowns and price-mode controls; only then open their live gates.
 3. **Broader trader experiments:** RS On/Off with captured dependencies, EMA/period enable switches, predefined strategy selections, sizing experiments split into comparable cohorts, and starting from the current unsaved RZone setup.
 4. **Stronger research validation:** reserve dates before discovery, multiple forward windows, neighbor heatmaps, benchmark-relative objectives with sufficient source coverage, and optional cost/liquidity gates when underlying data supports them.
