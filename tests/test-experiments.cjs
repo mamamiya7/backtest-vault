@@ -201,34 +201,34 @@ function setupVariationTests(){
 function setupCachedCategoryTests(){
  const S=require('../dist/setup.js'),source=S.demoTemplate(),m=source.stages.momentum,categories=['Pre','My','Public','Popular'];m.ruleCatalogues={};
  const option=(label,disabled=false)=>({value:label,label,disabled});
- for(let n=1;n<=3;n++){
-  const parent=35+4*n,child=parent+1,gate=parent+3,lists={};m.options[parent]=categories.map(x=>option(x));m.fields[parent].value='Pre';m.fields[gate].checked=true;
+ for(let n=0;n<=3;n++){
+  const parent=35+4*n,child=parent+1,gate=n?parent+3:34,lists={};m.options[parent]=categories.map(x=>option(x));m.fields[parent].value='Pre';m.fields[gate].checked=true;
   for(const category of categories)lists[category]=[option(`${n} ${category} first`),option(`${n} ${category} second`),option(`${n} ${category} unavailable`,true)];
   m.options[child]=clone(lists.Pre);m.fields[child].value=`${n} Pre first`;m.ruleCatalogues[child]={parentIndex:parent,gateIndex:gate,categories:lists};
  }
  const t=S.template(source),defaults=S.defaults(t);
  for(const category of categories){
-  const config={...defaults};for(let n=1;n<=3;n++){config[`momentum.strategy.${n}.source`]=category;config[`momentum.strategy.${n}.rule`]=`${n} ${category} first`;}
+  const config={...defaults};for(let n=0;n<=3;n++){const prefix=n?`momentum.strategy.${n}`:'momentum.radar';config[prefix+'.source']=category;config[prefix+'.rule']=`${n} ${category} first`;}
   const baseline=S.configToBaseline(config,t,{id:'category-'+category,name:'Cached '+category}),catalog=E.catalog(baseline),dimensions=[];
-  for(let n=1;n<=3;n++){
-   const prefix=`momentum.strategy.${n}`,rule=catalog.find(f=>f.key===prefix+'.rule');assert.deepEqual(rule.options.map(o=>o.value),[`${n} ${category} first`,`${n} ${category} second`],'Dimension choices use the configured category, not the original source or a union');
+  for(let n=0;n<=3;n++){
+   const prefix=n?`momentum.strategy.${n}`:'momentum.radar',rule=catalog.find(f=>f.key===prefix+'.rule');assert.deepEqual(rule.options.map(o=>o.value),[`${n} ${category} first`,`${n} ${category} second`],'Dimension choices use the configured category, not the original source or a union');
    assert.ok(!catalog.some(f=>f.key===prefix+'.source'),'A category remains fixed within a batch');dimensions.push({key:prefix+'.rule',values:rule.options.map(o=>o.value)});
   }
-  const plan=E.create({id:'plan-'+category,name:'Rules for '+category,baseline,dimensions,budget:10,objective:'returns'});assert.equal(plan.trials.length,8);assert.equal(E.validate(reordered(plan)).id,plan.id);
-  for(const trial of plan.trials){const expected=E.expected(plan,trial);for(let n=1;n<=3;n++){assert.equal(E.fields(expected,'momentum')[35+4*n].value,category);assert.equal(E.fields(expected,'momentum')[36+4*n].value,trial.patch[`momentum.strategy.${n}.rule`]);}S.validateBaseline(expected);}
-  for(let n=1;n<=3;n++){
-   const key=`momentum.strategy.${n}.rule`,other=category==='My'?'Public':'My';
+  const plan=E.create({id:'plan-'+category,name:'Rules for '+category,baseline,dimensions,budget:20,objective:'returns'});assert.equal(plan.trials.length,16);assert.equal(E.validate(reordered(plan)).id,plan.id);
+  for(const trial of plan.trials){const expected=E.expected(plan,trial);for(let n=0;n<=3;n++){const prefix=n?`momentum.strategy.${n}`:'momentum.radar';assert.equal(E.fields(expected,'momentum')[35+4*n].value,category);assert.equal(E.fields(expected,'momentum')[36+4*n].value,trial.patch[prefix+'.rule']);}S.validateBaseline(expected);}
+  for(let n=0;n<=3;n++){
+   const prefix=n?`momentum.strategy.${n}`:'momentum.radar',key=prefix+'.rule',other=category==='My'?'Public':'My';
    assert.throws(()=>E.create({id:'wrong-category',name:'Wrong category',baseline,dimensions:[{key,values:[`${n} ${other} first`]}]}),/source values/);
    assert.throws(()=>E.create({id:'disabled-rule',name:'Disabled rule',baseline,dimensions:[{key,values:[`${n} ${category} unavailable`]}]}),/source values/);
-   assert.throws(()=>E.create({id:'changing-category',name:'Changing category',baseline,dimensions:[{key:`momentum.strategy.${n}.source`,values:['Pre','My']}]}),/Unknown/);
+   assert.throws(()=>E.create({id:'changing-category',name:'Changing category',baseline,dimensions:[{key:prefix+'.source',values:['Pre','My']}]}),/Unknown/);
   }
   const tampered=clone(plan);tampered.dimensions[0].options.push(option('1 '+(category==='My'?'Pre':'My')+' first'));assert.throws(()=>E.validate(tampered),/settings were altered/,'Imported dimension metadata cannot add another category');
   const wrongPatch=clone(plan.trials[0]);wrongPatch.patch['momentum.strategy.1.rule']='1 '+(category==='My'?'Pre':'My')+' first';assert.throws(()=>E.expected(plan,wrongPatch),/approved ranges/);
  }
- for(let n=1;n<=3;n++){
-  const empty=clone(t),key=`momentum.strategy.${n}`,child=36+4*n;empty.stages.momentum.ruleCatalogues[child].categories.My=[];
+ for(let n=0;n<=3;n++){
+  const empty=clone(t),key=n?`momentum.strategy.${n}`:'momentum.radar',child=36+4*n;empty.stages.momentum.ruleCatalogues[child].categories.My=[];
   const baseline=S.configToBaseline({...defaults,[key+'.source']:'My',[key+'.rule']:'',[key+'.enabled']:false},empty),make=values=>E.create({id:'empty-category-'+n,name:'Empty rules',baseline,dimensions:[{key:key+'.enabled',values}],objective:'returns',mode:'sample',budget:1});
-  assert.equal(make([false]).trials.length,1);assert.throws(()=>make([false,true]),/available strategy .* before enabling/,'Every combination must block enabling an empty category, including unsampled trials');
+  assert.equal(make([false]).trials.length,1);assert.throws(()=>make([false,true]),/available (strategy|radar) .* before enabling/,'Every combination must block enabling an empty category, including unsampled trials');
  }
 }
 (async()=>{setupVariationTests();setupCachedCategoryTests();await coordinatorTests();await decisionTests();await setupBridgeTests();console.log('PASS: bounded numeric/boolean/source-enum variations, cached strategy-category isolation, all-combination constraints, compound radio settings, fixed context, reproducible sampling, immutable settings, queue ownership/recovery, saved evidence, categorical ranking and Vault-first setup without fabricated results.');})().catch(e=>{console.error(e);process.exitCode=1;});

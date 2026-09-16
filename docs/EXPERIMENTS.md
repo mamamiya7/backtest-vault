@@ -1,16 +1,16 @@
 # Experiments and decision intelligence
 
-Version 0.8.6 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
+Version 0.8.7 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
 ```mermaid
 flowchart LR
     A[New test in Vault] --> B[Connect signed-in RZone]
-    B --> C[Familiar RZone form]
+    B --> C[One page: strategy, dates, exits and portfolio]
     C --> D[Test values beside a setting]
     D --> E[Backtest]
-    E --> F[Dates, exits, portfolio and run count]
+    E --> F[Test count and comparison rules]
     F --> G[Run]
     G --> H[Saved results and Decision desk]
     style A fill:#b2f7dc,stroke:#247456,color:#122b22
@@ -18,23 +18,23 @@ flowchart LR
 
 1. Open the **installed Vault** and choose **New test** or **Experiments → Start a new test**.
 2. **Load choices:** open RZone and sign in if needed. **New test** automatically reads choices when exactly one RZone tab is available. With several tabs, select one and choose **Connect RZone**. Close any existing RZone report/settings dialog first; preserve an unsaved report before leaving it. A failed read allows an explicit retry and is never retried in a loop. Connecting does not submit a backtest.
-3. **Set up the strategy in one form:** chart, market, four periods and weights, timeframe, retracement, volume, EMA/TMA, Radar, Trend Quality and Strategy 1–3 follow RZone's arrangement. **Group** is a searchable dropdown populated from RZone's empty-search list. Select with the mouse or use Arrow keys and Enter; execution still resolves the exact source autocomplete choice.
+3. **Set up everything on one page:** chart, market, four periods and weights, timeframe, retracement, volume, EMA/TMA, Radar, Trend Quality and Strategy 1–3 follow RZone's arrangement. Directly below, edit dates, rank criteria, execution chart/selection, exit strategy, target, stop loss and portfolio sizing. Portfolio defaults are labelled and checked against RZone before submission. **Group** is a searchable dropdown populated from RZone's empty-search list. Select with the mouse or use Arrow keys and Enter; execution still resolves the exact source autocomplete choice.
 4. **Add Test values beside eligible controls:** use explicit numbers such as `252,500`, a numeric From/To/Step range, On/Off choices, or multiple available menu choices. Leave them unused for one test. Up to six settings can vary together. Every combination must be valid, including enabled periods, weights, rules and exits. These values are examples, not recommendations.
-5. **Backtest:** review dates, rank criteria, target, stop loss, any exit rule, allocation, capital and position limits. Exit settings can also have test values. Portfolio defaults are editable and checked against RZone before submission. Choose your comparison measure and limits, then check the total combination count.
+5. **Backtest:** review the compact setup summary and total combination count. Choose your comparison measure and limits. Source settings and their eligible Test values are edited on the main page, without opening this review first.
 6. Choose **Run 1 test** or **Run … tests**. Vault applies the full approved setup, runs momentum and portfolio calculations, saves the report, and advances only after verifying the save. Leave the RZone tab's settings alone while it works.
 7. Open saved trials or **Decision desk** for results. **Export experiment** downloads a backup; it is optional and does not trigger another test. **Stop after current** lets the active report finish saving before pausing.
 
 ### Refresh the available choices
 
-**New test** and **Refresh choices** read the dropdowns available to your signed-in RZone account. For each of **Strategy 1–3**, Vault temporarily enables its source checkbox and reads each offered **Pre / My / Public / Popular** category. It restores the original category, selected rule, timeframe and checkbox state, and verifies the other settings stayed unchanged. Discovery never submits a backtest. Slow, ambiguous or incomplete reads stop with a review message instead of returning a partial catalogue.
+**New test** and **Refresh choices** read the dropdowns available to your signed-in RZone account. Vault temporarily enables **Radar** and **Strategy 1–3** and reads every category offered by each row. Radar currently offers **Pre / My**; the strategy rows offer **Pre / My / Public / Popular**. It restores the original category, selected rule, timeframe where present and checkbox state, and verifies the other settings stayed unchanged. Discovery never submits a backtest. Slow, ambiguous or incomplete reads stop with a review message instead of returning a partial catalogue.
 
-In Vault, choose **On** or **Test both** beside a strategy, select its category, then choose its rule. Switching loaded strategy categories uses their separate lists immediately; your rule selection and Test values for each category are kept while editing. A new category begins at its source placeholder, never at the first real rule. Empty My or Public lists remain empty and cannot be enabled for a test. A choice removed by **Refresh choices** stays visible for review. Category sources stay fixed within each batch; eligible rules within that category can vary.
+In Vault, choose **On** or **Test both** beside Radar or a strategy, select its category, then choose its rule. Switching loaded categories uses their separate lists immediately; your rule selection and Test values for each category are kept while editing. A new category begins at its source placeholder or an empty selection, never at the first real rule. Empty lists remain empty and cannot be enabled for a test. A choice removed by **Refresh choices** stays visible for review. Category sources stay fixed within each batch; eligible rules within that category can vary.
 
-Changing **Market** refreshes Group. Radar and exit-source menus still refresh on demand, as do older setups without cached strategy categories. Vault does not traverse unsupported chart layouts or every possible filter combination. Searching Group and switching loaded strategy categories make no additional source request. There is no separate catalogue download to manage.
+Changing **Market** refreshes Group. Exit-source menus refresh on demand, as do older setups without cached Radar/strategy categories. Vault does not traverse unsupported chart layouts or every possible filter combination. Searching Group and switching loaded categories make no additional source request. There is no separate catalogue download to manage.
 
 Group discovery opens only its own search menu, clears the query to read the exposed full list, restores the original text and closes that menu before reading execution settings. It verifies that the main settings stayed unchanged and rejects ambiguous, missing or oversized lists. Existing reports/menus are never dismissed to make connection succeed. A refreshed source session requires reconnection; choices are not shared between accounts or silently reused from another session. Older saved setups without a Group catalogue retain their original validation behavior.
 
-Refreshing brings RZone forward while it reads the strategy menus and opens and closes its own setup dialog. Leave the source controls alone during this brief read; manual changes interrupt discovery. Vault returns to its initiating tab afterward if you have not switched away yourself. An explicit Radar/exit source change may retain that chosen source, while the strategy-category scan restores the source form. This is separate from **Run**.
+Refreshing brings RZone forward while it reads the strategy menus and opens and closes its own setup dialog. Leave the source controls alone during this brief read; manual changes interrupt discovery. Vault returns to its initiating tab afterward if you have not switched away yourself. An explicit legacy Radar/exit source refresh may retain that chosen source, while the category scan restores the source form. This is separate from **Run**.
 
 ```mermaid
 flowchart LR
@@ -154,11 +154,11 @@ flowchart TD
 
 ## Demo and acceptance
 
-Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the same form and inline ranges using fictional choices. In the Backtest dialog, **Generate … sample results** produces examples; the saved-run demo route retains **Generate sample results**. The sample workspace uses a distinct color and reports **Sample results ready** when finished. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary experiments and runs. Navigation pauses a simulation; reload resets it. The standalone viewer identifies itself separately and cannot execute RZone plans. An imported fictional experiment cannot enable real execution controls.
+Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the same form and inline ranges using fictional choices. In the final review, **Generate … sample results** produces examples; the saved-run demo route retains **Generate sample results**. The sample workspace uses a distinct color and reports **Sample results ready** when finished. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary experiments and runs. Navigation pauses a simulation; reload resets it. The standalone viewer identifies itself separately and cannot execute RZone plans. An imported fictional experiment cannot enable real execution controls.
 
 Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, a three-trial full Candle DOM flow, complete backup/import and demo isolation. These are simulated tests, not proof of the installed extension operating the live service.
 
-Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.6's new full-setup and dropdown-refresh flow.**
+Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.7's new full-setup and dropdown-refresh flow.**
 
 ## Remaining delivery plan
 

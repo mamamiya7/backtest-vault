@@ -11,7 +11,7 @@ const same=(a,b)=>JSON.stringify(ordered(a))===JSON.stringify(ordered(b));
 const owns=(o,key)=>!!o&&Object.prototype.hasOwnProperty.call(o,key);
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const blocked='This dynamic rule is not available in automatic setup yet.';
-const strategyCatalogues={40:{parentIndex:39,gateIndex:42},44:{parentIndex:43,gateIndex:46},48:{parentIndex:47,gateIndex:50}};
+const strategyCatalogues={36:{parentIndex:35,gateIndex:34},40:{parentIndex:39,gateIndex:42},44:{parentIndex:43,gateIndex:46},48:{parentIndex:47,gateIndex:50}};
 const ruleCategories=['Pre','My','Public','Popular'];
 const record=x=>!!x&&typeof x==='object'&&!Array.isArray(x);
 function catalogueChoices(input,label){
@@ -124,10 +124,9 @@ function fieldsForUI(input,config={}){
  g=group('momentum','rules','Additional rules');
  for(const [key,label,index] of [['market-filter','Market trend filter',2],['rs','Relative Strength',51]])fixed(g,key,label,index,blocked).value=false;
  const dynamic=(g,key,label,index,dependents)=>add(g,key,label,index,'select',{dynamic:true,refresh:true,refreshOnChange:true,dependents,help:'Refreshes the available rules from RZone when changed.'});
- toggle(g,'radar.enabled','Use Radar',34);dynamic(g,'radar.source','Radar source',35,[36]);add(g,'radar.rule','Radar rule',36,'select',{enabledBy:'momentum.radar.enabled',rule:true});
- for(let i=1;i<=3;i++){
-  const at=35+i*4,key='strategy.'+i;toggle(g,key+'.enabled','Use Strategy '+i,at+3);
-  const parent=dynamic(g,key+'.source','Strategy '+i+' source',at,[at+1]),child=add(g,key+'.rule','Strategy '+i+' rule',at+1,'select',{enabledBy:'momentum.'+key+'.enabled',rule:true}),catalogue=t.stages.momentum.ruleCatalogues?.[at+1];
+ for(let i=0;i<=3;i++){
+  const at=35+i*4,key=i?'strategy.'+i:'radar',label=i?'Strategy '+i:'Radar';toggle(g,key+'.enabled','Use '+label,i?at+3:34);
+  const parent=dynamic(g,key+'.source',label+' source',at,[at+1]),child=add(g,key+'.rule',label+' rule',at+1,'select',{enabledBy:'momentum.'+key+'.enabled',rule:true}),catalogue=t.stages.momentum.ruleCatalogues?.[at+1];
   if(catalogue){
    const category=owns(config,parent.key)?config[parent.key]:parent.value;
    parent.cachedCategories=parent.options.filter(o=>owns(catalogue.categories,o.value)).map(o=>o.value);
@@ -137,7 +136,7 @@ function fieldsForUI(input,config={}){
    else if(category!==parent.value)child.options=[];
    if(category!==parent.value)child.value='';
   }
-  add(g,key+'.timeframe','Strategy '+i+' timeframe',at+2,'select',{enabledBy:'momentum.'+key+'.enabled'});
+  if(i)add(g,key+'.timeframe',label+' timeframe',at+2,'select',{enabledBy:'momentum.'+key+'.enabled'});
  }
  g=group('execution','test','Backtest');
  add(g,'rank','Rank criteria',0,'select');add(g,'from','From date',1,'date');add(g,'to','To date',2,'date');fixed(g,'chart','Chart type',3,'The execution chart stays Candle.');fixed(g,'selection','Selection type',4,'Automatic testing currently supports Price. RS and Both are not yet available.');

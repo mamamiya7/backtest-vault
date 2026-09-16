@@ -3,7 +3,7 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const E=require('../dist/experiments.js'),S=require('../dist/setup.js'),D=require('../dist/demo.js'),{createCoordinator}=require('../dist/experiment-coordinator.js');
 const base=path.resolve(__dirname,'../dist'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const requestedCatalogue=process.argv.find(argument=>argument.startsWith('--catalogue-case='))?.slice('--catalogue-case='.length);
-if(requestedCatalogue&&!['complete','delayed','empty','rejected','execute'].includes(requestedCatalogue))throw Error('Unknown runner catalogue case: '+requestedCatalogue);
+if(requestedCatalogue&&!['complete','delayed','empty','radar-empty','rejected','radar-rejected','execute'].includes(requestedCatalogue))throw Error('Unknown runner catalogue case: '+requestedCatalogue);
 const reordered=x=>Array.isArray(x)?x.map(reordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,reordered(x[k])])):x;
 async function scenario(options={}){
  const {changeLocked=false,overlap=false,staleCompletion=false,rejected=false,reuseReport=false,noRunning=false,preexistingReport=false,vaultSetup=false,missingGroup=false,changedOptions=false,driftDuringRun=false,refreshParents=false,noOptionRefresh=false,emptyOptions=false,variableSet='',bridge=false,closeAfterWake=false,closeStuckAfterWake=false,groupCatalogue='',ruleCatalogue=''}=options;
@@ -16,23 +16,25 @@ async function scenario(options={}){
  function form(container,fields){const table=d.createElement('table');for(const f of fields){const tr=d.createElement('tr'),td=d.createElement('td'),cell=d.createElement('td');td.textContent=f.label;let n;if(f.type==='select-one'){n=d.createElement('select');const choices=[f.value,...(/Allocation/.test(f.label)?['Fixed','Reinvestment']:/Timeframe|Str \d/.test(f.label)&&f.value==='Daily'?['Weekly']:f.value==='Pre'?['My']:f.value.startsWith('Demo ')?[f.value.replace(/^Demo /,'Alternate ')]:[])];for(const value of new Set(choices)){const o=d.createElement('option');o.textContent=value;o.value='source:'+value;n.append(o);}n.value='source:'+f.value;}else {n=d.createElement('input');n.type=f.type;n.value=f.value;if(f.checked!==null)n.checked=f.checked;if(f.type==='radio')n.name=/52 Week/.test(f.label)?'reference':'volume';}n.disabled=f.disabled;cell.append(n);tr.append(td,cell);table.append(tr);}container.append(table);
   if(vaultSetup){const nodes=[...table.querySelectorAll('input,select')],stage=fields.length===52?'momentum':fields.length===12?'execution':'portfolio';const gates=stage==='momentum'?[[4,5,6,7,8,9,10],[11,12],[13,14],[15,16],[17,18],[26,27],[28,29],[30,31],[34,35,36],[37,38],[42,39,40,41],[46,43,44,45],[50,47,48,49]]:stage==='execution'?[[5,6,7],[8,9],[10,11]]:[[4,5]];for(const [gate,...children]of gates){const update=()=>children.forEach(i=>nodes[i].disabled=!nodes[gate].checked);nodes[gate].addEventListener('change',update);update();}
    for(const index of stage==='momentum'?[35,39,43,47]:stage==='execution'?[6]:[]){
-    const target=nodes[index+1],strategy=stage==='momentum'&&[39,43,47].includes(index),number=strategy?(index-35)/4:null;
+    const target=nodes[index+1],strategy=stage==='momentum'&&[35,39,43,47].includes(index),number=strategy?(index-35)/4:null,label=number?'Strategy '+number:'Radar';
     const predefined=[...target.options].map(o=>({label:o.textContent,value:o.value}));
-    for(const category of ruleCatalogue?['Public','Popular']:[])if(![...nodes[index].options].some(o=>o.textContent===category)){const option=d.createElement('option');option.textContent=category;option.value='source:'+category;nodes[index].append(option);}
+    // Live Radar offers Pre/My. The delayed variant additionally models extra
+    // categories offered by a future source, with Popular explicitly disabled.
+    for(const category of ruleCatalogue&&(number||['delayed','radar-empty'].includes(ruleCatalogue))?['Public','Popular']:[])if(![...nodes[index].options].some(o=>o.textContent===category)){const option=d.createElement('option');option.textContent=category;option.value='source:'+category;option.disabled=index===35&&category==='Popular';nodes[index].append(option);}
     const available=category=>{
-     if(emptyOptions&&category==='My'||ruleCatalogue==='empty'&&strategy&&['My','Public'].includes(category))return [];
-     if(ruleCatalogue&&strategy)return ['first','second'].map(word=>({label:'Strategy '+number+' '+category+' '+word,value:'rule:'+number+':'+category+':'+word}));
+     if(emptyOptions&&category==='My'||ruleCatalogue==='empty'&&strategy&&['My','Public'].includes(category)||ruleCatalogue==='radar-empty'&&index===35&&['My','Public'].includes(category))return [];
+     if(ruleCatalogue&&strategy)return ['first','second'].map(word=>({label:label+' '+category+' '+word,value:'rule:'+number+':'+category+':'+word}));
      if(category==='Pre')return groupCatalogue==='initial-options'&&initialOptionsReady&&stage==='momentum'&&index===39?[...predefined,{label:'Loaded initial rule',value:'initial:rule'}]:predefined;
      return [category+' trend rule',category+' alternate rule'].map(label=>({label,value:'custom:'+label}));
     };
     const populate=category=>{target.replaceChildren();for(const choice of available(category)){const option=d.createElement('option');option.textContent=choice.label;option.value=choice.value;target.append(option);}};
     if(ruleCatalogue&&strategy){
      const category=number===1?'Popular':'Pre';nodes[index].value='source:'+category;populate(category);target.selectedIndex=target.options.length-1;
-     nodes[index+2].value=number===1?'source:Weekly':'source:Daily';nodes[index+3].checked=number===1;nodes[index+3].dispatchEvent(new w.Event('change',{bubbles:true}));
+     if(number)nodes[index+2].value=number===1?'source:Weekly':'source:Daily';const gate=number?index+3:34;nodes[gate].checked=number===1;nodes[gate].dispatchEvent(new w.Event('change',{bubbles:true}));
     }
     nodes[index].addEventListener('change',()=>{
      const category=nodes[index].selectedOptions[0]?.textContent;categoryLoads.push({stage,index,category,enabled:!nodes[index].disabled});
-     if(noOptionRefresh||ruleCatalogue==='rejected'&&index===43&&category==='Public')return;
+     if(noOptionRefresh||ruleCatalogue==='rejected'&&index===43&&category==='Public'||ruleCatalogue==='radar-rejected'&&index===35&&category==='My')return;
      nativeTimeout(()=>populate(category),ruleCatalogue==='delayed'&&strategy&&category==='Public'?1100:300);
     });
    }
@@ -96,7 +98,7 @@ async function scenario(options={}){
  // open during Processing, and completion removes that setup automatically.
  const done=d.createElement('span');done.textContent='BackTest Completed.';main.append(done);let cancel;
  cancel=button(main,'BackTest',()=>{settingsReads++;const p=popup('Momentum Trading BackTest');form(p,E.fields(fixture,'execution'));button(p,'Backtest',()=>{
-  if(ruleCatalogue==='execute'){const controls=main.querySelectorAll('input,select');strategyNativeSubmissions.push([39,43,47].map(index=>({category:controls[index].value,rule:controls[index+1].value,enabled:controls[index+3].checked})));}
+  if(ruleCatalogue==='execute'){const controls=main.querySelectorAll('input,select');strategyNativeSubmissions.push([35,39,43,47].map(index=>({category:controls[index].value,rule:controls[index+1].value,enabled:controls[index===35?34:index+3].checked})));}
   if(submissions&&plan)savedBeforeNext.push(!!memory['run:'+plan.trials[submissions-1].runId]);submissions++;if(rejected){popup('Error');return;}
   if(driftDuringRun)nativeTimeout(()=>{main.querySelectorAll('input,select')[1].value='Manual drift';},100);
   if(!overlap&&!staleCompletion&&!noRunning)done.textContent='Processing';
@@ -170,24 +172,25 @@ async function scenario(options={}){
     assert.deepEqual([...main.querySelectorAll('input,select')].map(n=>n.value),nativeBefore,'Restore the exact native option IDs and selected values.');
     assert.equal(submissions,0);assert.equal(portfolios,0);assert.equal(groupCommits,0);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
     assert.ok(categoryLoads.every(request=>request.enabled),'Every parent request must occur with its strategy checkbox enabled.');
-    if(ruleCatalogue==='rejected'){
+    if(['rejected','radar-rejected'].includes(ruleCatalogue)){
      assert.equal(response.ok,false);assert.match(response.error,/dependent choices|took too long/);assert.equal(settingsReads,0);assert.equal(sourceSuccessDialogs.length,0);
-     assert.equal(categoryLoads.some(request=>request.index===47),false,'Stop the catalogue after a failed row rather than reading later strategies.');
+     assert.equal(categoryLoads.some(request=>request.index===(ruleCatalogue==='radar-rejected'?39:47)),false,'Stop the catalogue after a failed row rather than reading later strategies.');
     }else{
      assert.equal(response.ok,true,JSON.stringify({ruleCatalogue,error:response.error,categoryLoads}));assert.equal(settingsReads,1);
      const momentum=response.config.stages.momentum;assert.equal(momentum.fields.length,52);assert.equal(JSON.stringify(momentum.fields),before);
-     assert.deepEqual(Object.keys(momentum.ruleCatalogues),['40','44','48']);
-     for(let number=1;number<=3;number++){
-      const parent=35+number*4,child=parent+1,catalogue=momentum.ruleCatalogues[child];
-      assert.equal(catalogue.parentIndex,parent);assert.equal(catalogue.gateIndex,parent+3);assert.deepEqual(Object.keys(catalogue.categories).sort(),['My','Popular','Pre','Public']);
-      for(const category of ['Pre','My','Public','Popular']){
-       const expected=ruleCatalogue==='empty'&&['My','Public'].includes(category)?[]:['first','second'].map(word=>'Strategy '+number+' '+category+' '+word);
+     assert.deepEqual(Object.keys(momentum.ruleCatalogues),['36','40','44','48']);
+     for(let number=0;number<=3;number++){
+      const parent=35+number*4,child=parent+1,catalogue=momentum.ruleCatalogues[child],offered=number?['My','Popular','Pre','Public']:['delayed','radar-empty'].includes(ruleCatalogue)?['My','Pre','Public']:['My','Pre'],label=number?'Strategy '+number:'Radar';
+      assert.equal(catalogue.parentIndex,parent);assert.equal(catalogue.gateIndex,number?parent+3:34);assert.deepEqual(Object.keys(catalogue.categories).sort(),offered);
+      for(const category of offered){
+       const expected=(ruleCatalogue==='empty'||ruleCatalogue==='radar-empty'&&!number)&&['My','Public'].includes(category)?[]:['first','second'].map(word=>label+' '+category+' '+word);
        assert.deepEqual(Array.from(catalogue.categories[category],option=>option.value),expected,'Keep each strategy and category in its own catalogue.');
       }
       assert.deepEqual(momentum.options[child],catalogue.categories[number===1?'Popular':'Pre'],'The normal child menu remains scoped to its current source category.');
       const requested=categoryLoads.filter(request=>request.index===parent).map(request=>request.category);
-      assert.deepEqual([...new Set(requested)].sort(),['My','Popular','Pre','Public']);
-      if(ruleCatalogue==='empty')assert.equal(requested.length,5,'Confirm consecutive empty categories with just one extra populated-category read per strategy.');
+      assert.deepEqual([...new Set(requested)].sort(),offered,'Only offered enabled categories are read, including Radar.');
+      if(ruleCatalogue==='empty')assert.equal(requested.length,number?5:2,'Confirm consecutive empty categories with just one extra populated-category read per strategy.');
+      if(ruleCatalogue==='radar-empty'&&!number)assert.deepEqual(requested,['My','Pre','Public','Pre'],'Consecutive empty Radar menus must still visit a populated anchor for a fresh response.');
      }
     }
     if(ruleCatalogue==='execute')cataloguedResponse=response;else return;
@@ -245,7 +248,7 @@ async function scenario(options={}){
    const template=S.template(response.config),config=S.defaults(template);
    Object.assign(config,{'momentum.group':'Nifty 50 Index','momentum.timeframe':'Weekly','momentum.period.2.enabled':true,'momentum.period.2':90,'momentum.ema.1.enabled':true,'momentum.ema.1':200,'momentum.ema.2':55,'momentum.retracement.enabled':true,'momentum.retracement.reference':'8','momentum.volume.reference':'21','momentum.tma':true,'momentum.trend-quality.enabled':true,'momentum.trend-quality':60,'execution.from':'2023-01-01','execution.to':'2024-12-31','execution.target.enabled':false,'execution.target':7,'execution.stop':12,'portfolio.allocation':'Fixed','portfolio.capital':500000,'portfolio.max-open':8,'portfolio.daily-limit.enabled':true,'portfolio.daily-limit':3});
    if(refreshParents){assert.deepEqual(Array.from(response.config.stages.momentum.options[40],o=>o.value),['My trend rule','My alternate rule']);Object.assign(config,{'momentum.strategy.1.enabled':true,'momentum.strategy.1.rule':'My alternate rule','momentum.strategy.1.timeframe':'Weekly','execution.exit.enabled':true,'execution.exit.rule':'My alternate rule'});}
-   if(ruleCatalogue==='execute')for(const [index,category]of ['Public','My','Popular'].entries()){const number=index+1;Object.assign(config,{['momentum.strategy.'+number+'.source']:category,['momentum.strategy.'+number+'.rule']:'Strategy '+number+' '+category+' second',['momentum.strategy.'+number+'.enabled']:true});}
+   if(ruleCatalogue==='execute')for(const [number,category]of ['My','Public','My','Popular'].entries()){const prefix=number?'momentum.strategy.'+number:'momentum.radar',label=number?'Strategy '+number:'Radar';Object.assign(config,{[prefix+'.source']:category,[prefix+'.rule']:label+' '+category+' second',[prefix+'.enabled']:true});}
    const baseline=S.configToBaseline(config,template,{id:'empty-library-setup',name:'Configured in Vault',demo:false});
    const variableDimensions=variableSet==='momentum'?[['momentum.period.2.enabled',[false,true]],['momentum.period.2',[90,180]],['momentum.ema.1.enabled',[false,true]],['momentum.strategy.1.rule',['Demo trend rule','Alternate trend rule']],['momentum.retracement.reference',['7','9']],['momentum.volume.reference',['20','21']]]:variableSet==='rules'?[['momentum.radar.enabled',[false,true]],['momentum.radar.rule',['Demo momentum screen','Alternate momentum screen']],['execution.exit.enabled',[false,true]],['execution.exit.rule',['Demo exit rule','Alternate exit rule']],['execution.target.enabled',[false,true]],['execution.target',[7,9]]]:null;
    plan=E.create({id:'runner-proof',name:'Runner proof',baseline,dimensions:variableDimensions?variableDimensions.map(([key,values])=>({key,values})):[{key:'momentum.period.1',values:'126,180,252'}],...(variableSet?{mode:'sample',budget:3,seed:5}:{}),minTrades:0});memory['experiment:'+plan.id]=plan;
@@ -271,7 +274,7 @@ async function scenario(options={}){
   }
   else{
    assert.equal(result.status,'complete',JSON.stringify(result.trials.map(t=>({status:t.status,error:t.error}))));assert.equal(submissions,3);assert.equal(portfolios,3);assert.equal(runs.length,3);assert.deepEqual(runs.map(r=>E.fields(r,'momentum')[12].value),variableSet?['180','180','180']:['126','180','252']);
-   if(ruleCatalogue==='execute')assert.deepEqual(strategyNativeSubmissions,Array.from({length:3},()=>['Public','My','Popular'].map((category,index)=>({category:'source:'+category,rule:'rule:'+(index+1)+':'+category+':second',enabled:true}))),'Apply each cached category before resolving its exact native rule option, on every source submission.');
+   if(ruleCatalogue==='execute')assert.deepEqual(strategyNativeSubmissions,Array.from({length:3},()=>['My','Public','My','Popular'].map((category,index)=>({category:'source:'+category,rule:'rule:'+index+':'+category+':second',enabled:true}))),'Apply each cached category before resolving its exact native rule option, on every source submission.');
    if(overlap){assert.equal(guardedStates.length,3);assert.ok(guardedStates.every((s,i)=>s.completed===false&&s.portfolios===i),'Old completion text while Cancel is visible must not complete the trial.');}
    for(const r of runs){assert.equal(r.provenance,'recorded-at-submit');assert.equal(r.charts.length,6);assert.equal(r.trades.rows.length,4);assert.equal(r.trades.rows[1][2],'0');assert.equal(r.experiment.id,plan.id);
     if(vaultSetup){const t=plan.trials.find(t=>t.runId===r.id);for(const stage of ['momentum','execution','portfolio'])E.verify(E.fields(E.expected(plan,t),stage),E.fields(r,stage));assert.equal(E.fields(r,'momentum')[1].value,'Nifty 50 Index');assert.equal(E.fields(r,'execution')[1].value,'2023-01-01');assert.equal(E.fields(r,'portfolio')[2].value,'500000');}
@@ -321,7 +324,7 @@ async function backgroundFocusChecks(){
 (async()=>{
  const readinessCases=['initial-options','field-drift','label-drift'];
  const cases=[
-  ...['complete','delayed','empty','rejected','execute'].map(ruleCatalogue=>({vaultSetup:true,ruleCatalogue})),
+  ...['complete','delayed','empty','radar-empty','rejected','radar-rejected','execute'].map(ruleCatalogue=>({vaultSetup:true,ruleCatalogue})),
   ...['blank','nonblank','delayed','late-restore','duplicate','overflow','missing',...readinessCases].map(groupCatalogue=>({vaultSetup:true,groupCatalogue})),
   {},{overlap:true},{changeLocked:true},{staleCompletion:true},{noRunning:true},{rejected:true},{reuseReport:true},{preexistingReport:true},
   {vaultSetup:true,bridge:true},{vaultSetup:true,closeAfterWake:true},{vaultSetup:true,closeStuckAfterWake:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},

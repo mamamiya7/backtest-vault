@@ -202,7 +202,7 @@ async function changeParents(p,changes,stage){
   }finally{if(restore&&!interrupted&&C.visible(p))await setField(p,parent.gate,{...C.fields(p)[parent.gate],checked:false},stage);}
  }
 }
-const strategyRows=[{parentIndex:39,childIndex:40,timeframeIndex:41,gateIndex:42},{parentIndex:43,childIndex:44,timeframeIndex:45,gateIndex:46},{parentIndex:47,childIndex:48,timeframeIndex:49,gateIndex:50}];
+const strategyRows=[{parentIndex:35,childIndex:36,gateIndex:34},{parentIndex:39,childIndex:40,timeframeIndex:41,gateIndex:42},{parentIndex:43,childIndex:44,timeframeIndex:45,gateIndex:46},{parentIndex:47,childIndex:48,timeframeIndex:49,gateIndex:50}];
 function strategyOptions(node){
  if(node?.tagName!=='SELECT'||node.options.length>3000)throw Error('RZone strategy choices are unavailable or exceed 3,000 entries.');
  const labels=new Set();return [...node.options].map(option=>{
@@ -218,7 +218,7 @@ function unchangedOutsideRow(main,before,row){
  // During its requests, read native values directly instead of repeatedly
  // cloning every source table and its potentially thousands of rule options.
  const current=nodes.map((node,index)=>nodeField(node,before[index]));
- for(const index of [row.parentIndex,row.childIndex,row.timeframeIndex,row.gateIndex]){
+ for(const index of [row.parentIndex,row.childIndex,row.timeframeIndex,row.gateIndex].filter(Number.isInteger)){
   const actual=current[index];expected[index]={...expected[index],value:actual.value,checked:actual.checked,disabled:actual.disabled};
  }
  if(JSON.stringify(expected)!==JSON.stringify(current))throw Error('Other RZone settings changed while reading strategy choices. Review the source before reconnecting.');
@@ -231,7 +231,7 @@ async function restoreStrategyRow(main,row,snapshot,original){
    if(![...parent.options].some(o=>o.value===original.parentValue&&V.clean(o.textContent)===snapshot[row.parentIndex].value))throw Error('The original category is no longer available.');
    await selectValue(main,parent,original.parentValue,{gate:row.gateIndex,child:row.childIndex},deadline);
   }
-  for(const [index,value]of [[row.childIndex,original.ruleValue],[row.timeframeIndex,original.timeframeValue]]){
+  for(const [index,value]of [[row.childIndex,original.ruleValue],...(Number.isInteger(row.timeframeIndex)?[[row.timeframeIndex,original.timeframeValue]]:[])]){
    check();nodes=inputs(main);const node=nodes[index];
    if(node.value===value&&V.clean(node.selectedOptions[0]?.textContent)===snapshot[index].value)continue;
    if(![...node.options].some(o=>o.value===value&&V.clean(o.textContent)===snapshot[index].value))throw Error('The original selected rule or timeframe is no longer available.');
@@ -244,18 +244,20 @@ async function restoreStrategyRow(main,row,snapshot,original){
   }
  }
  if(restoreError)throw Error('RZone strategy settings could not be restored: '+restoreError.message+' Review the source before reconnecting.');
- if(JSON.stringify(C.fields(main))!==JSON.stringify(snapshot))throw Error('RZone strategy settings changed during discovery. Review the source before reconnecting.');
+ const restored=C.fields(main);
+ if(JSON.stringify(restored)!==JSON.stringify(snapshot))throw Error('RZone strategy settings changed during discovery. Review the source before reconnecting.');
+ return restored;
 }
 async function strategyCatalogues(main,deadline){
- const catalogues={};
+ const catalogues={};let snapshot=C.fields(main);
  for(const row of strategyRows){
   check();if(Date.now()>=deadline)throw Error('RZone strategy choices took too long to load. Refresh choices and try again.');
-  const snapshot=C.fields(main),nodes=inputs(main),parent=nodes[row.parentIndex],child=nodes[row.childIndex],gate=nodes[row.gateIndex],timeframe=nodes[row.timeframeIndex];
-  if(snapshot.length!==52||parent?.tagName!=='SELECT'||child?.tagName!=='SELECT'||timeframe?.tagName!=='SELECT'||gate?.type!=='checkbox'||gate.disabled)throw Error('RZone strategy layout changed. Refresh RZone and connect again.');
+  const nodes=inputs(main),parent=nodes[row.parentIndex],child=nodes[row.childIndex],gate=nodes[row.gateIndex],timeframe=nodes[row.timeframeIndex];
+  if(snapshot.length!==52||parent?.tagName!=='SELECT'||child?.tagName!=='SELECT'||Number.isInteger(row.timeframeIndex)&&timeframe?.tagName!=='SELECT'||gate?.type!=='checkbox'||gate.disabled)throw Error('RZone strategy layout changed. Refresh RZone and connect again.');
   const offered=strategyOptions(parent).filter(o=>!o.disabled&&['Pre','My','Public','Popular'].includes(o.value));
   const selected=V.clean(parent.selectedOptions[0]?.textContent);
   if(!offered.some(o=>o.value===selected))throw Error('The selected RZone strategy category is not available for automatic discovery.');
-  const original={parentValue:parent.value,ruleValue:child.value,timeframeValue:timeframe.value,enabled:gate.checked},categories={};
+  const original={parentValue:parent.value,ruleValue:child.value,timeframeValue:timeframe?.value,enabled:gate.checked},categories={};
   try{
    if(!gate.checked){ownClick(gate);await delay(150);await settledOptions(main,row.childIndex,()=>true,deadline);}
    if(inputs(main)[row.parentIndex].value!==original.parentValue)await selectValue(main,inputs(main)[row.parentIndex],original.parentValue,{gate:row.gateIndex,child:row.childIndex},deadline);
@@ -284,7 +286,7 @@ async function strategyCatalogues(main,deadline){
     if(V.clean(inputs(main)[row.parentIndex].selectedOptions[0]?.textContent)!==category.value)throw Error('The RZone strategy category changed while reading choices.');
     categories[category.value]=strategyOptions(inputs(main)[row.childIndex]);
    }
-  }finally{if(!interrupted)await restoreStrategyRow(main,row,snapshot,original);}
+  }finally{if(!interrupted)snapshot=await restoreStrategyRow(main,row,snapshot,original);}
   catalogues[row.childIndex]={parentIndex:row.parentIndex,gateIndex:row.gateIndex,categories};
  }
  return catalogues;

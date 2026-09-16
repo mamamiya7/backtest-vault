@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.7 preview - 2026-09-16
+
+- Load every offered Radar category alongside Strategy 1–3. Restore the original source controls and keep each category's rule and Test values separate in Vault; empty account lists stay empty.
+- Put dates, rank criteria, execution chart/selection, exit strategy, target, stop loss and portfolio sizing on the main setup page. Backtest opens a compact final review with comparison rules and an explicit Run action.
+- Preserve supported chart gates, exact source read-back, legacy setup compatibility and local sample isolation. Installed acceptance remains separate from automated tests and preview checks.
+
 ## 0.8.6 preview - 2026-09-16
 
 - Wait for RZone's initial controls to settle before recording the setup used for Group discovery. Keep strict change detection and identify affected controls when a source changes during a read.
