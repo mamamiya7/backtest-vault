@@ -36,6 +36,7 @@ The standalone viewer cannot directly read Chrome extension storage or connect t
 | Blank library in the viewer | It has separate storage. Import an exported JSON backup. |
 | Import is disabled | You are in demo mode. Open my archive to import. |
 | No source tab is available | Open RZone, sign in and return to the installed Vault. Refresh RZone after an extension update. Close existing dialogs only after preserving any unsaved report. |
+| Connect stays on Reading available settings | Version 0.8.1 bounds the request to 70 seconds while the page is active and displays a retry error beside Connect. RZone's Vault bar shows the reading stage or source error. After updating, reload the same extension and refresh both pages; preserve any pending report first. Retry only when the source is ready. Connecting never submits a backtest. |
 | A dropdown is missing a recently added rule | Use **Refresh choices**. Confirm the intended source, such as Pre or My, and choose from the refreshed list. Unavailable old selections need review. |
 | Group could not be confirmed | Use the exact RZone group name. Execution requires a matching source autocomplete selection; typing arbitrary text is insufficient. |
 | Refreshing choices seems to open RZone settings | This reads the available controls and may change a rule source. It does not submit a backtest. **Run** starts the calculations. |

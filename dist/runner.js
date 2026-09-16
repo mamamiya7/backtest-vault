@@ -83,19 +83,26 @@ async function changeParents(p,changes,stage){
 async function configuration(requestedChanges){
  if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
  const changes=configChanges(requestedChanges);
- configuring=true;interrupted=false;let setup=null;
+ configuring=true;interrupted=false;let setup=null,config;
  try{
+  try{
+  C.status('Connecting to Vault: opening Momentum settings…');
   await prepare();
+  C.status('Connecting to Vault: reading strategy choices…');
   const original=C.fields(C.main());if(original.length!==52||original[0]?.value!=='Candle')throw Error('This source layout needs a separate automatic setup adapter.');
   await changeParents(C.main(),changes.momentum,'momentum');const momentum=descriptor(C.main());
   if(momentum.fields.length!==52||momentum.fields[0]?.value!=='Candle'||momentum.fields[51]?.checked)throw Error('Vault setup currently supports the standard Candle layout without Relative Strength. This RZone layout needs a separate adapter.');
   if(momentum.fields[2]?.checked)throw Error('Market Trend Filter has additional source settings. Turn it off before connecting this setup.');
+  C.status('Connecting to Vault: reading backtest settings…');
   button(C.main(),/^BackTest$/i).click();setup=await wait(()=>C.popup('Momentum Trading BackTest'),Date.now()+10000,'Momentum settings did not open.');
   await changeParents(setup,changes.execution,'execution');const execution=descriptor(setup);
   if(execution.fields.length!==12||execution.fields[3]?.value!=='Candle'||execution.fields[4]?.value!=='Price')throw Error('Vault setup currently supports Candle with Price execution. This execution layout needs a separate adapter.');
   const portfolio=window.VaultSetup?.portfolioTemplate();if(!portfolio)throw Error('Vault setup template is unavailable. Reload the extension and RZone.');
-  check();return {schemaVersion:1,session,capturedAt:new Date().toISOString(),stages:{momentum,execution,portfolio},supports:{charts:['Candle'],blocked:['relative-strength','market-filter']}};
- }finally{try{if(setup&&C.visible(setup)&&!interrupted)await close(setup);}finally{configuring=false;}}
+  check();config={schemaVersion:1,session,capturedAt:new Date().toISOString(),stages:{momentum,execution,portfolio},supports:{charts:['Candle'],blocked:['relative-strength','market-filter']}};
+  }finally{if(setup&&C.visible(setup)&&!interrupted)await close(setup);}
+  C.status('RZone settings read. Return to Vault to finish setup.');return config;
+ }catch(error){C.status('Vault connection failed: '+error.message);throw error;}
+ finally{configuring=false;}
 }
 function sameValue(a,b){try{E.verify([{...a,index:0}],[{...b,index:0}]);return true;}catch{return false;}}
 function layout(expected,current){if(expected.length!==current.length||expected.some((f,i)=>f.type!==current[i].type||V.clean(f.label)!==V.clean(current[i].label)))throw Error('Settings layout changed. Review the source tab.');}

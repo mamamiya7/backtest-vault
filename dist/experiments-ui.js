@@ -52,7 +52,14 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
   if(!extension)throw Error('Open the installed extension to run RZone. Plans can be prepared in this browser viewer.');
 
-  const r=await chrome.runtime.sendMessage({type:'vault-experiment',action,...data});if(!r?.ok)throw Error(r?.error||'Extension disconnected.');return r;
+  let timeout;
+  try{
+   const request=chrome.runtime.sendMessage({type:'vault-experiment',action,...data});
+   // Bound the whole connection request, including time spent waiting for the
+   // background queue. A late reply must not replace a newer setup or retry.
+   const r=action==='configure'?await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('RZone did not finish connecting. Check its tab, close any open dialog, then retry the connection here. No backtest was started.')),70000);})]):await request;
+   if(!r?.ok)throw Error(r?.error||'Extension disconnected.');return r;
+  }finally{clearTimeout(timeout);}
 
  }
 
@@ -98,7 +105,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
  }
 
  function newTest(){
-  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
+  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');wizard.template=S.demoTemplate();wizard.config=S.defaults(wizard.template);wizard.step=1;}
   setupPage();
  }
@@ -121,9 +128,10 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  async function refreshSetupChoices(changes){
   const state=wizard;if(!state||state.connecting||store.demo)return;if(!setupSourceValid())return;
-  const generation=++state.generation;state.connecting=true;for(const control of content.querySelectorAll('.setup-form input,.setup-form select,.setup-form button,.setup-builder button'))control.disabled=true;
+  const generation=++state.generation;state.connecting=true;state.connectionError='';for(const control of content.querySelectorAll('.setup-form input,.setup-form select,.setup-form button,.setup-builder button'))control.disabled=true;
   notice.textContent='Refreshing the choices from RZone…';
   try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;acceptSetupSource(state,response.source);notice.textContent='Choices refreshed from RZone. Review any unavailable selections.';}
+  catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;throw error;}
   finally{state.connecting=false;if(alive()&&wizard===state)setupPage();}
  }
 
@@ -134,24 +142,27 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   if(state.step===0){
    shell.append(el('h3','Connect to RZone'),el('p','Vault collects the available settings from your signed-in RZone tab. No backtest starts yet.','muted'));
    if(state.stale)shell.append(el('p','Your previous entries will be available to review after reconnecting.','setup-kept'));
-   const picker=select([['','Choose RZone tab']]),hint=el('p','','mini'),actions=el('div',undefined,'setup-actions'),connect=button('Connect RZone',()=>action(async()=>{
+   const picker=select([['','Choose RZone tab']]),hint=el('p','','mini'),connectionError=el('p','','notice error setup-connection-error'),actions=el('div',undefined,'setup-actions'),connect=button('Connect RZone',()=>action(async()=>{
     const tab=tabs.find(t=>String(t.id)===state.sourceId);if(!tab||!(tab.capable??tab.ready))throw Error(tab?.reason||'Open RZone and sign in before connecting.');
-    const generation=++state.generation;state.connecting=true;sync();
+    const generation=++state.generation;state.connecting=true;state.connectionError='';sync();
     try{
      const response=await command('configure',{tabId:tab.id});if(!alive()||wizard!==state||generation!==state.generation)return;
      acceptSetupSource(state,response.source);state.step=1;state.connecting=false;notice.textContent='';setupPage();
-    }finally{state.connecting=false;if(wizard===state&&state.step===0)sync();}
-   }),'primary');picker.dataset.rzone='setup';picker.setAttribute('aria-label','RZone tab');
+    }catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;if(state.step!==0){state.step=0;state.template=null;state.sourceSession=null;state.connecting=false;setupPage();}throw error;}
+    finally{state.connecting=false;if(wizard===state&&state.step===0)sync();}
+   }),'primary');picker.dataset.rzone='setup';picker.setAttribute('aria-label','RZone tab');connectionError.setAttribute('role','alert');
    function sync(){
     if(wizard!==state||state.step!==0)return;const available=tabs.filter(t=>t.capable??t.ready);if(!state.sourceId&&available.length===1)state.sourceId=String(available[0].id);
     if(document.activeElement!==picker){const options=[['','Choose RZone tab'],...tabs.map(t=>[String(t.id),'RZone'+((t.capable??t.ready)?'':' · unavailable')+' · tab '+t.id])];if(state.sourceId&&!tabs.some(t=>String(t.id)===state.sourceId))options.push([state.sourceId,'RZone · not connected']);if(JSON.stringify([...picker.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(options))picker.replaceChildren(...[...select(options).options]);picker.value=state.sourceId;}
     const source=tabs.find(t=>String(t.id)===state.sourceId);connect.disabled=state.connecting||!source||!(source.capable??source.ready);connect.textContent=state.connecting?'Reading available settings…':'Connect RZone';picker.disabled=state.connecting;hint.textContent=source?.reason||(!source?'Open RZone and sign in. Vault will detect the tab here.':'');hint.hidden=!hint.textContent;
+    connectionError.textContent=state.connectionError;connectionError.hidden=!state.connectionError;
    }
    picker.onchange=()=>{state.sourceId=picker.value;state.template=null;state.sourceSession=null;state.generation++;sync();};picker.onblur=sync;refreshSource=sync;sync();
-   actions.append(connect,button('Open RZone',()=>action(async()=>{await command('open-source');await load();sync();}),'quiet'));shell.append(label('Source',picker),hint,actions);return;
+   actions.append(connect,button('Open RZone',()=>action(async()=>{await command('open-source');await load();sync();}),'quiet'));shell.append(label('Source',picker),hint,connectionError,actions);return;
   }
   if(!state.template){state.step=0;setupPage();return;}
   if(extension){const sourceBar=el('div',undefined,'setup-source-bar');sourceBar.append(el('span','Connected to RZone','mini'),button('Refresh choices',()=>action(()=>refreshSetupChoices()),'quiet'));shell.append(sourceBar);}
+  if(state.connectionError){const error=el('p',state.connectionError,'notice error setup-connection-error');error.setAttribute('role','alert');shell.append(error);}
   shell.classList.add('source-workbench');
   buildWorkbench(shell,state);
  }

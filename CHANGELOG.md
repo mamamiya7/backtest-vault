@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.1 preview - 2026-09-16
+
+- Bound the entire Connect RZone request, including waiting for the background queue. An unanswered request now shows an error beside the connection control and allows an explicit retry; a late response cannot overwrite a newer attempt or draft.
+- Keep failed choice refreshes visible beside the form and preserve entered settings. Recover cleanly if a returned catalogue cannot be rendered.
+- Show connection stages in RZone's Vault bar, with completion only after the settings dialog has closed and a visible message when reading fails.
+- Test the actual background, coordinator and content-runner message path through configuration and three sequential synthetic trials. Add stalled-response, late-reply, retry and render-failure regressions. The installed connection failure has not yet been reproduced; real acceptance remains pending.
+
 ## 0.8.0 preview - 2026-09-16
 
 - Add **New test**: connect a signed-in RZone tab and configure a single form arranged like RZone. Inline Test values controls add numeric lists/ranges, On/Off alternatives and eligible menu choices. Backtest opens dates, exits, portfolio and final run review. A saved baseline is no longer required; **Use a saved run** preserves the previous workflow.
