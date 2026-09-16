@@ -3,6 +3,8 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const E=require('../dist/experiments.js'),S=require('../dist/setup.js'),D=require('../dist/demo.js'),{createCoordinator}=require('../dist/experiment-coordinator.js');
 const base=path.resolve(__dirname,'../dist'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const requestedCatalogue=process.argv.find(argument=>argument.startsWith('--catalogue-case='))?.slice('--catalogue-case='.length);
+const fromCase=Number(process.argv.find(argument=>argument.startsWith('--from-case='))?.slice('--from-case='.length)||1);
+if(!Number.isInteger(fromCase)||fromCase<1)throw Error('Runner starting case must be a positive integer.');
 const exitCases=['exit-search-complete','exit-search-original-public','exit-search-execute','exit-search-no-menu','exit-search-ambiguous','exit-search-unfinished','exit-search-saved-baseline','exit-search-delayed-gate','exit-search-deadline'];
 const searchCases=['search-complete','search-original-public','search-execute','search-no-menu','search-ambiguous','search-unfinished','search-cross-row',...exitCases];
 if(requestedCatalogue&&!['complete','delayed','empty','radar-empty','rejected','radar-rejected','execute',...searchCases].includes(requestedCatalogue))throw Error('Unknown runner catalogue case: '+requestedCatalogue);
@@ -316,7 +318,7 @@ async function scenario(options={}){
    assert.equal(response.ok,true,response.error);assert.equal(submissions,0,'Loading the setup must never run a backtest.');assert.equal(portfolios,0);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
    assert.equal(response.config.stages.momentum.fields.length,52);assert.deepEqual(Array.from(response.config.stages.momentum.options[1],o=>o.value),groupRows);
    if(closeAfterWake){assert.deepEqual(sourceSuccessDialogs,[false]);return;}
-   if(bridge){assert.equal(bridgeConfigRequests,2,'Both the rejected change and successful connection must cross the real background boundary.');assert.equal(response.config.session,memory['runner:tab:9'].session,'Reading settings must retain the registered document session.');assert.deepEqual(sourceMessages.slice(-4),['Connecting to Vault: opening Momentum settings…','Connecting to Vault: reading strategy choices…','Connecting to Vault: reading backtest settings…','RZone settings read. Return to Vault to finish setup.']);assert.deepEqual(sourceSuccessDialogs,[false],'Connection success must only appear after closing its own settings dialog.');}
+   if(bridge){assert.equal(bridgeConfigRequests,3,'Both rejected chart/market changes and the successful connection must cross the real background boundary.');assert.equal(response.config.session,memory['runner:tab:9'].session,'Reading settings must retain the registered document session.');assert.deepEqual(sourceMessages.slice(-4),['Connecting to Vault: opening Momentum settings…','Connecting to Vault: reading strategy choices…','Connecting to Vault: reading backtest settings…','RZone settings read. Return to Vault to finish setup.']);assert.deepEqual(sourceSuccessDialogs,[false],'Connection success must only appear after closing its own settings dialog.');}
    if(refreshParents)assert.equal(navigationCount,1);
    const template=S.template(response.config),config=S.defaults(template);
    Object.assign(config,{'momentum.group':'Nifty 50 Index','momentum.timeframe':'Weekly','momentum.period.2.enabled':true,'momentum.period.2':90,'momentum.ema.1.enabled':true,'momentum.ema.1':200,'momentum.ema.2':55,'momentum.retracement.enabled':true,'momentum.retracement.reference':'8','momentum.volume.reference':'21','momentum.tma':true,'momentum.trend-quality.enabled':true,'momentum.trend-quality':60,'execution.from':'2023-01-01','execution.to':'2024-12-31','execution.target.enabled':false,'execution.target':7,'execution.stop':12,'portfolio.allocation':'Fixed','portfolio.capital':500000,'portfolio.max-open':8,'portfolio.daily-limit.enabled':true,'portfolio.daily-limit':3});
@@ -426,10 +428,11 @@ async function backgroundFocusChecks(){
   {vaultSetup:true,bridge:true},{vaultSetup:true,closeAfterWake:true},{vaultSetup:true,closeStuckAfterWake:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},
   {vaultSetup:true,emptyOptions:true,variableSet:'momentum'},{vaultSetup:true,missingGroup:true},{vaultSetup:true,changedOptions:true},{vaultSetup:true,driftDuringRun:true},{vaultSetup:true,variableSet:'momentum'},{vaultSetup:true,variableSet:'rules'}
  ];
- if(!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus and deadline checks (9 cases).');}
+ if(fromCase===1&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus and deadline checks (9 cases).');}
  const selected=cases.filter(o=>(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake));
- for(const [index,options]of selected.entries()){
-  await scenario(options);console.log('PASS: runner '+(index+1)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
+ if(fromCase>selected.length)throw Error('Runner starting case exceeds the selected scenarios.');
+ for(const [index,options]of selected.slice(fromCase-1).entries()){
+  await scenario(options);console.log('PASS: runner '+(index+fromCase)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
  }
- console.log('PASS: '+selected.length+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');
+ console.log('PASS: '+(selected.length-fromCase+1)+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
