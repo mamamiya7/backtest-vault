@@ -74,7 +74,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   picker.setAttribute('aria-label','RZone tab');picker.dataset.rzone='true';help.setAttribute('role','status');
   const ready=t=>t.ready&&t.chart==='Candle';
   const start=button(state==='draft'?'Start experiment':'Resume',()=>action(async()=>{
-   const tab=tabs.find(t=>String(t.id)===picker.value);if(!tab||!ready(tab))throw Error('Connect a ready Candle RZone tab first.');
+   const tab=tabs.find(t=>String(t.id)===picker.value);if(!tab||!ready(tab))throw Error('Connect a ready RZone backtesting tab first.');
    start.disabled=true;try{await command('start',{id,tabId:tab.id});await load();detail(id);}finally{if(start.isConnected)refreshSource();}
   }),'primary');
   function sync(){
@@ -89,7 +89,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
     picker.value=chosen;
    }
    const target=tabs.find(t=>String(t.id)===picker.value);start.disabled=!target||!ready(target);
-   help.textContent=target?(target.reason||(!ready(target)?'Live experiments currently need a Candle RZone tab.':'')):chosen?'RZone is not responding. Open its tab to reconnect.':'Open RZone Momentum BackTesting and close any report or settings dialogs.';
+   help.textContent=target?(target.reason||(!ready(target)?'Open a supported RZone backtesting form.':'')):chosen?'RZone is not responding. Open its tab to reconnect.':'Open RZone Momentum BackTesting and close any report or settings dialogs.';
    help.hidden=!help.textContent;
   }
   picker.onchange=()=>{sourceChoices.set(id,picker.value);sync();};picker.onblur=sync;refreshSource=sync;sync();
@@ -107,7 +107,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
  }
 
  function newTest(){
-  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
+  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),contextDrafts:new Map(),choiceCache:null,warmingChart:null,ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');wizard.template=S.demoTemplate();wizard.config=S.defaults(wizard.template);wizard.step=1;}
   setupPage();
  }
@@ -122,19 +122,61 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   return true;
  }
 
+ const choiceCharts=['Candle','P&F','Renko'];
+ const stageContext=(config,stage)=>config?[config[stage+'.chart'],config[stage+'.brick.mode']||''].join(':'):null;
+ const chartContext=config=>config?['momentum','execution'].map(stage=>stageContext(config,stage)).join('|'):null;
+ const chartSpecific=key=>/\.(?:chart|signal-mode|box|brick|price|radar|strategy|exit)(?:\.|$)/.test(key);
+ function cacheReceipt(state,source){
+  const cache=source?.choiceCache;if(!cache||!['live','cache'].includes(cache.source)||!Array.isArray(cache.charts)||cache.charts.some(c=>!choiceCharts.includes(c))||!(Number.isFinite(Date.parse(cache.checkedAt))||cache.checkedAt===null&&!cache.charts.length))return false;
+  state.choiceCache={checkedAt:cache.checkedAt,source:cache.source,charts:[...new Set(cache.charts)],pendingCharts:choiceCharts.filter(c=>!cache.charts.includes(c))};
+  return true;
+ }
  function acceptSetupSource(state,source){
-  const template=S.template(source),config=S.defaults(template);
-  if(state.config)for(const group of S.fieldsForUI(template))for(const field of group.fields)if(!field.disabled&&Object.hasOwn(state.config,field.key))config[field.key]=state.config[field.key];
-  state.template=template;state.sourceSession=source.session;state.config=config;state.stale=false;
+  const template=S.template(source),config=S.defaults(template),previous=chartContext(state.config),next=chartContext(config),switching=previous&&previous!==next;
+  let draft=state.config;
+  if(switching){
+   state.contextDrafts.set(previous,structuredClone({config:state.config,dimensions:state.dimensions,ruleDrafts:state.ruleDrafts,ruleSearchDrafts:state.ruleSearchDrafts}));
+   const saved=state.contextDrafts.get(next),changed=new Set(['momentum','execution'].filter(stage=>stageContext(state.config,stage)!==stageContext(config,stage))),canCarry=key=>!changed.has(key.split('.')[0])||!chartSpecific(key);
+   // Chart drafts restore only settings owned by the stage being switched.
+   // Dates, sizing and the unchanged stage always retain their latest edits.
+   const merge=(current,stored,key)=>[...current.filter(item=>canCarry(key(item))),...structuredClone(stored.filter(item=>!canCarry(key(item))))];
+   draft=Object.fromEntries(merge(Object.entries(state.config),Object.entries(saved?.config||{}),item=>item[0]));
+   state.dimensions=merge(state.dimensions,saved?.dimensions||[],item=>item.key);
+   state.ruleDrafts=new Map(merge([...state.ruleDrafts],[...(saved?.ruleDrafts||[])],item=>item[0]));
+   state.ruleSearchDrafts=new Map(merge([...state.ruleSearchDrafts],[...(saved?.ruleSearchDrafts||[])],item=>item[0].split('|')[0]));
+   state.editorOpen=null;
+  }
+  if(draft)for(const group of S.fieldsForUI(template))for(const field of group.fields)if(!field.disabled&&!field.chartContext&&Object.hasOwn(draft,field.key))config[field.key]=draft[field.key];
+  state.template=template;state.sourceSession=source.session;state.config=config;state.stale=false;state.choiceCache=null;cacheReceipt(state,source);
  }
 
- async function refreshSetupChoices(changes){
+ async function warmSetupChoices(state,generation){
+  if(!state.choiceCache||store.demo)return;
+  const pending=[...state.choiceCache.pendingCharts];if(!pending.length)return;state.connecting=true;
+  try{
+   for(const chart of pending){
+    if(!alive()||wizard!==state||generation!==state.generation)return;state.warmingChart=chart;setupPage();
+    const response=await command('configure',{tabId:Number(state.sourceId),warmChart:chart});
+    if(!alive()||wizard!==state||generation!==state.generation)return;if(response.source?.session!==state.sourceSession){state.template=null;state.sourceSession=null;state.choiceCache=null;state.step=0;state.stale=true;throw Error('RZone changed while checking choices. Reconnect before continuing.');}
+    if(!cacheReceipt(state,response.source)||!state.choiceCache.charts.includes(chart))throw Error('RZone did not finish checking '+chart+' choices.');
+   }
+  }catch(error){if(alive()&&wizard===state&&generation===state.generation){state.connectionError='Could not check '+state.warmingChart+' choices. '+error.message+' Your current '+state.config['momentum.chart']+' settings are kept.';}}
+  finally{state.connecting=false;state.warmingChart=null;if(alive()&&wizard===state&&generation===state.generation)setupPage();}
+ }
+
+ async function refreshSetupChoices(changes,{recheckAllChoices=false,chartSwitch=null}={}){
   const state=wizard;if(!state||state.connecting||store.demo)return;if(!setupSourceValid())return;
   const generation=++state.generation;state.connecting=true;state.connectionError='';for(const control of content.querySelectorAll('.setup-form input,.setup-form select,.setup-form button,.setup-builder button'))control.disabled=true;
-  notice.textContent='Refreshing the choices from RZone…';
-  try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;acceptSetupSource(state,response.source);notice.textContent='Choices refreshed from RZone. Review any unavailable selections.';}
+  notice.textContent=recheckAllChoices?'Rechecking all choices from RZone…':chartSwitch?'Loading '+chartSwitch.value+' settings…':'Refreshing the choices from RZone…';
+  try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{}),...(recheckAllChoices?{recheckAllChoices:true}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;if(chartSwitch){const config=S.defaults(S.template(response.source));if(config[chartSwitch.key]!==chartSwitch.value)throw Error('RZone did not switch to '+chartSwitch.value+'. Your previous settings are kept.');}acceptSetupSource(state,response.source);notice.textContent='';await warmSetupChoices(state,generation);}
   catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;throw error;}
   finally{state.connecting=false;if(alive()&&wizard===state)setupPage();}
+ }
+
+ function switchSetupChart(state,field,value){
+  if(wizard!==state||state.connecting||state.ruleLookup||state.config[field.key]===value)return;
+  if(store.demo){const options={momentumChart:state.config['momentum.chart'],executionChart:state.config['execution.chart']};for(const stage of ['momentum','execution'])if(options[stage+'Chart']==='Renko')options[stage+'BrickMode']=state.config[stage+'.brick.mode'];options[field.stage+(field.key.endsWith('.chart')?'Chart':'BrickMode')]=value;if(options[field.stage+'Chart']!=='Renko')delete options[field.stage+'BrickMode'];acceptSetupSource(state,S.demoTemplate(options));setupPage();return;}
+  return refreshSetupChoices({[field.stage]:{[field.index]:value}},{chartSwitch:{key:field.key,value}});
  }
 
  async function searchSetupRule(state,field,rawQuery){
@@ -172,7 +214,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
     const generation=++state.generation;state.autoConnectAttempted=true;state.connecting=true;state.connectionError='';sync();
     try{
      const response=await command('configure',{tabId:tab.id});if(!alive()||wizard!==state||generation!==state.generation)return;
-     acceptSetupSource(state,response.source);state.step=1;state.connecting=false;notice.textContent='';setupPage();
+     acceptSetupSource(state,response.source);state.step=1;state.connecting=false;notice.textContent='';setupPage();await warmSetupChoices(state,generation);
     }catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;if(state.step!==0){state.step=0;state.template=null;state.sourceSession=null;state.connecting=false;setupPage();}throw error;}
     finally{state.connecting=false;if(wizard===state&&state.step===0)sync();}
    }),'primary');picker.dataset.rzone='setup';picker.setAttribute('aria-label','RZone tab');connectionError.setAttribute('role','alert');
@@ -190,7 +232,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
    actions.append(connect,button('Open RZone',()=>action(async()=>{await command('open-source');await load();sync();}),'quiet'));shell.append(label('Source',picker),hint,connectionError,actions);return;
   }
   if(!state.template){state.step=0;setupPage();return;}
-  if(extension){const sourceBar=el('div',undefined,'setup-source-bar');sourceBar.append(el('span','Connected to RZone','mini'),button('Refresh choices',()=>action(()=>refreshSetupChoices()),'quiet'));shell.append(sourceBar);}
+  if(extension){const sourceBar=el('div',undefined,'setup-source-bar'),cache=state.choiceCache;let status='Connected to RZone';if(state.warmingChart)status='Checking '+state.warmingChart+' choices… ('+Math.min(3,(cache?.charts.length||0)+1)+' of 3)';else if(cache&&!cache.pendingCharts.length){const when=new Date(cache.checkedAt);status='Choices checked '+(when.toDateString()===new Date().toDateString()?'today':when.toLocaleDateString('en-IN'));}else if(cache?.charts.length)status='Choices ready: '+cache.charts.join(' · ');const refresh=button('Recheck all choices',()=>action(()=>refreshSetupChoices(undefined,{recheckAllChoices:true})),'quiet');refresh.disabled=state.connecting||!!state.ruleLookup;const receipt=el('span',status,'mini');receipt.setAttribute('role','status');receipt.setAttribute('aria-live','polite');if(cache?.checkedAt)receipt.title='Last checked '+new Date(cache.checkedAt).toLocaleString('en-IN');sourceBar.append(receipt,refresh);shell.append(sourceBar);}
   if(state.connectionError){const error=el('p',state.connectionError,'notice error setup-connection-error');error.setAttribute('role','alert');shell.append(error);}
   shell.classList.add('source-workbench');
   buildWorkbench(shell,state);
@@ -228,7 +270,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   for(const item of state.controls||[]){
    if(!item.control.isConnected)continue;
    const f=item.field,inspect=f.key.endsWith('.chart')&&f.options?.length>1;
-   item.control.disabled=!!(f.disabled&&!inspect)||!setupEnabled(state,f.enabledBy);
+   item.control.disabled=state.connecting||!!(f.disabled&&!inspect)||!setupEnabled(state,f.enabledBy);
   }
   for(const update of state.countUpdates||[])update();
  }
@@ -237,7 +279,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const candidate=state.catalog.find(f=>f.key===field.key);if(!candidate||candidate.type==='boolean'||candidate.type==='enum'&&!candidate.options.length)return null;
   const holder=el('div',undefined,'source-variation'),toggle=button('Test values',()=>{},'source-test-values'),editor=el('div',undefined,'source-values-editor');holder.dataset.variationFor=field.key;editor.dataset.editorFor=field.key;editor.hidden=state.editorOpen!==field.key;holder.append(toggle,editor);
   const dimension=()=>state.dimensions.find(d=>d.key===field.key);
-  const summary=()=>{const d=dimension();toggle.textContent=d?'Edit values':'Test values';toggle.setAttribute('aria-label','Test values for '+field.label);toggle.classList.toggle('is-active',!!d);toggle.setAttribute('aria-expanded',String(!editor.hidden));};
+  const summary=()=>{const d=dimension();toggle.textContent=d?'Edit values':'Test values';toggle.disabled=state.connecting;toggle.setAttribute('aria-label','Test values for '+field.label);toggle.classList.toggle('is-active',!!d);toggle.setAttribute('aria-expanded',String(!editor.hidden));if(state.connecting)for(const n of editor.querySelectorAll('button,input,select'))n.disabled=true;};
   function draw(){
    const d=dimension();editor.replaceChildren();if(!d)return;editor.append(el('strong',field.label));
    const current=state.config[field.key];
@@ -274,7 +316,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const caption=field.label.replace(/^Use /,'');if(showLabel&&field.type!=='boolean')wrap.append(el('span',caption,'source-control-label'));
   const line=el('div',undefined,'source-control-line');wrap.append(line);
   if(radios){
-   const options=el('div',undefined,'source-radios');for(const option of field.options||[]){const n=input(option.value,'radio');n.name='setup-'+key;n.checked=String(value)===String(option.value);n.disabled=!!field.disabled||!!option.disabled||!setupEnabled(state,field.enabledBy);n.dataset.setupField=key;n.setAttribute('aria-label',caption+' · '+option.label);n.onchange=()=>{if(n.checked){state.config[key]=n.value;workbenchChanged(state);}};state.controls.push({field,control:n});options.append(label(option.label,n));}line.append(options);
+   const options=el('div',undefined,'source-radios');for(const option of field.options||[]){const n=input(option.value,'radio');n.name='setup-'+key;n.checked=String(value)===String(option.value);n.disabled=state.connecting||!!field.disabled||!!option.disabled||!setupEnabled(state,field.enabledBy);n.dataset.setupField=key;n.setAttribute('aria-label',caption+' · '+option.label);n.onchange=()=>{if(n.checked){state.config[key]=n.value;workbenchChanged(state);}};state.controls.push({field,control:n});options.append(label(option.label,n));}line.append(options);
   }else{
    let control,combo,unavailable=false;
    const stateChoice=field.type==='boolean'&&!field.disabled;
@@ -300,7 +342,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
     control.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();}else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();if(menu.hidden)open();const direction=event.key==='ArrowDown'?1:-1;let next=active<0?(direction>0?0:shown.length-1):active+direction;while(next>=0&&next<shown.length&&shown[next].disabled)next+=direction;if(next>=0&&next<shown.length)active=next;highlight();}else if(event.key==='Enter'&&!menu.hidden){event.preventDefault();event.stopPropagation();if(active>=0)choose(shown[active]);else close();}});
     combo.append(control,menu,status);validity();
    }else{control=input(value??'',field.type==='number'?'number':field.type==='date'?'date':'text');if(field.min!==undefined)control.min=field.min;if(field.max!==undefined)control.max=field.max;if(field.type==='number')control.step=field.integer?'1':'any';}
-   control.dataset.setupField=key;control.setAttribute('aria-label',caption);control.title=field.reason||field.help||(variableState?caption+': On uses it, Off skips it, Test both compares separate On and Off runs.':caption);if(key==='momentum.group')control.placeholder='Search Group';control.required=!field.disabled&&field.type!=='boolean';const inspectChart=key.endsWith('.chart')&&field.options?.length>1;control.disabled=!!(field.disabled&&!inspectChart)||!setupEnabled(state,field.enabledBy);
+   control.dataset.setupField=key;control.setAttribute('aria-label',caption);control.title=field.reason||field.help||(variableState?caption+': On uses it, Off skips it, Test both compares separate On and Off runs.':caption);if(key==='momentum.group')control.placeholder='Search Group';control.required=!field.disabled&&field.type!=='boolean';const inspectChart=key.endsWith('.chart')&&field.options?.length>1;control.disabled=state.connecting||!!(field.disabled&&!inspectChart)||!setupEnabled(state,field.enabledBy);
    if(field.type==='boolean'&&(!stateChoice||text)){const l=label(text,control);l.className=stateChoice?'source-state-label':'source-check';line.append(l);}else line.append(combo||control);
    if(unavailable){wrap.classList.add('setup-unavailable');control.setAttribute('aria-invalid','true');line.title='This choice is no longer available. Select another option.';if(field.rule&&!field.options?.length)wrap.append(button('Clear unavailable choice',()=>{state.config[key]='';if(field.enabledBy)state.config[field.enabledBy]=false;state.dimensions=state.dimensions.filter(d=>d.key!==key&&d.key!==field.enabledBy);setupPage();},'quiet'));}
    const update=()=>{
@@ -314,8 +356,9 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
     }else state.config[key]=control.type==='checkbox'?control.checked:control.value;
     workbenchChanged(state);
    };
-   if(!field.cachedCategories)control.addEventListener('input',update);
+   if(!field.cachedCategories&&!field.chartContext)control.addEventListener('input',update);
    control.addEventListener('change',()=>{
+    if(field.chartContext&&!field.disabled){void action(()=>switchSetupChart(state,field,control.value));return;}
     if(field.cachedCategories?.includes(control.value)){
      if(!switchRuleCategory(state,field,control.value))control.value=state.config[key];return;
     }
@@ -339,18 +382,31 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const row=(title,children,cls='')=>{const n=el('div',undefined,'source-row '+cls);n.append(el('span',title,'source-row-label'));const values=el('div',undefined,'source-row-controls');values.append(...children);n.append(values);return n;};
   left.append(row('Chart Type :',[field('chart',{variation:false})]),row('Market :',[field('market',{variation:false})]));
   const periods=[],weights=[];for(let i=1;i<=4;i++){const pair=el('div',undefined,'source-period-pair');pair.append(el('span','Period '+i,'source-pair-heading'),field('period.'+i+'.enabled'),field('period.'+i));periods.push(pair);weights.push(field('period.'+i+'.weight'));}
-  left.append(row('Period :',periods,'source-period-row'),row('Weight :',weights,'source-weight-row'),row('Timeframe :',[field('timeframe',{variation:false})]));
+  const timeframe=[field('timeframe',{variation:false})];if(state.fields.has('momentum.signal-mode'))timeframe.push(field('signal-mode',{radios:true}));
+  left.append(row('Period :',periods,'source-period-row'),row('Weight :',weights,'source-weight-row'),row('Timeframe :',timeframe));
   right.append(row('Group :',[field('group',{variation:false}),field('market-filter',{text:'MARKET TREND FILTER',variation:false})],'source-group-row'));
   right.append(row('Retracement :',[field('retracement.enabled'),field('retracement'),field('retracement.mode'),field('retracement.reference',{radios:true})],'source-retracement-row'));
   right.append(row('Volume above :',[field('volume'),field('volume.reference',{radios:true})],'source-volume-row'));
   const emas=[];for(let i=1;i<=3;i++){const pair=el('div',undefined,'source-period-pair');pair.append(el('span','EMA '+i,'source-pair-heading'),field('ema.'+i+'.enabled'),field('ema.'+i));emas.push(pair);}emas.push(field('tma',{text:'TMA Trend'}));right.append(row('EMA :',emas,'source-ema-row'));
   const quality=el('div',undefined,'source-quality');quality.append(field('trend-quality.enabled',{text:'Trend Quality >'}),field('trend-quality'));right.append(row('Radar :',[field('radar.enabled'),field('radar.source',{variation:false}),field('radar.rule'),quality],'source-radar-row'));
-  const strategies=el('div',undefined,'source-strategies');for(let i=1;i<=3;i++){const n=el('section',undefined,'source-strategy');n.setAttribute('aria-label','Strategy '+i);n.append(el('span','Str '+i+' :','source-row-label'),field('strategy.'+i+'.source',{variation:false}),field('strategy.'+i+'.rule'),field('strategy.'+i+'.timeframe'),field('strategy.'+i+'.enabled'));strategies.append(n);}form.append(strategies,field('rs',{text:'Relative Strength :',variation:false}));
-  const limitations=el('p','Candle automation · P&F, Renko, Market Trend Filter and Relative Strength are unavailable for automatic execution.','source-availability');form.append(limitations);
+  const strategies=el('div',undefined,'source-strategies');for(let i=1;i<=3;i++){const n=el('section',undefined,'source-strategy'),numeric=state.fields.has('momentum.strategy.'+i+'.input');n.setAttribute('aria-label','Strategy '+i);n.append(el('span','Str '+i+' :','source-row-label'),field('strategy.'+i+'.source',{variation:false}),field('strategy.'+i+'.rule'),field('strategy.'+i+(numeric?'.input':'.timeframe'),{showLabel:numeric}),field('strategy.'+i+'.enabled'));strategies.append(n);}form.append(strategies,field('rs',{text:'Relative Strength :',variation:false}));
+  const chartSettings=chartSettingsFields(state,'momentum');if(chartSettings)form.append(chartSettings);
+  const limitations=el('p','Candle automation ready · P&F and Renko settings preview. Price selection · Market Trend Filter and Relative Strength are unavailable for automatic execution.','source-availability');form.append(limitations);
+  const capability=S.executionCapability?.(state.template);if(!store.demo&&capability&&!capability.available)form.append(el('p',capability.reason,'source-availability source-execution-limit'));
   buildBacktestSettings(form,state);
   const bar=el('div',undefined,'source-count-bar'),count=el('div',undefined,'source-combination-count'),backtest=button('Backtest',()=>openBacktest(state),'primary');bar.append(count,backtest);shell.append(bar);
-  const update=()=>{try{const dimensions=state.dimensions.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget);count.replaceChildren(el('strong',planned+' '+(planned===1?'test':'tests')),el('span',dimensions.length?combinations+' '+(combinations===1?'combination':'combinations')+' · '+dimensions.length+' changing '+(dimensions.length===1?'setting':'settings'):'Current settings'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting||!!state.ruleLookup;};state.countUpdates.push(update);update();
+  const update=()=>{try{if(state.dimensions.length>6)throw Error('Restored test values exceed six changing settings. Remove a test range to continue.');const dimensions=state.dimensions.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget);count.replaceChildren(el('strong',planned+' '+(planned===1?'test':'tests')),el('span',dimensions.length?combinations+' '+(combinations===1?'combination':'combinations')+' · '+dimensions.length+' changing '+(dimensions.length===1?'setting':'settings'):'Current settings'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting||!!state.ruleLookup;};state.countUpdates.push(update);update();
   if(state.reviewOpen)openBacktest(state);
+ }
+
+ function chartSettingsFields(state,stage){
+  const descriptors=[...state.fields.values()].filter(f=>f.stage===stage&&/\.(?:box\.|brick\.|price\.)/.test(f.key));if(!descriptors.length)return null;
+  const section=el('section',undefined,'source-chart-settings');section.dataset.chartSettings=stage;section.setAttribute('aria-label',(stage==='momentum'?'Momentum':'Execution')+' '+state.config[stage+'.chart']+' settings');
+  for(const field of descriptors.filter(f=>!f.key.includes('.price.')))section.append(sourceField(state,field.key,{showLabel:true}));
+  const close=stage+'.price.close-only',highLow=stage+'.price.high-low',key=stage+'.price-mode',ambiguous=!!state.config[close]===!!state.config[highLow],wrap=el('div',undefined,'source-field'),control=select([['close-only','Close Only'],['high-low','High & Low']]);wrap.dataset.sourceField=key;
+  if(ambiguous){const option=el('option','Review price mode');option.value='';option.disabled=true;control.prepend(option);wrap.classList.add('setup-unavailable');}
+  control.value=ambiguous?'':state.config[close]?'close-only':'high-low';control.required=true;control.disabled=state.connecting;control.dataset.setupField=key;control.setAttribute('aria-label',(stage==='momentum'?'Momentum':'Backtest')+' price mode');control.setAttribute('aria-invalid',String(ambiguous));const warning=el('span','RZone has conflicting price choices. Choose one.','source-price-warning');warning.hidden=!ambiguous;
+  control.onchange=()=>{if(!['close-only','high-low'].includes(control.value))return;state.config[close]=control.value==='close-only';state.config[highLow]=control.value==='high-low';control.setAttribute('aria-invalid','false');wrap.classList.remove('setup-unavailable');warning.hidden=true;workbenchChanged(state);};state.controls.push({field:{key},control});wrap.append(el('span','Price mode','source-control-label'),control,warning);section.append(wrap);return section;
  }
 
  function buildBacktestSettings(form,state){
@@ -359,7 +415,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const field=(key,opts={})=>sourceField(state,key,{showLabel:true,variation:true,...opts});
   const pair=(keys,className='')=>{const grid=el('div',undefined,'source-review-fields '+className);grid.append(...keys.map(key=>field(key)));return grid;};
   const toggleRow=(key,value,title)=>{const row=el('div',undefined,'source-review-toggle-row');row.append(el('span',title,'source-review-toggle-label'),field(key,{showLabel:false}),field(value,{showLabel:false}));return row;};
-  execution.append(pair(['execution.rank','execution.chart','execution.selection'],'source-execution-options'),pair(['execution.from','execution.to'],'source-date-pair'));
+  execution.append(pair(['execution.rank','execution.chart','execution.selection'],'source-execution-options'));const chartSettings=chartSettingsFields(state,'execution');if(chartSettings)execution.append(chartSettings);execution.append(pair(['execution.from','execution.to'],'source-date-pair'));
   const exit=el('div',undefined,'source-review-exit-row'),exitSource=field('execution.exit.source',{variation:false});exitSource.title='Choose a source, then use Test values on its rules.';exitSource.querySelector('select')?.setAttribute('title',exitSource.title);exit.append(field('execution.exit.enabled',{showLabel:false,text:'Exit strategy'}),exitSource,field('execution.exit.rule'));execution.append(exit);
   const limits=el('div',undefined,'source-exit-limits');limits.append(toggleRow('execution.target.enabled','execution.target','Profit target (%)'),toggleRow('execution.stop.enabled','execution.stop','Stop loss (%)'));execution.append(limits);
   portfolio.append(field('portfolio.enabled',{showLabel:false,text:'Portfolio testing',variation:false}),el('p','Required to save the full report.','source-availability'),pair(['portfolio.allocation'],'source-allocation-row'),pair(['portfolio.capital','portfolio.max-open']),toggleRow('portfolio.daily-limit.enabled','portfolio.daily-limit','Limit new stocks per day'));
@@ -367,7 +423,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
  }
 
  function openBacktest(state){
-  if(wizard!==state||state.ruleLookup||!setupSourceValid())return;
+  if(wizard!==state||state.connecting||state.ruleLookup||!setupSourceValid())return;
   const previous=content.querySelector('.setup-backtest-dialog');if(previous?.open)return;previous?.remove();state.reviewOpen=true;
   const dialog=el('dialog',undefined,'setup-backtest-dialog');dialog.setAttribute('aria-label','Review backtest');dialog.setAttribute('aria-modal','true');const title=el('div',undefined,'source-dialog-heading');title.append(el('h3','Review backtest'),button('Close',()=>closeDialog(),'quiet'));dialog.append(title);
   const form=el('form',undefined,'setup-form source-review-form');dialog.append(form);content.append(dialog);
@@ -381,10 +437,10 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const rules=el('div',undefined,'experiment-form-grid');for(const [key,title,choices] of [['objective','Rank by',[['returns','Return · higher is better'],['calmar','Calmar · higher is better'],['drawdown','Drawdown · lower is better']]],['mode','Search',[['grid','All combinations'],['sample','Budgeted sample'],['adaptive','Adaptive · bounded neighborhood']]]]){const n=select(choices);n.value=state[key];n.onchange=()=>{state[key]=n.value;workbenchChanged(state);};rules.append(label(title,n));}
   for(const [key,title,min,max] of [['budget','Maximum runs',1,500],['ceiling','Max drawdown (%)',0,100],['minTrades','Minimum reported trades',0,1000000],['seed','Sample seed',0,4294967295],['timeout','Timeout per trial (minutes)',1,120]]){const n=input(state[key],'number');n.min=min;n.max=max;n.step='1';n.oninput=()=>{state[key]=+n.value;workbenchChanged(state);};rules.append(label(title,n));}body.append(disclosure('Decision rules & advanced',rules));
   const footer=el('div',undefined,'source-dialog-footer'),preview=el('div',undefined,'experiment-preview'),actions=el('div',undefined,'source-dialog-actions'),run=button('Run test',()=>{},'primary');run.type='submit';actions.append(button('Edit settings',()=>closeDialog(),'quiet'),run);footer.append(preview,actions);form.append(footer);
-  function update(){if(!dialog.isConnected)return;try{const e=E.create(setupPlan(state));preview.replaceChildren(el('strong',e.trials.length+' planned '+(e.trials.length===1?'test':'tests')),el('span',store.demo?'Fictional sample results. RZone will not run.':'Apply settings in RZone, run each test, and save completed reports.'));run.textContent=store.demo?'Generate '+e.trials.length+' sample '+(e.trials.length===1?'result':'results'):'Run '+e.trials.length+' '+(e.trials.length===1?'test':'tests');run.disabled=false;}catch(error){preview.replaceChildren(el('span',error.message));run.disabled=true;}}
+  function update(){if(!dialog.isConnected)return;try{const e=E.create(setupPlan(state)),capability=store.demo?null:S.executionCapability?.(state.template);preview.replaceChildren(el('strong',e.trials.length+' planned '+(e.trials.length===1?'test':'tests')),el('span',capability&&!capability.available?capability.reason:store.demo?'Fictional sample results. RZone will not run.':'Apply settings in RZone, run each test, and save completed reports.'));run.textContent=store.demo?'Generate '+e.trials.length+' sample '+(e.trials.length===1?'result':'results'):'Run '+e.trials.length+' '+(e.trials.length===1?'test':'tests');run.disabled=!!capability&&!capability.available;}catch(error){preview.replaceChildren(el('span',error.message));run.disabled=true;}}
   state.countUpdates.push(update);
   form.onsubmit=event=>{event.preventDefault();void action(async()=>{
-   if(!form.reportValidity()||!setupSourceValid()||wizard!==state)return;const p=setupPlan(state);E.create(p);run.disabled=true;let created;
+   if(!form.reportValidity()||!setupSourceValid()||wizard!==state)return;const capability=store.demo?null:S.executionCapability?.(state.template);if(capability&&!capability.available)throw Error(capability.reason);const p=setupPlan(state);E.create(p);run.disabled=true;let created;
    try{
     if(store.demo){created=E.create({...p,id:crypto.randomUUID()});await store.putExperiment(created);await load();wizard=null;detail(created.id);void simulate(created.id);}
     else{const source=tabs.find(t=>String(t.id)===state.sourceId);if(!source||(source.capable??source.ready)!==true)throw Error(source?.reason||'RZone is unavailable. Reconnect before running.');created=(await command('create',{plan:p})).experiment;sourceChoices.set(created.id,state.sourceId);try{await command('start',{id:created.id,tabId:source.id});}finally{await load();wizard=null;detail(created.id);}}

@@ -3,11 +3,41 @@
 'use strict';
 const E=typeof module!=='undefined'?require('./experiments.js'):root.VaultExperiments;
 const V=typeof module!=='undefined'?require('./core.js'):root.Vault;
+const L=typeof module!=='undefined'?require('./source-layouts.js'):root.VaultSourceLayouts;
+const S=typeof module!=='undefined'?require('./setup.js'):root.VaultSetup;
 function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=>Date.now(),uuid=()=>crypto.randomUUID()}){
  let serial=Promise.resolve();
  const get=async k=>(await storage.get(k))[k];
  const put=e=>storage.set({['experiment:'+e.id]:e});
  const collection=async prefix=>Object.entries(await storage.get(null)).filter(([k])=>k.startsWith(prefix)).map(([,v])=>v);
+ const localDay=(time=clock())=>{const d=new Date(time);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
+ const validChoicePayload=(p,tab)=>{
+  try{return p&&p.schemaVersion===1&&p.adapterVersion===L.version&&p.session===tab.session&&p.stages&&['momentum','execution'].every(stage=>L.charts.includes(p.stages[stage]?.context?.chart)&&Array.isArray(p.stages[stage]?.signature))&&JSON.stringify(p).length<=2000000;}catch{return false;}
+ };
+ const choiceKey=p=>JSON.stringify(['momentum','execution'].map(stage=>p.stages[stage].context));
+ async function readChoiceCache(tab,force){
+  const key='runner:choices:'+tab.id;
+  if(force){await storage.set({[key]:null});return {key,day:localDay(),records:[]};}
+  const saved=await get(key),day=localDay();
+  const records=saved?.version===L.version&&saved.session===tab.session&&saved.day===day&&Array.isArray(saved.records)?saved.records.filter(r=>validChoicePayload(r?.payload,tab)&&typeof r.checkedAt==='string'&&Number.isFinite(Date.parse(r.checkedAt))&&Date.parse(r.checkedAt)<=clock()&&localDay(Date.parse(r.checkedAt))===day).slice(-9):[];
+  return {key,day,records};
+ }
+ async function retainChoices(tab,cache,response){
+  const day=localDay(),rolledOver=cache.day!==day;
+  let records=rolledOver?[]:cache.records,writeFailed=false;
+  // A reply that reused yesterday's choices cannot renew them after midnight.
+  const oldChoicesUsed=response.hasCachedChoices===true||response.choicesFromCache===true||cache.records.length>0&&response.hasCachedChoices!==false;
+  if(validChoicePayload(response.choiceCache,tab)&&!(rolledOver&&oldChoicesUsed)){
+   const payload=response.choiceCache,key=choiceKey(payload),existing=records.find(r=>choiceKey(r.payload)===key);
+   const checkedAt=response.choicesFromCache===true&&existing?existing.checkedAt:new Date(clock()).toISOString();
+   records=[...records.filter(r=>choiceKey(r.payload)!==key),{payload,checkedAt}].slice(-9);
+   try{await storage.set({[cache.key]:{version:L.version,session:tab.session,day,records}});}catch{writeFailed=true;}
+  }
+  const covered=stage=>new Set(records.map(r=>r.payload.stages[stage].context.chart));
+  const main=covered('momentum'),execution=covered('execution'),charts=L.charts.filter(chart=>main.has(chart)&&execution.has(chart));
+  return {checkedAt:records.map(r=>r.checkedAt).sort().at(-1)||null,source:response.choicesFromCache===true?'cache':'live',charts,pendingCharts:L.charts.filter(chart=>!charts.includes(chart)),...(writeFailed?{notSaved:true}:{})};
+ }
+
  async function sourceStatus(tab){
   if(!tab)return null;
   if(!probe)return clock()-tab.seenAt<15000?tab:null;
@@ -61,7 +91,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    if(!tab?.capable&&!tab?.ready)throw Error(tab?.reason||'Open RZone and sign in, then connect again.');
    if(m.action==='lookup-rule'){
     if(m.session!==tab.session)throw Error('RZone changed or reloaded. Reconnect before searching for strategies.');
-    const stage=m.stage===undefined?'momentum':m.stage,parents=stage==='momentum'?[39,43,47]:stage==='execution'?[6]:[];
+    const stage=m.stage===undefined?'momentum':m.stage,parents=stage==='momentum'?[39,41,43,45,47,49]:stage==='execution'?[6,10]:[];
     if(!parents.includes(m.parentIndex)||!['My','Public'].includes(m.category)||typeof m.query!=='string'||!m.query.length||m.query.length>200||m.query!==m.query.trim()||/[\u0000-\u001f\u007f]/.test(m.query))throw Error('Enter a strategy search of 1–200 characters.');
     const request={stage,parentIndex:m.parentIndex,category:m.category,query:m.query,session:tab.session};
     const r=await configure(tab.id,{},request);
@@ -77,10 +107,18 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    const changes=m.changes??{};
    if(!changes||typeof changes!=='object'||Array.isArray(changes)||Object.keys(changes).some(k=>!['momentum','execution'].includes(k)))throw Error('Invalid source choices request.');
    for(const values of Object.values(changes))if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>10||Object.entries(values).some(([index,value])=>!/^\d{1,2}$/.test(index)||typeof value!=='string'||value.length>2000))throw Error('Invalid source choices request.');
-   const r=await configure(tab.id,changes);
+   if(m.recheckAllChoices!==undefined&&typeof m.recheckAllChoices!=='boolean'||m.warmChart!==undefined&&!L.charts.includes(m.warmChart)||m.warmChart&&Object.keys(changes).length)throw Error('Invalid source choice refresh.');
+   const cache=await readChoiceCache(tab,m.recheckAllChoices===true);
+   const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(m.warmChart?{warmChart:m.warmChart}:{})};
+   const r=await configure(tab.id,changes,undefined,options);
    if(!r?.ok)throw Error(r?.error||'RZone setup could not be read.');
    if(r.session!==tab.session||r.config?.session!==tab.session)throw Error('RZone reloaded while connecting. Connect again.');
-   return {ok:true,source:r.config};
+   S.template(r.config);
+   // Choice caches are deliberately outside run/experiment archives. They are
+   // scoped to this document, day and adapter; current settings always came
+   // from the fresh source response above, never from these stored menus.
+   const choiceCache=await retainChoices(tab,cache,r);
+   return {ok:true,source:{...r.config,choiceCache}};
   }
   const e=await get('experiment:'+m.id);if(!e)throw Error('Experiment not found.');E.validate(e);
   if(dashboard){

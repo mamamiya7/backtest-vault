@@ -21,10 +21,11 @@ function baseline(run){
 }
 function catalogFromSetup(template,config={}){
  if(!S)throw Error('Reload Vault to load the test setup editor.');
- const strategy=/^momentum\.(?:period\.[1-4](?:\.enabled|\.weight)?|ema\.[1-3](?:\.enabled)?|tma|retracement(?:\.enabled|\.mode|\.reference)?|volume(?:\.reference)?|radar\.(?:enabled|rule)|trend-quality(?:\.enabled)?|strategy\.[1-3]\.(?:enabled|rule|timeframe))$/;
+ const strategy=/^momentum\.(?:period\.[1-4](?:\.enabled|\.weight)?|ema\.[1-3](?:\.enabled)?|tma|retracement(?:\.enabled|\.mode|\.reference)?|volume(?:\.reference)?|radar\.(?:enabled|rule)|trend-quality(?:\.enabled)?|strategy\.[1-3]\.(?:enabled|rule|timeframe|input)|signal-mode)$/;
  const exits=/^execution\.(?:target(?:\.enabled)?|stop(?:\.enabled)?|exit\.(?:enabled|rule))$/;
  const context=/^(?:execution\.(?:rank|from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
- return S.fieldsForUI(template,config).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key)||context.test(f.key))).map(f=>{
+ const chartValues=/^(?:momentum|execution)\.(?:box\.(?:size|reversal)|brick\.size|price\.(?:close-only|high-low))$/;
+ return S.fieldsForUI(template,config).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key)||context.test(f.key)||chartValues.test(f.key))).map(f=>{
   // Keep existing descriptor labels stable so older approved archives still validate.
   const prefix=exits.test(f.key)?'Exit · ':f.stage==='execution'?'Backtest · ':f.stage==='portfolio'?'Portfolio · ':'';
   const d={key:f.key,label:prefix+f.label,stage:f.stage,type:f.type==='select'?'enum':f.type,value:Object.hasOwn(config,f.key)?config[f.key]:f.value};
@@ -93,6 +94,7 @@ function checkSetupCombination(config,rules){
  if(![1,2,3,4].some(i=>config['momentum.period.'+i+'.enabled']&&config['momentum.period.'+i+'.weight']>0))throw Error('Each combination needs a positive weight on an enabled period.');
  if(!['execution.target.enabled','execution.stop.enabled','execution.exit.enabled'].some(key=>config[key]))throw Error('Each combination needs an enabled target, stop loss or exit strategy.');
  if(config['execution.from']>=config['execution.to'])throw Error('Every date combination must have From before To. Remove overlapping start/end choices.');
+ for(const stage of ['momentum','execution'])if(Object.hasOwn(config,stage+'.price.close-only')&&Number(config[stage+'.price.close-only'])+Number(config[stage+'.price.high-low'])!==1)throw Error('Every combination must choose exactly one '+stage+' price mode.');
  for(const f of rules)if(config[f.gate]){const value=config[f.key];if(!f.available.has(value)||!value.trim()||/^\s*--|select.*(?:system|rule|radar)/i.test(value))throw Error('Each combination needs an available '+f.label.toLowerCase()+' before enabling it.');}
 }
 function setupExpected(b,patch,period){

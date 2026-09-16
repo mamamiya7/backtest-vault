@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.9.0 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.10.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
@@ -37,7 +37,23 @@ flowchart LR
 4. **Backtest:** check the compact summary, test count and comparison rules, then choose **Run … tests**. All source settings are already editable on the main page. Leave the range controls unused to run the current setup once.
 5. **Results:** Vault saves each report automatically. Open a saved trial or compare the batch in **Decision desk**. Exporting is an optional backup, not a step required to finish a run.
 
-**New test** and **Refresh choices** load Group and the native dropdowns for **Radar**, **Strategy 1–3** and **Exit Strategy**, temporarily enabling each source row and restoring its settings afterward. Radar currently offers **Pre / My**. Strategy and exit **Pre / Popular** are dropdowns; strategy/exit **My / Public** are searches in RZone. Choose a category in Vault, enter a strategy name or keyword and click **Search** for those searchable categories, then select a returned rule. An untouched search is not an empty account; a completed search with no matches shows that explicitly. Identical names are unavailable for automatic selection because the source identity would be ambiguous. Each category retains its own rule and Test values while you edit. Refresh again after adding rules in RZone; removed choices stay visible for review. Fresh connected setups currently support NSE; other markets require a separate form adapter. Loading or searching choices never submits a backtest.
+**Candle, P&F and Renko have separate settings and choices.** Select the main and execution charts independently. P&F exposes box size and reversal; Renko exposes brick size and its construction mode. Each chart keeps its own rule selections and Test values. P&F/Renko settings are available to inspect and prepare; their automatic execution remains unavailable until separate live write tests pass.
+
+**Choices are checked once per local calendar day, per RZone connection.** The first connection reads Group and native menus for all three charts, then restores the original source settings. Reopening Vault reuses those menus for that day while reading current settings afresh. **Recheck all choices** forces a new scan after rules change. Refreshing RZone, signing in again, changing an unsupported context or detecting changed controls can require another scan. No backtest starts during a choice check.
+
+Radar currently offers native **Pre / My** menus. Strategy and exit **Pre / Popular** are dropdowns; **My / Public** are keyword searches. Choose the category, enter a name and click **Search**, then select a returned rule. RZone does not expose an all-rules list for an empty keyword. An untouched search is not an empty account; no matches refers only to the entered query. Identical names are unavailable for automatic selection because their identity would be ambiguous. Fresh connected setups support NSE; other markets require a separate form adapter.
+
+```mermaid
+flowchart LR
+    A[Open New test] --> B{Choices checked today<br/>for this RZone connection?}
+    B -->|Yes| C[Reuse chart-specific menus]
+    B -->|No| D[Check Candle · P&F · Renko]
+    R[Recheck all choices] --> D
+    D --> E[Restore source settings]
+    C --> F[Read current settings fresh]
+    E --> F
+    F --> G[Edit setup in Vault]
+```
 
 **Example:** two start dates × two allocation methods × two capital amounts = **8 tests**. Add dates with calendar inputs, select offered menu values, or use numeric From / To / Step ranges. The review checks every date combination before any test starts.
 
@@ -55,7 +71,7 @@ Use **Test values** on start/end dates and rank criteria too. Portfolio allocati
 
 ```mermaid
 flowchart LR
-    A["Signed-in RZone<br/>Group + native Radar / STR / exit dropdowns"] -->|"Open New test / Refresh choices"| B["Choose in Vault<br/>Radar · STR1 · STR2 · STR3 · Exit<br/>Each category keeps its own choices"]
+    A["Signed-in RZone<br/>Group + native Radar / STR / exit dropdowns"] -->|"Daily check / Recheck all choices"| B["Choose in Vault<br/>Radar · STR1 · STR2 · STR3 · Exit<br/>Each chart and category keeps its own choices"]
     B -->|"My / Public: keyword + Search"| Q["RZone matched choices<br/>Select an exact unique rule"]
     Q --> B
     B -->|"Refresh after source changes"| A
@@ -66,13 +82,13 @@ flowchart LR
 
 [Open the fictional experiment demo](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [full workflow and recovery guide](docs/EXPERIMENTS.md).
 
-| Available in 0.9.0 preview | Acceptance boundary |
+| Available in 0.10.0 preview | Acceptance boundary |
 | --- | --- |
-| Vault-first Candle/Price setup, source dropdown refresh and single or multiple tests | New flow covered by local checks; live acceptance of this full setup flow remains pending |
+| Vault-first Candle/Price setup, source dropdown refresh and single or multiple tests | Normal Candle tests reported working by the user; this does not establish every setting combination |
 | Finite plans, reproducible samples, bounded adaptive neighborhood search | Local planner and isolated simulation tested |
 | Persistent queue, one source tab, save acknowledgement, pause/recovery | The preceding v0.7.3 saved-baseline flow completed three real Candle trials; this does not validate every new setup option |
 | Frozen decision rules, neighboring-setting checks, baseline/index context, validation and holdout stages | Descriptive research evidence; no predictive or pooled portfolio score |
-| P&F and Renko plans | Live execution gated pending separate write tests |
+| P&F and Renko setup, independent execution chart and daily menus | Discovery/editing available; live execution gated pending separate write tests |
 
 ![Experiment Decision Desk with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
 
@@ -390,6 +406,7 @@ npm run preview
 | `dist/presentation.js` | Number formatting and verified form adapters |
 | `dist/intelligence.js` | Comparable groups, rankings and local index calculations |
 | `dist/intelligence-ui.js` | Leaderboard, plot and explanations |
+| `dist/source-layouts.js` | Shared Candle, P&F and Renko control maps used by discovery, editing and validation |
 | `dist/setup.js` | Source choices, editable settings and settings-only plan validation |
 | `dist/experiments-ui.js` | Guided setup, finite trial planning and Decision desk |
 | `dist/experiments.js` / `experiment-coordinator.js` / `runner.js` | Approved trials, durable ownership and verified RZone execution |
@@ -409,7 +426,7 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/U
 npm run package:public
 ```
 
-This copies an explicit public-file allowlist into `releases/backtest-vault-0.9.0-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.10.0-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
 
 ## License and affiliation
 

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.10.0 preview - 2026-09-16
+
+- Make Candle, P&F and Renko selectable in the setup editor, with independent main/execution charts, their own rule menus, box/brick controls, strategy inputs and retained drafts. P&F/Renko automatic execution remains gated pending separate live write acceptance.
+- Check native choices for all three charts during the first connection of the local day, with exact source restoration between checks. Reuse menus within the same RZone document session; read current settings fresh on every connection.
+- Add Recheck all choices for an explicit full refresh. Invalidate stale menus on day/session/adapter changes, retain the usable form after a failed additional-chart scan, and reject outdated source replies.
+- Preserve exact archived settings and ambiguous source price selections. Add focused chart, cache, restoration and legacy-compatibility regressions.
+
 ## 0.9.0 preview - 2026-09-16
 
 - Stack Momentum Trading BackTest above Portfolio Backtesting in the setup form.

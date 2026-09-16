@@ -105,10 +105,19 @@ for(const [chart,rs,selection,brickMode] of [['P&F',false,'Price','3'],['P&F',tr
    sample.parameters.strategy.execution.fields[7].checked=false;
  }
  assert.equal(JSON.stringify(sample),before);
+ if(!rs&&selection==='Price')for(const category of ['My','Public']){
+   const searched=structuredClone(sample),m=searched.parameters.strategy.main.fields,x=searched.parameters.strategy.execution.fields;
+   for(const parent of [41,45,49]){m[parent].value=category;m[parent+1].type='text';m[parent+1].value='Fictional '+chart+' rule '+parent;}
+   x[10].value=category;x[11].type='text';x[11].value='Fictional '+chart+' exit';
+   const preserved=JSON.stringify(searched),views=P.settings(searched);
+   for(const stage of views){assert.notEqual(stage.groups[0].name,'Captured settings');assert.deepEqual(stage.groups.flatMap(g=>g.rows.flatMap(r=>r.sourceIndices)).sort((a,b)=>a-b),stage.snapshot.fields.map(f=>f.index),'Every variant search field is represented exactly once');}
+   assert.equal(views[1].groups.find(g=>g.name==='Exits').rows[0].value,'Fictional '+chart+' exit');assert.equal(JSON.stringify(searched),preserved);
+   m[41].value='Pre';assert.equal(P.settings(searched)[0].groups[0].name,'Captured settings','Unexpected variant text fields stay raw');
+ }
 }
 
 const base=path.resolve(__dirname,'../dist');
-// Only the observed Candle STR My/Public search fields gain a text adapter;
+// Only observed STR My/Public search fields gain a text adapter;
 // unknown text replacements retain the complete captured-settings fallback.
 for(const category of ['My','Public']){
  const search=structuredClone(run),fields=search.parameters.strategy.main.fields;

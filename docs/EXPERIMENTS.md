@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.9.0 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
+Version 0.10.0 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The user reports normal Candle tests working; the new chart-choice/cache flow still needs installed acceptance. The preceding v0.7.3 saved-baseline flow passed an independently checked real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
@@ -26,7 +26,13 @@ flowchart LR
 
 ### Refresh the available choices
 
-**New test** and **Refresh choices** read the choices available to your signed-in RZone account. Vault temporarily enables **Radar**, **Strategy 1–3** and **Exit Strategy** and records the control used by each offered category. Radar currently offers native **Pre / My** dropdowns. Strategy and exit **Pre / Popular** use dropdowns; **My / Public** replace the rule dropdown with a search field. Vault loads native menus and marks searchable categories as needing a search, rather than waiting for a dropdown that will never appear. It restores the original category, rule, timeframe where present and checkbox state, and verifies the other settings stayed unchanged. Discovery never submits a backtest.
+Native dropdown choices are cached for the **local calendar day and current RZone document session**. The initial connection checks Candle, P&F and Renko in separate bounded steps, for both the main and execution forms, restoring original source settings after each step. Reopening Vault can reuse those menus. Current fields, dates and settings are always read again; a menu cache never substitutes for source read-back before submission.
+
+Use **Recheck all choices** to discard the cache and rescan after a source change. A new day, RZone reload, adapter update or changed form/menu context also requires a fresh check. A failed chart scan leaves your current editable form available and names the incomplete chart. The source must remain unchanged while discovery works. Some nonempty uncommitted searches and ambiguous price flags need review before a temporary chart switch can be restored exactly. Search-based My/Public categories still require an explicit keyword; the daily check does not invent a complete list for them.
+
+The editor exposes P&F box/reversal controls, Renko brick size/mode, Running/Fresh and the observed numeric strategy inputs. Main chart and execution chart remain independent; switching one does not silently switch the other. Chart and Renko mode remain fixed within a batch, with separate drafts for each context. **P&F/Renko execution is still gated pending a real submitted-result comparison for the new adapter.**
+
+**New test** and **Recheck all choices** read the choices available to your signed-in RZone account. Vault temporarily enables **Radar**, **Strategy 1–3** and **Exit Strategy** and records the control used by each offered category. Radar currently offers native **Pre / My** dropdowns. Strategy and exit **Pre / Popular** use dropdowns; **My / Public** replace the rule dropdown with a search field. Vault loads native menus and marks searchable categories as needing a search, rather than waiting for a dropdown that will never appear. It restores the original category, rule, timeframe where present and checkbox state, and verifies the other settings stayed unchanged. Discovery never submits a backtest.
 
 In Vault, choose **On** or **Test both** beside Radar, a strategy or Exit Strategy, select its category, then choose its rule. For strategy/exit **My / Public**, enter a name or keyword and click **Search**. This reads matching choices from that specific RZone row and category, then restores the source. A query is required: RZone does not expose a complete list for an empty strategy search. No matches means no matches for that query, not that the entire account has no rules. Repeated names are disabled because Vault cannot safely distinguish them by name. An unfinished nonempty search in RZone must be finished or cleared before discovery can change that row. Switching loaded categories retains separate selections and Test values. A new category begins at its source placeholder or an empty selection, never at the first real rule. Unavailable choices remain visible for review. Category sources stay fixed within each batch; eligible returned rules within that category can vary.
 
@@ -38,7 +44,7 @@ Refreshing brings RZone forward while it reads the strategy menus and opens and 
 
 ```mermaid
 flowchart LR
-    A["Available RZone choices"] -->|"Connect / Refresh choices"| B["Editable setup"]
+    A["Available RZone choices"] -->|"Connect / Recheck all choices"| B["Editable setup"]
     B -->|"Review"| C["Settings-only plan"]
     C -->|"Run"| D["RZone backtests"]
     D --> E["Saved results"]
@@ -57,12 +63,12 @@ A consolidated live source inspection on 2026-09-16 covered the parent branches 
 
 | Source controls inspected | Coverage | Automatic setup in this release |
 | --- | --- | --- |
-| Main chart and Group | Candle / P&F / Renko × four markets | NSE Candle |
-| STR1–3 | Three rows × four rule sources × three charts | Candle, including My/Public search |
-| Radar | Pre / My under all three charts | NSE Candle; an empty native menu stays empty |
+| Main chart and Group | Candle / P&F / Renko × four markets | NSE editor for all three charts; Candle execution |
+| STR1–3 | Three rows × four rule sources × three charts | Three chart-specific editors and My/Public search; Candle execution |
+| Radar | Pre / My under all three charts | NSE editor for all three charts; an empty native menu stays empty |
 | Relative Strength | Separate chart rule families, five benchmark markets, exact benchmark selection | Still gated |
 | Market Trend Filter | Three charts × Index/RS × four actions; four methods; exit categories; both Renko construction blocks | Still gated; requires complete capture and replay support |
-| Backtest / exits | Three execution charts × Price/RS/Both × four rule sources; cross-check under all three main charts | Candle / Price, including exit My/Public search |
+| Backtest / exits | Three execution charts × Price/RS/Both × four rule sources; cross-check under all three main charts | All three Price editors, including exit My/Public search; Candle execution |
 | Portfolio | Fixed / Reinvestment × portfolio switch × daily-limit switch | Existing verified six-control template |
 
 Several visually similar controls have different behavior. Radar My is a native dropdown, while strategy/exit My is a keyword search. Candle Relative Strength has its own rule family. Changing a Renko brick mode also changes its numeric value. Changing market can remove controls. STR2 category changes can affect the raw labels captured for STR3.

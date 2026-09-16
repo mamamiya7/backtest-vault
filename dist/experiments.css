@@ -20,6 +20,9 @@ body:has(.has-workbench) main{max-width:none}
 .has-workbench .source-workbench.setup-builder{max-width:none;padding:12px 14px;background:#0f0f0f;border:1px solid #2a2e39;border-radius:4px;color:#ddd;font-family:"Segoe UI",system-ui,sans-serif}
 .source-workbench .setup-source-bar{margin:0 0 10px;padding:0 0 8px;border-bottom:1px solid #232833;font-size:12px}
 .source-workbench .setup-source-bar button{min-height:28px;padding:3px 8px;font-size:12px}
+.source-workbench .setup-source-bar{flex-wrap:wrap}
+.source-workbench .setup-source-bar>span{flex:1;min-width:160px}
+.source-execution-limit{color:#efc18c}
 .source-main-grid{display:grid;grid-template-columns:minmax(400px,28%) minmax(0,1fr);gap:20px}
 .source-main-left,.source-main-right{min-width:0}
 .source-row{display:grid;grid-template-columns:112px minmax(0,1fr);align-items:start;gap:8px;min-height:48px;margin:0 0 3px}
@@ -80,6 +83,14 @@ body:has(.has-workbench) main{max-width:none}
 .source-strategy>.source-field:last-child{flex-shrink:0}
 .source-strategy .source-field select{width:100%}
 .source-availability{font-size:11px;color:#8f9aaa;margin:6px 0 0;line-height:1.45}
+.source-chart-settings{display:flex;align-items:flex-start;flex-wrap:wrap;gap:16px;margin:14px 0;padding:12px 0;border-top:1px solid #2a2e39;border-bottom:1px solid #2a2e39}
+.source-chart-settings>.source-field{min-width:115px;flex:0 1 180px}
+.source-chart-settings .source-state-label{flex-direction:column;align-items:flex-start;gap:5px}
+.source-price-warning{display:block;margin-top:5px;color:#efc18c;font-size:11px;line-height:1.4}
+.source-price-warning[hidden]{display:none}
+.source-workbench .source-chart-settings input[type=number],.source-workbench .source-chart-settings select{width:100%}
+.source-chart-settings .source-values-editor{min-width:285px}
+.source-strategy .source-control-label{font-size:10px;margin-bottom:3px}
 .source-count-bar{display:flex;align-items:center;justify-content:space-between;gap:15px;padding-top:12px;margin-top:10px;border-top:1px solid #2a2e39}
 .source-combination-count{display:flex;gap:12px;align-items:baseline;min-width:0}
 .source-combination-count strong{font-size:13px;color:#c6e9e1;white-space:nowrap}

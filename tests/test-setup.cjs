@@ -57,7 +57,7 @@ for(const [patch,error] of [
  [{'momentum.market':'Nasdaq'},/available market/],
  [{'momentum.market':'Unavailable'},/available market/],
  [{'momentum.timeframe':'Yearly'},/available timeframe/],
- [{'momentum.chart':'P&F'},/available chart/],
+ [{'momentum.chart':'P&F'},/Refresh choices for Chart type/],
  [{'momentum.market-filter':true},/not available/],
  [{'momentum.rs':true},/not available/],
  [{'momentum.radar.source':'My'},/Refresh choices/],
@@ -72,7 +72,7 @@ const radarSource=S.fieldsForUI(t).flatMap(g=>g.fields).find(f=>f.key==='momentu
 const refreshedSource=clone(source);refreshedSource.stages.momentum.fields[35].value='My';refreshedSource.stages.momentum.fields[36].value='My screen';refreshedSource.stages.momentum.options[36]=['My screen'];const refreshedT=S.template(refreshedSource);
 assert.throws(()=>S.validateConfig({...c,'momentum.radar.source':'My'},refreshedT),/available radar rule/,'A catalogue refresh must not retain an unavailable old rule silently');
 assert.equal(S.validateConfig({...c,'momentum.radar.source':'My','momentum.radar.rule':'My screen'},refreshedT)['momentum.radar.source'],'My');
-assert.equal(S.fieldsForUI(t).flatMap(g=>g.fields).find(f=>f.key==='momentum.chart').options.find(o=>o.value==='P&F').disabled,true,'Unsupported source chart choices stay visible and explicitly unavailable');
+assert.equal(S.fieldsForUI(t).flatMap(g=>g.fields).find(f=>f.key==='momentum.chart').options.find(o=>o.value==='P&F').disabled,false,'Observed chart choices can be selected to load their matching layouts');
 const altered=clone(b);altered.parameters.strategy.main.fields[12].value='999';assert.throws(()=>S.validateBaseline(altered),/altered/);
 const forged=clone(b);forged.provenance='recorded-at-submit';assert.throws(()=>S.validateBaseline(forged),/altered/);
 const malformed=clone(source);malformed.stages.momentum.fields[12].index=11;assert.throws(()=>S.template(malformed),/layout/);
@@ -239,7 +239,7 @@ assert.equal(S.template({momentum:source.stages.momentum,execution:source.stages
   x=>{x.stages.momentum.fields[40].value='Unlisted search text';},
   x=>{x.stages.momentum.ruleCatalogues[40].categories.Public=['Different choices'];}
  ]){const invalid=clone(captured);mutate(invalid);assert.throws(()=>S.template(invalid),/Invalid|does not match|do not match|absent/);}
- const radarText=clone(captured);radarText.stages.momentum.fields[35].value='My';radarText.stages.momentum.fields[36].type='text';radarText.stages.momentum.fields[36].value='';radarText.stages.momentum.options[36]=[];radarText.stages.momentum.ruleCatalogues[36]={parentIndex:35,gateIndex:34,categories:{My:[]},controlTypes:{My:'text'}};assert.throws(()=>S.template(radarText),/Invalid strategy rule control type/,'Radar has no observed text-rule adapter');
+ const radarText=clone(captured);radarText.stages.momentum.fields[35].value='My';radarText.stages.momentum.fields[36].type='text';radarText.stages.momentum.fields[36].value='';radarText.stages.momentum.options[36]=[];radarText.stages.momentum.ruleCatalogues[36]={parentIndex:35,gateIndex:34,categories:{My:[]},controlTypes:{My:'text'}};assert.throws(()=>S.template(radarText),/Invalid strategy rule control type|controls changed/,'Radar has no observed text-rule adapter');
  const noEvidence=clone(captured);delete noEvidence.stages.momentum.ruleCatalogues[40].searchQueries;assert.throws(()=>S.template(noEvidence),/need their source query/,'Populated search lists need the query that produced them');
  const unloaded=clone(empty);delete unloaded.stages.momentum.ruleCatalogues[40].searchQueries.Public;const unloadedT=S.template(unloaded),unloadedC=S.defaults(unloadedT);assert.equal(S.fieldsForUI(unloadedT).flatMap(g=>g.fields).find(f=>f.key==='momentum.strategy.1.rule').searchQuery,null);assert.throws(()=>S.validateConfig({...unloadedC,'momentum.strategy.1.enabled':true},unloadedT),/Search RZone/,'An unqueried category is not an empty search result');
 }
@@ -279,4 +279,32 @@ for(const initial2 of ['Pre','Public'])for(const initial3 of ['Pre','My']){
  const input=clone(source);input.stages.momentum.supportedMarkets=['NSE'];const template=S.template(input),descriptor=S.fieldsForUI(template).flatMap(g=>g.fields).find(f=>f.key==='momentum.market');assert.equal(descriptor.options.find(o=>o.value==='BSE').disabled,true);assert.match(descriptor.options.find(o=>o.value==='BSE').reason,/different source layout/);assert.equal(template.stages.momentum.options[3].find(o=>o.value==='BSE').disabled,false,'Source choices remain original evidence');assert.throws(()=>S.validateConfig({...S.defaults(template),'momentum.market':'BSE'},template),/available market/);S.validateBaseline(S.configToBaseline(S.defaults(template),template));assert.equal(S.template(source).stages.momentum.supportedMarkets,undefined,'Legacy templates are not rewritten');S.validateBaseline(b);
  for(const change of [s=>{s.stages.momentum.supportedMarkets=['BSE'];},s=>{s.stages.momentum.fields[3].value='BSE';},s=>{s.stages.execution.supportedMarkets=['NSE'];}]){const invalid=clone(input);change(invalid);assert.throws(()=>S.template(invalid),/market layout/);}
 }
-console.log('PASS: source-derived setup, exact labels and choices, native/search main and execution rules, cross-row label projection, explicit NSE capability and legacy archives, immutable reconstruction and fictional isolation.');
+// Main and execution charts are independent, and every visible native control
+// belongs to one descriptor without reusing a Candle offset for a variant.
+{
+ const L=require('../dist/source-layouts.js');
+ for(const momentumChart of L.charts)for(const executionChart of L.charts){
+  const t=S.demoTemplate({momentumChart,executionChart}),config=S.defaults(t),fields=S.fieldsForUI(t).flatMap(g=>g.fields),base=S.configToBaseline(config,t),unchanged=clone(t);
+  assert.equal(base.parameters.strategy.main.fields[0].value,momentumChart);assert.equal(base.parameters.strategy.execution.fields[3].value,executionChart);S.validateBaseline(clone(base));assert.deepEqual(t,unchanged);
+  assert.equal(S.executionCapability(t).available,momentumChart==='Candle'&&executionChart==='Candle','Read/edit support cannot unlock a non-Candle live execution gate');
+  for(const stage of ['momentum','execution','portfolio']){const indices=fields.filter(f=>f.stage===stage).flatMap(f=>f.indices||[f.index]);assert.deepEqual(indices.slice().sort((a,b)=>a-b),t.stages[stage].fields.map(f=>f.index),'Every '+stage+' native control is represented exactly once');}
+  for(const stage of ['momentum','execution']){const layout=L.stage(stage,t.stages[stage].fields),descriptor=fields.find(f=>f.key===stage+'.chart');assert.equal(descriptor.dynamic,true);assert.equal(descriptor.chartContext,true);assert.ok(descriptor.options.every(o=>!o.disabled));if(!layout.variant)continue;
+   assert.equal(fields.find(f=>f.key===stage+(layout.chart==='P&F'?'.box.size':'.brick.size')).index,layout.sizeIndex);assert.equal(fields.find(f=>f.key===stage+(layout.chart==='P&F'?'.box.reversal':'.brick.mode')).index,layout.modeIndex);
+   const conflict=clone(t);for(const index of layout.priceIndices)conflict.stages[stage].fields[index].checked=true;const read=S.template(conflict);assert.deepEqual(layout.priceIndices.map(i=>read.stages[stage].fields[i].checked),[true,true]);assert.throws(()=>S.configToBaseline(S.defaults(read),read),/exactly one.*price mode/,'Conflicting source flags are preserved and blocked, not normalized');
+  }
+  for(let n=1;n<=3;n++){const input=fields.find(f=>f.key===`momentum.strategy.${n}.input`),timeframe=fields.find(f=>f.key===`momentum.strategy.${n}.timeframe`);if(momentumChart==='Candle')assert.ok(timeframe&&!input);else{assert.ok(input&&!timeframe);assert.equal(input.type,'number');assert.equal(input.index,39+n*4);assert.doesNotMatch(input.label,/timeframe/i);}}
+  const bad=clone(t);bad.stages.execution.fields[0].type='text';assert.throws(()=>S.template(bad),/controls changed/);const blocked=clone(t);blocked.stages.momentum.fields[L.main(momentumChart).rsIndex].checked=true;assert.throws(()=>S.template(blocked),/Relative Strength off/);
+ }
+ for(const stage of ['momentum','execution'])for(const mode of ['Absolute','Percent','ATR','ATR %']){const t=S.demoTemplate({momentumChart:'Renko',executionChart:'Renko'}),layout=L.stage(stage,t.stages[stage].fields);t.stages[stage].fields[layout.modeIndex].value=mode;t.stages[stage].fields[layout.sizeIndex].value=mode.startsWith('ATR')?'14':mode==='Absolute'?'10':'1';const loaded=S.template(t),config=S.defaults(loaded),f=S.fieldsForUI(loaded).flatMap(g=>g.fields).find(f=>f.key===stage+'.brick.size');assert.equal(f.integer,mode.startsWith('ATR'));S.validateBaseline(S.configToBaseline(config,loaded));if(mode.startsWith('ATR'))assert.throws(()=>S.validateConfig({...config,[stage+'.brick.size']:1.5},loaded),/whole number/);assert.throws(()=>S.validateConfig({...config,[stage+'.brick.mode']:mode==='Percent'?'Absolute':'Percent'},loaded),/Refresh choices/);}
+ // Text search children and observed nested labels use the chart's own rows.
+ for(const chart of ['P&F','Renko'])for(const stage of ['momentum','execution']){
+  const source=S.demoTemplate({momentumChart:chart,executionChart:chart}),s=source.stages[stage],layout=L.stage(stage,s.fields),categories=['Pre','My','Public','Popular'],option=value=>({value,label:value,disabled:false});s.ruleCatalogues={};
+  for(const [n,row] of layout.rows.entries()){
+   if(row.name==='Radar')continue;const prefix=stage==='execution'?'Exit Stratergy:':'Str '+n+' :',parentRow=layout.rows[2],label=category=>stage==='momentum'&&n===3?'Str 2 : / Prei → '+prefix+' / '+category+'i':prefix+' / '+category+'i',lists=Object.fromEntries(categories.map(category=>[category,[option(chart+' '+row.name+' '+category)]])),rowIndices=[row.parentIndex,row.childIndex,...(row.valueIndex===undefined?[]:[row.valueIndex]),row.gateIndex],fieldLabels=Object.fromEntries(categories.map(category=>[category,rowIndices.map(()=>label(category))]));
+   s.fields[row.parentIndex].value='Pre';s.fields[row.childIndex].value=lists.Pre[0].value;s.fields[row.gateIndex].checked=false;s.options[row.parentIndex]=categories.map(option);s.options[row.childIndex]=lists.Pre;rowIndices.forEach((index,n)=>s.fields[index].label=fieldLabels.Pre[n]);s.ruleCatalogues[row.childIndex]={parentIndex:row.parentIndex,gateIndex:row.gateIndex,categories:lists,controlTypes:{Pre:'select-one',My:'text',Public:'text',Popular:'select-one'},searchQueries:{My:'private',Public:'public'},fieldLabels,...(stage==='momentum'&&row===parentRow?{labelDependents:layout.labelDependents[row.childIndex]}:{})};
+  }
+  const t=S.template(source),config=S.defaults(t);for(const category of categories){const next={...config};for(const [n,row] of layout.rows.entries()){if(row.name==='Radar')continue;const key=stage==='execution'?'execution.exit':'momentum.strategy.'+n;next[key+'.source']=category;next[key+'.rule']=chart+' '+row.name+' '+category;next[key+'.enabled']=true;}const baseline=S.configToBaseline(next,t),actual=E.fields(baseline,stage);S.validateBaseline(clone(baseline));for(const row of layout.rows.filter(r=>r.name!=='Radar'))assert.equal(actual[row.childIndex].type,['My','Public'].includes(category)?'text':'select-one');if(stage==='momentum')assert.ok(actual.slice(49,53).every(f=>f.label==='Str 2 : / '+category+'i → Str 3 : / '+category+'i'));}
+  const misplaced=clone(t),child=layout.rows.at(-1).childIndex;misplaced.stages[stage].ruleCatalogues[child].parentIndex=stage==='execution'?6:47;assert.throws(()=>S.template(misplaced),/association/,'Candle rule metadata cannot be reused at variant offsets');
+ }
+}
+console.log('PASS: chart-scoped main/execution layouts, exact field coverage, numeric strategy inputs, mode-specific sizing, conflicting price-state preservation, native/search catalogues and label dependencies, immutable reconstruction and legacy archives.');

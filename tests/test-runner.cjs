@@ -4,7 +4,9 @@ const E=require('../dist/experiments.js'),S=require('../dist/setup.js'),D=requir
 const base=path.resolve(__dirname,'../dist'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const requestedCatalogue=process.argv.find(argument=>argument.startsWith('--catalogue-case='))?.slice('--catalogue-case='.length);
 const fromCase=Number(process.argv.find(argument=>argument.startsWith('--from-case='))?.slice('--from-case='.length)||1);
+const toCaseArgument=process.argv.find(argument=>argument.startsWith('--to-case='))?.slice('--to-case='.length),toCase=toCaseArgument===undefined?Infinity:Number(toCaseArgument);
 if(!Number.isInteger(fromCase)||fromCase<1)throw Error('Runner starting case must be a positive integer.');
+if(toCase!==Infinity&&(!Number.isInteger(toCase)||toCase<fromCase))throw Error('Runner ending case must be an integer at least equal to the starting case.');
 const exitCases=['exit-search-complete','exit-search-original-public','exit-search-execute','exit-search-no-menu','exit-search-ambiguous','exit-search-unfinished','exit-search-saved-baseline','exit-search-delayed-gate','exit-search-deadline'];
 const searchCases=['search-complete','search-original-public','search-execute','search-no-menu','search-ambiguous','search-unfinished','search-cross-row',...exitCases];
 if(requestedCatalogue&&!['complete','delayed','empty','radar-empty','rejected','radar-rejected','execute',...searchCases].includes(requestedCatalogue))throw Error('Unknown runner catalogue case: '+requestedCatalogue);
@@ -177,7 +179,7 @@ async function scenario(options={}){
  const sourceFailures=[];
  w.chrome={storage:{local:storage},runtime:{...runtime,sendMessage:async m=>{try{const r=await coordinator.handle(m,source);if(!r?.ok)sourceFailures.push(r);return r;}catch(error){sourceFailures.push(error.message);throw error;}},onMessage:{addListener:fn=>listeners.push(fn)}}};
  w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};
- for(const file of ['core.js','presentation.js','intelligence.js','setup.js','experiments.js','capture.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
+ for(const file of ['core.js','presentation.js','intelligence.js','source-layouts.js','setup.js','experiments.js','capture.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
  if(vaultSetup){const status=w.VaultCapture.status;w.VaultCapture.status=message=>{sourceMessages.push(message);if(message==='RZone settings read. Return to Vault to finish setup.')sourceSuccessDialogs.push(!!w.VaultCapture.popup('Momentum Trading BackTest'));status(message);};}
  // Build the baseline from the same visible form labels the saver records.
  fixture.parameters.strategy.main.fields=JSON.parse(JSON.stringify(w.VaultCapture.fields(main)));
@@ -427,6 +429,60 @@ async function backgroundFocusChecks(){
   assert.equal(timers.size,0);
  }
 }
+// Complete fictional native forms exercise independent chart contexts without
+// granting the still-closed live execution capability for P&F or Renko.
+async function chartScenario(chartCase){
+ const L=require('../dist/source-layouts.js'),dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document,main=d.querySelector('.account-right'),listeners=[],counts={categories:0,groups:0,submissions:0},menus=new Set();
+ w.structuredClone=structuredClone;Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')?[{width:100,height:20}]:[];};
+ const initial=chartCase==='Renko'?'Renko':chartCase==='warm-reversal'?'P&F':'Candle';let executionState=null;
+ const state=(stage,chart)=>JSON.parse(JSON.stringify(S.demoTemplate({momentumChart:chart,executionChart:chart}).stages[stage]));
+ function nodes(p){return [...p.querySelectorAll('input,select')].filter(n=>n.type!=='hidden');}
+ function optionsFor(stage,layout,index,field,descriptor){const row=layout.rows.find(row=>row.parentIndex===index);return row?(row.name==='Radar'?['Pre','My']:['Pre','My','Public','Popular']):index===layout.chartIndex?L.charts:descriptor.options[index]?.map(o=>o.label)||[field.value];}
+ function render(p,stage,descriptor){
+  p.querySelector('table')?.remove();const layout=L.stage(stage,descriptor.fields),table=d.createElement('table');
+  for(const field of descriptor.fields){const tr=d.createElement('tr'),label=d.createElement('td'),cell=d.createElement('td');label.textContent=field.label;const node=d.createElement(field.type==='select-one'?'select':'input');if(node.tagName==='SELECT'){for(const value of optionsFor(stage,layout,field.index,field,descriptor)){const o=d.createElement('option');o.value='native:'+value;o.textContent=value;node.append(o);}node.value='native:'+field.value;}else {node.type=field.type;node.value=field.value;if(field.checked!==null)node.checked=field.checked;if(field.type==='radio')node.name=stage+':'+(/52 Week|ATH|ATL/.test(field.label)?'retracement':/Running/.test(field.label)?'signal':/Close Only/.test(field.label)?'price':'volume');}node.disabled=field.disabled;cell.append(node);tr.append(label,cell);table.append(tr);}p.prepend(table);
+  const current=nodes(p),sync=()=>{if(stage==='execution')executionState={fields:JSON.parse(JSON.stringify(w.VaultCapture.fields(p))),options:Object.fromEntries(nodes(p).flatMap((n,i)=>n.tagName==='SELECT'?[[i,[...n.options].map(o=>({label:o.textContent,value:o.textContent}))]]:[]))};};
+  for(const [gate,...children]of layout.gates){const update=()=>children.forEach(index=>current[index].disabled=!current[gate].checked);current[gate].addEventListener('change',update);update();}
+  for(const row of layout.rows){
+   let child=current[row.childIndex];const populate=()=>{const category=current[row.parentIndex].selectedOptions[0].textContent,search=row.name!=='Radar'&&['My','Public'].includes(category),next=d.createElement(search?'input':'select');next.disabled=!current[row.gateIndex].checked;child.replaceWith(next);child=next;current[row.childIndex]=next;
+    if(search){next.type='text';next.placeholder='Search System Builder';next.addEventListener('keyup',()=>{for(const menu of menus)menu.remove();if(!next.value)return;const menu=d.createElement('div');menu.className='popupContent';menus.add(menu);if(category==='My')menu.innerHTML='<div class="gwt-HTML">No matching system builder found</div>';else{const ul=d.createElement('ul');ul.className='ind-list';const li=d.createElement('li');li.setAttribute('sbid',stage+':'+layout.chart+':public');li.textContent=layout.chart+' public rule';li.onclick=()=>{next.value=li.textContent;menu.remove();};ul.append(li);menu.append(ul);}d.body.append(menu);});}
+    else {const values=category==='My'?[]:[descriptor.fields[row.childIndex].type==='select-one'?descriptor.fields[row.childIndex].value:'Demo rule',layout.chart+' '+row.name+' '+category+' rule'];for(const value of [...new Set(values)]){const o=d.createElement('option');o.value='native:'+value;o.textContent=value;next.append(o);}}
+   };
+   populate();current[row.parentIndex].addEventListener('change',()=>{counts.categories++;w.setTimeout(populate,150);});
+  }
+  const chart=current[layout.chartIndex];chart.addEventListener('change',()=>{const target=chart.selectedOptions[0].textContent,group=stage==='momentum'?current[1].value:null;w.setTimeout(()=>{const next=state(stage,target);if(stage==='momentum')next.fields[1].value=group;render(p,stage,next);},100);});
+  if(layout.chart==='Renko')current[layout.modeIndex].addEventListener('change',()=>{current[layout.sizeIndex].value=({Absolute:'10',Percent:'1',ATR:'14','ATR %':'14'})[current[layout.modeIndex].selectedOptions[0].textContent];});
+  const outside=current[layout.chartIndex].closest('tr').firstElementChild;outside.addEventListener('click',()=>{for(const menu of menus)menu.remove();});
+  if(stage==='momentum'){
+   const group=current[1];group.placeholder='Search Group';group.addEventListener('keyup',()=>{counts.groups++;for(const menu of menus)menu.remove();const menu=d.createElement('div');menu.className='popupContent';menus.add(menu);const list=d.createElement('ul');list.className='ind-list';for(const value of ['Demo universe 40','Other fictional group']){const li=d.createElement('li');li.setAttribute('grpid','group:'+value);li.textContent=value;li.onclick=()=>{group.value=value;menu.remove();};list.append(li);}menu.append(list);d.body.append(menu);});
+  }
+  return {sync};
+ }
+ function openExecution(){const p=d.createElement('div');p.className='popupContent';p.innerHTML='<div class="custom-dialog-header"><div class="caption">Momentum Trading BackTest</div><a class="close-buton"></a></div>';d.body.append(p);render(p,'execution',executionState||state('execution',initial));p.querySelector('.close-buton').onclick=()=>{executionState={fields:JSON.parse(JSON.stringify(w.VaultCapture.fields(p))),options:Object.fromEntries(nodes(p).flatMap((n,i)=>n.tagName==='SELECT'?[[i,[...n.options].map(o=>({label:o.textContent,value:o.textContent}))]]:[]))};p.remove();};return p;}
+ w.chrome={storage:{local:{get:async()=>({}),set:async()=>{}}},runtime:{id:'chart-fixture',getURL:f=>'chrome-extension://chart-fixture/'+f,sendMessage:async()=>({ok:true}),onMessage:{addListener:fn=>listeners.push(fn)}}};
+ w.URL.createObjectURL=()=> 'blob:fictional';w.URL.revokeObjectURL=()=>{};
+ for(const file of ['core.js','presentation.js','intelligence.js','source-layouts.js','setup.js','experiments.js','capture.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
+ const initialMain=state('momentum',initial);if(chartCase==='warm-reversal'){initialMain.fields[55].value='5';executionState=state('execution',initial);executionState.fields[5].value='5';}render(main,'momentum',initialMain);const open=d.createElement('button');open.textContent='BackTest';open.onclick=openExecution;main.append(open);w.eval(fs.readFileSync(path.join(base,'runner.js'),'utf8'));
+ const request=message=>new Promise(resolve=>{for(const listener of listeners)listener({type:'vault-runner-config',...message},{id:'chart-fixture'},resolve);});
+ try{
+  const before=JSON.stringify(w.VaultCapture.fields(main)),first=await request({});assert.equal(first.ok,true,first.error);assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before);assert.equal(first.choicesFromCache,false);assert.equal(first.choiceCache.adapterVersion,L.version);assert.equal(first.choiceCache.stages.momentum.context.chart,initial);assert.equal(JSON.stringify(first.choiceCache).includes('capturedAt'),false);assert.equal(Object.hasOwn(first.choiceCache.stages.momentum,'fields'),false);
+  if(chartCase==='cache'){
+   const countsBefore={...counts};nodes(main)[12].value='333';const reused=await request({cachedChoices:[first.choiceCache]});assert.equal(reused.ok,true,reused.error);assert.equal(reused.choicesFromCache,true);assert.equal(reused.config.stages.momentum.fields[12].value,'333','Cached choices never overwrite freshly read source values.');assert.deepEqual(counts,countsBefore,'A cache hit never opens group or dependent-category menus.');
+   const forced=await request({cachedChoices:[first.choiceCache],forceChoices:true});assert.equal(forced.ok,true,forced.error);assert.equal(forced.choicesFromCache,false);assert.ok(counts.categories>countsBefore.categories&&counts.groups>countsBefore.groups);
+   const mixed=structuredClone(forced.choiceCache);mixed.stages.execution.context.chart='Renko';const mixedCounts={...counts},partial=await request({cachedChoices:[mixed]});assert.equal(partial.ok,true,partial.error);assert.equal(partial.choicesFromCache,false);assert.equal(partial.hasCachedChoices,true,'Mixed stage provenance must remain explicit across a local-date boundary.');assert.equal(counts.groups,mixedCounts.groups);assert.ok(counts.categories>mixedCounts.categories);
+   const stale=structuredClone(forced.choiceCache);stale.session='different-document';const oldCounts={...counts},renewed=await request({cachedChoices:[stale]});assert.equal(renewed.ok,true,renewed.error);assert.equal(renewed.choicesFromCache,false);assert.ok(counts.categories>oldCounts.categories);return;
+  }
+  if(chartCase.startsWith('warm')){
+   const target=chartCase==='warm-reversal'?'Renko':'P&F',originalExecution=JSON.stringify(executionState.fields),warm=await request({warmChart:target});assert.equal(warm.ok,true,warm.error);assert.equal(warm.config.stages.momentum.fields[0].value,target);assert.equal(warm.config.stages.execution.fields[3].value,target);assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before,'A warm chart scan restores every original main value and gate.');assert.equal(JSON.stringify(executionState.fields),originalExecution,'The independent original execution chart and controls are restored.');if(chartCase==='warm-reversal'){assert.equal(nodes(main)[55].selectedOptions[0].textContent,'5');assert.equal(executionState.fields[5].value,'5','Nondefault P&F reversal must be restored after warming another chart.');}assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);return;
+  }
+  const chart=chartCase,switched=chart===initial?first:await request({changes:{momentum:{0:chart}}});assert.equal(switched.ok,true,switched.error);assert.equal(switched.config.stages.momentum.fields.length,58);assert.equal(switched.config.stages.execution.fields[3].value,initial,'Main and execution charts are independent.');
+  const paired=await request({changes:{execution:{3:chart}}});assert.equal(paired.ok,true,paired.error);assert.equal(paired.config.stages.execution.fields.length,16);const t=S.template(paired.config),config=S.defaults(t),layout=L.main(chart),exit=L.execution(chart);
+  config['momentum.period.1']=444;config[chart==='P&F'?'momentum.box.size':'momentum.brick.size']=chart==='P&F'?1.5:20;config['execution.target']=9;config['momentum.strategy.1.input']=0.75;
+  const descriptors=S.fieldsForUI(t).flatMap(g=>g.fields),number=descriptors.find(f=>f.stage==='momentum'&&f.index===layout.rows[1].valueIndex);delete config['momentum.strategy.1.input'];config[number.key]=0.75;
+  const b=S.configToBaseline(config,t),experiment={baseline:b,dimensions:[]},trial={patch:{}};await w.VaultRunner.apply(main,experiment,trial,'momentum');assert.equal(nodes(main)[12].value,'444');assert.equal(nodes(main)[layout.rows[1].valueIndex].value,'0.75');assert.equal(nodes(main)[layout.sizeIndex].value,String(chart==='P&F'?1.5:20));const p=openExecution();await w.VaultRunner.apply(p,experiment,trial,'execution');assert.equal(nodes(p)[exit.targetValueIndex].value,'9');p.querySelector('.close-buton').click();assert.equal(S.executionCapability(t).available,false,'Fictional application proof does not open the live execution gate.');
+  if(chart==='Renko'){const mode=await request({changes:{momentum:{55:'Percent'}}});assert.equal(mode.ok,true,mode.error);assert.equal(mode.config.stages.momentum.fields[54].value,'1','The fresh source reset is captured when the Renko brick mode changes.');}
+ }finally{assert.equal(counts.submissions,0);dom.window.close();}
+}
 (async()=>{
  const readinessCases=['initial-options','field-drift','label-drift'];
  const cases=[
@@ -435,13 +491,16 @@ async function backgroundFocusChecks(){
   {},{overlap:true},{changeLocked:true},{staleCompletion:true},{noRunning:true},{rejected:true},{reuseReport:true},{preexistingReport:true},
   {vaultSetup:true,bridge:true},{vaultSetup:true,closeAfterWake:true},{vaultSetup:true,closeStuckAfterWake:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},
   {vaultSetup:true,emptyOptions:true,variableSet:'momentum'},{vaultSetup:true,missingGroup:true},{vaultSetup:true,changedOptions:true},{vaultSetup:true,driftDuringRun:true},{vaultSetup:true,variableSet:'momentum'},{vaultSetup:true,variableSet:'rules'},
-  {vaultSetup:true,variableSet:'execution-context'},{vaultSetup:true,variableSet:'portfolio-sizing'}
+  {vaultSetup:true,variableSet:'execution-context'},{vaultSetup:true,variableSet:'portfolio-sizing'},
+  ...['P&F','Renko','cache','warm','warm-reversal'].map(chartCase=>({chartCase}))
  ];
  if(fromCase===1&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus and deadline checks (9 cases).');}
  const selected=cases.filter(o=>(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake));
  if(fromCase>selected.length)throw Error('Runner starting case exceeds the selected scenarios.');
- for(const [index,options]of selected.slice(fromCase-1).entries()){
-  await scenario(options);console.log('PASS: runner '+(index+fromCase)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
+ if(toCase!==Infinity&&toCase>selected.length)throw Error('Runner ending case exceeds the selected scenarios.');
+ const lastCase=Math.min(toCase,selected.length);
+ for(const [index,options]of selected.slice(fromCase-1,lastCase).entries()){
+  if(options.chartCase)await chartScenario(options.chartCase);else await scenario(options);console.log('PASS: runner '+(index+fromCase)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
  }
- console.log('PASS: '+(selected.length-fromCase+1)+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');
+ console.log('PASS: '+(lastCase-fromCase+1)+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
