@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.8.4 preview - 2026-09-16
+
+- Load current source dropdowns automatically on New test when exactly one RZone tab is available. Multiple tabs still require a choice; failed reads allow explicit retry without a polling loop.
+- Read RZone's full exposed Group list into a searchable Vault dropdown with mouse and keyboard selection. Preserve the original source query/settings and close only the menu opened for discovery; no backtest is submitted.
+- Refresh groups when Market changes and retain edited values across refreshes. Removed or unavailable choices require review; blank selections never silently choose the first group.
+- Keep source-session boundaries, legacy setup archives, demo isolation and current Candle/Price automation limits. Dependent rules load for the selected source context, not an exhaustive traversal of all chart/rule combinations.
+- Add regressions for delayed group lists, duplicate/oversized/missing catalogues, source restoration, automatic connection, local search, keyboard selection and unavailable choices. Installed acceptance of the new catalogue reader remains pending activation.
+
 ## 0.8.3 preview - 2026-09-16
 
 - Bring the selected RZone tab forward while connecting or refreshing choices so its dialog animations can finish. Return to the initiating Vault tab only if the user has stayed in RZone and that Vault tab still exists.

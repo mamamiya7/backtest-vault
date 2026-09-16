@@ -1,6 +1,6 @@
 {
   "name": "definedge-backtest-vault",
-  "version": "0.8.3",
+  "version": "0.8.4",
   "private": true,
   "description": "Local Definedge momentum backtest recorder and comparison dashboard",
   "scripts": {

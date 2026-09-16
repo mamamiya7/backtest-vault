@@ -94,5 +94,45 @@ const ambiguous=clone(source);ambiguous.stages.momentum.options[3]=[{value:'a',l
 const radioConflict=clone(source);radioConflict.stages.momentum.fields[8].checked=true;assert.throws(()=>S.defaults(S.template(radioConflict)),/exactly one/);
 const withoutPortfolio=clone(source);delete withoutPortfolio.stages.portfolio;const staticT=S.template(withoutPortfolio);assert.equal(staticT.stages.portfolio.template,true);assert.equal(staticT.stages.portfolio.origin,'verified-layout');assert.match(S.fieldsForUI(staticT).find(g=>g.stage==='portfolio').note,/defaults/);
 const demoT=S.demoTemplate(),demoB=S.configToBaseline(S.defaults(demoT),demoT,{id:'demo-setup',name:'Sample setup',demo:true});assert.equal(demoB.demo,true);assert.equal(S.validateBaseline(demoB),demoB);
+// Group autocomplete choices remain a catalogue beside the original text
+// control; importing an older template without that catalogue remains valid.
+{
+ const withGroups=clone(source),current=withGroups.stages.momentum.fields[1].value;
+ withGroups.stages.momentum.options[1]=[current,{value:'source-token',label:'Second universe'},{value:'closed-token',label:'Unavailable universe',disabled:true}];
+ const original=clone(withGroups),groupT=S.template(withGroups),groupC=S.defaults(groupT),descriptor=key=>S.fieldsForUI(groupT).flatMap(g=>g.fields).find(f=>f.key===key);
+ assert.deepEqual(withGroups,original,'Reading Group choices must not mutate the source');
+ assert.equal(descriptor('momentum.group').type,'combobox');
+ assert.equal(descriptor('momentum.group').value,current);
+ assert.deepEqual(descriptor('momentum.group').options.map(o=>o.value),[current,'Second universe','Unavailable universe']);
+ assert.equal(descriptor('momentum.market').dynamic,true);assert.equal(descriptor('momentum.market').refresh,true);assert.equal(descriptor('momentum.market').refreshOnChange,true);assert.deepEqual(descriptor('momentum.market').dependents,[1]);
+ const groupB=S.configToBaseline({...groupC,'momentum.group':'Second universe'},groupT,{id:'catalogued-group',name:'Selected group'});
+ assert.equal(S.validateBaseline(groupB),groupB);
+ assert.equal(groupB.parameters.strategy.main.fields[1].type,'text','A UI combobox must preserve the source text field type');
+ assert.equal(groupB.parameters.strategy.main.fields[1].value,'Second universe');
+ assert.equal(groupB.setup.template.stages.momentum.fields[1].type,'text');
+ for(const value of ['', 'Unobserved universe','Unavailable universe',' Second universe '])assert.throws(()=>S.validateConfig({...groupC,'momentum.group':value},groupT),/available universe/,'Only an exact available Group can enter a plan');
+ assert.throws(()=>S.validateConfig({...groupC,'momentum.market':'BSE'},groupT),/Refresh choices for Market/,'A group catalogue from NSE must not validate a BSE plan');
+ const nextMarket=clone(withGroups);nextMarket.stages.momentum.fields[3].value='BSE';nextMarket.stages.momentum.fields[1].value='';nextMarket.stages.momentum.options[1]=['BSE universe'];
+ const nextT=S.template(nextMarket),nextC=S.defaults(nextT);
+ assert.equal(nextC['momentum.group'],'','A blank Group must not select the first observed choice implicitly');
+ assert.throws(()=>S.validateConfig(nextC,nextT),/available universe/);
+ assert.throws(()=>S.validateConfig({...nextC,'momentum.group':current},nextT),/available universe/,'The prior market Group cannot survive a different catalogue silently');
+ assert.equal(S.validateConfig({...nextC,'momentum.group':'BSE universe'},nextT)['momentum.market'],'BSE');
+ const removed=clone(withGroups);removed.stages.momentum.options[1]=['Second universe'];
+ const removedT=S.template(removed);assert.equal(S.defaults(removedT)['momentum.group'],current,'A removed selected Group stays visible for review rather than changing automatically');
+ assert.throws(()=>S.configToBaseline(S.defaults(removedT),removedT),/available universe/);
+ const emptyGroups=clone(withGroups);emptyGroups.stages.momentum.options[1]=[];const emptyT=S.template(emptyGroups),emptyDescriptor=S.fieldsForUI(emptyT).flatMap(g=>g.fields).find(f=>f.key==='momentum.group');
+ assert.equal(emptyDescriptor.type,'combobox');assert.deepEqual(emptyDescriptor.options,[],'An observed empty Group catalogue must not fall back to free text');
+ assert.throws(()=>S.validateConfig(S.defaults(emptyT),emptyT),/No universe.*choices/);
+ for(const choices of [null,undefined,{},[''],['  '],['Bad\nlabel'],[{value:'v'}],[{label:'Group'}]]){
+  const invalid=clone(withGroups);invalid.stages.momentum.options[1]=choices;assert.throws(()=>S.template(invalid),/Invalid source choice/);
+ }
+ const duplicate=clone(withGroups);duplicate.stages.momentum.options[1]=[{value:'a',label:'Same group'},{value:'b',label:'Same group'}];assert.throws(()=>S.template(duplicate),/Ambiguous source choices/);
+ const bounded=clone(withGroups);bounded.stages.momentum.options[1]=Array.from({length:3000},(_,i)=>'Observed group '+i);assert.equal(S.template(bounded).stages.momentum.options[1].length,3000);
+ bounded.stages.momentum.options[1].push('One too many');assert.throws(()=>S.template(bounded),/Invalid source choices/);
+ const oldDescriptor=S.fieldsForUI(t).flatMap(g=>g.fields);assert.equal(oldDescriptor.find(f=>f.key==='momentum.group').type,'text');assert.equal(oldDescriptor.find(f=>f.key==='momentum.market').dynamic,undefined);
+ assert.equal(S.validateBaseline(clone(b)).parameters.strategy.main.fields[3].value,'BSE','Pre-catalogue saved plans retain their legacy text Group and Market semantics');
+ const demoGroup=S.fieldsForUI(demoT).flatMap(g=>g.fields).find(f=>f.key==='momentum.group');assert.equal(demoGroup.type,'combobox');assert.equal(demoGroup.options.length,3);assert.ok(demoGroup.options.every(o=>o.label.startsWith('Demo universe ')),'Preview groups are explicitly fictional');
+}
 assert.equal(S.template({momentum:source.stages.momentum,execution:source.stages.execution,portfolio:source.stages.portfolio}).stages.momentum.fields.length,52,'Direct stage aliases remain supported');
-console.log('PASS: source-derived setup, exact labels and choices, editable Candle strategy/exits/portfolio, settings-only provenance, strict dates/weights/capital/rules, unsupported settings, immutable reconstruction and fictional isolation.');
+console.log('PASS: source-derived setup, exact labels and choices, market-bound Group autocomplete and legacy archives, editable Candle strategy/exits/portfolio, settings-only provenance, strict dates/weights/capital/rules, unsupported settings, immutable reconstruction and fictional isolation.');

@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.8.3 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
+Version 0.8.4 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
@@ -17,8 +17,8 @@ flowchart LR
 ```
 
 1. Open the **installed Vault** and choose **New test** or **Experiments → Start a new test**.
-2. **Connect:** open RZone and sign in if needed. Select that tab and choose **Connect RZone**. Close any existing RZone report/settings dialog first; preserve an unsaved report before leaving it. Connecting does not submit a backtest.
-3. **Set up the strategy in one form:** chart, market, four periods and weights, timeframe, retracement, volume, EMA/TMA, Radar, Trend Quality and Strategy 1–3 follow RZone's arrangement. For Group, enter the exact RZone group name; execution must resolve its source autocomplete choice.
+2. **Load choices:** open RZone and sign in if needed. **New test** automatically reads choices when exactly one RZone tab is available. With several tabs, select one and choose **Connect RZone**. Close any existing RZone report/settings dialog first; preserve an unsaved report before leaving it. A failed read allows an explicit retry and is never retried in a loop. Connecting does not submit a backtest.
+3. **Set up the strategy in one form:** chart, market, four periods and weights, timeframe, retracement, volume, EMA/TMA, Radar, Trend Quality and Strategy 1–3 follow RZone's arrangement. **Group** is a searchable dropdown populated from RZone's empty-search list. Select with the mouse or use Arrow keys and Enter; execution still resolves the exact source autocomplete choice.
 4. **Add Test values beside eligible controls:** use explicit numbers such as `252,500`, a numeric From/To/Step range, On/Off choices, or multiple available menu choices. Leave them unused for one test. Up to six settings can vary together. Every combination must be valid, including enabled periods, weights, rules and exits. These values are examples, not recommendations.
 5. **Backtest:** review dates, rank criteria, target, stop loss, any exit rule, allocation, capital and position limits. Exit settings can also have test values. Portfolio defaults are editable and checked against RZone before submission. Choose your comparison measure and limits, then check the total combination count.
 6. Choose **Run 1 test** or **Run … tests**. Vault applies the full approved setup, runs momentum and portfolio calculations, saves the report, and advances only after verifying the save. Leave the RZone tab's settings alone while it works.
@@ -26,7 +26,9 @@ flowchart LR
 
 ### Refresh the available choices
 
-**Refresh choices** reads the dropdowns currently available to your signed-in RZone account. Changing a rule source, such as **Pre**, **My**, **Public** or **Popular** when offered by RZone, refreshes that source's rule menu. Vault does not invent extra rule names. A previous choice that disappears needs review rather than being silently replaced.
+**Refresh choices** reads the dropdowns currently available to your signed-in RZone account. Changing **Market** refreshes its Group list. Changing a rule source, such as **Pre**, **My**, **Public** or **Popular** when offered by RZone, refreshes that source's rule menu. These are choices for the current source context; Vault does not traverse every parent combination or enable unsupported chart layouts. A previous choice that disappears stays visible for review rather than being silently replaced. Searching the loaded Group list is local and makes no source request per keystroke. There is no separate catalogue download to manage.
+
+Group discovery opens only its own search menu, clears the query to read the exposed full list, restores the original text and closes that menu before reading execution settings. It verifies that the main settings stayed unchanged and rejects ambiguous, missing or oversized lists. Existing reports/menus are never dismissed to make connection succeed. A refreshed source session requires reconnection; choices are not shared between accounts or silently reused from another session. Older saved setups without a Group catalogue retain their original validation behavior.
 
 Refreshing brings RZone forward to open and close its setup dialog and may change the selected rule source. Vault returns to its initiating tab afterward if you have not switched away yourself. It does **not** click the source submission button or create a backtest result. This is separate from **Run**.
 
@@ -152,7 +154,7 @@ Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the sa
 
 Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, a three-trial full Candle DOM flow, complete backup/import and demo isolation. These are simulated tests, not proof of the installed extension operating the live service.
 
-Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.3's new full-setup and dropdown-refresh flow.**
+Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.4's new full-setup and dropdown-refresh flow.**
 
 ## Remaining delivery plan
 

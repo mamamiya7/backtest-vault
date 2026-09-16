@@ -4,8 +4,8 @@ const E=require('../dist/experiments.js'),S=require('../dist/setup.js'),D=requir
 const base=path.resolve(__dirname,'../dist'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const reordered=x=>Array.isArray(x)?x.map(reordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,reordered(x[k])])):x;
 async function scenario(options={}){
- const {changeLocked=false,overlap=false,staleCompletion=false,rejected=false,reuseReport=false,noRunning=false,preexistingReport=false,vaultSetup=false,missingGroup=false,changedOptions=false,driftDuringRun=false,refreshParents=false,noOptionRefresh=false,emptyOptions=false,variableSet='',bridge=false,closeAfterWake=false,closeStuckAfterWake=false}=options;
- const dom=new JSDOM('<body><h1>Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document;
+ const {changeLocked=false,overlap=false,staleCompletion=false,rejected=false,reuseReport=false,noRunning=false,preexistingReport=false,vaultSetup=false,missingGroup=false,changedOptions=false,driftDuringRun=false,refreshParents=false,noOptionRefresh=false,emptyOptions=false,variableSet='',bridge=false,closeAfterWake=false,closeStuckAfterWake=false,groupCatalogue=''}=options;
+ const dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting<div class="tooltip">i</div></h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document;
  const fixture=D.create()[0];fixture.demo=false;w.structuredClone=structuredClone;
  Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});
  w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')&&!this.closest('[style*="display: none"]')?[{width:100,height:20}]:[];};
@@ -24,13 +24,40 @@ async function scenario(options={}){
    const now=w.Date.now.bind(w.Date);nativeTimeout(()=>{if(closeAfterWake)p.remove();w.Date.now=()=>now()+6000;},5);
   }else p.remove();
  };h.append(caption,close);p.append(h);d.body.append(p);return p;}
- form(main,E.fields(fixture,'momentum'));let submissions=0,portfolios=0,priorReport=null,groupCommits=0;const guardedStates=[],savedBeforeNext=[];
- if(vaultSetup){const group=main.querySelectorAll('input,select')[1];group.placeholder='Search Group';group.addEventListener('keyup',()=>{d.querySelector('.ind-list')?.remove();if(missingGroup)return;const list=d.createElement('ul');list.className='ind-list';for(const name of ['Nifty 50 Index','Nifty 500 Index']){const li=d.createElement('li');li.textContent=name;li.onclick=()=>{group.value=name;groupCommits++;list.remove();};list.append(li);}d.body.append(list);});}
+ form(main,E.fields(fixture,'momentum'));let submissions=0,portfolios=0,priorReport=null,groupCommits=0,settingsReads=0;const guardedStates=[],savedBeforeNext=[];
+ const groupSearches=[],groupRows=['Demo universe 40','Nifty 50 Index','Nifty 500 Index','Other index'];let groupMenuReads=0,groupChanges=0,lastGroupQuery;
+ if(vaultSetup){
+  const group=main.querySelectorAll('input,select')[1];group.placeholder='Search Group';
+  if(groupCatalogue==='blank')group.value='';
+  if(['delayed','late-restore'].includes(groupCatalogue))group.value='Nifty';
+  let menu=null,pending=[];
+  const cancelSearches=()=>{pending.forEach(w.clearTimeout);pending=[];};
+  const render=(names,query)=>{
+   if(groupCatalogue==='missing')return;
+   if(missingGroup&&query)names=[];
+   if(!menu?.isConnected){menu=d.createElement('div');menu.className='popupContent';menu.innerHTML='<div class="abcd-1"><ul class="ind-list"></ul></div>';d.body.append(menu);}
+   const list=menu.querySelector('.ind-list');list.replaceChildren();
+   for(const [i,name]of names.entries()){
+    const li=d.createElement('li');li.setAttribute('grpid','group:'+i);li.textContent=name;
+    li.onclick=()=>{group.value=name;groupCommits++;cancelSearches();menu.remove();};list.append(li);
+   }
+   groupMenuReads++;lastGroupQuery=query;
+  };
+  const names=query=>groupCatalogue==='duplicate'&&!query?['Same group','Same group']:groupCatalogue==='overflow'&&!query?Array.from({length:3001},(_,i)=>'Group '+i):groupRows.filter(name=>!query||name.toLowerCase().includes(query.toLowerCase()));
+  group.addEventListener('change',()=>groupChanges++);
+  group.addEventListener('click',()=>{groupSearches.push(['open',group.value]);render(names(group.value),group.value);});
+  group.addEventListener('keyup',()=>{
+   cancelSearches();const query=group.value;groupSearches.push(['search',query]);
+   if(groupCatalogue==='delayed'&&!query){render(groupRows.filter(name=>name.startsWith('Nifty')),query);pending.push(nativeTimeout(()=>render(names(query),query),1200));}
+   else pending.push(nativeTimeout(()=>render(names(query),query),groupCatalogue==='late-restore'&&query?1800:180));
+  });
+  d.querySelector('h1').addEventListener('click',()=>{cancelSearches();menu?.remove();});
+ }
  const oldHiddenReport=preexistingReport?popup('Portfolio Backtesting Report'):null;if(oldHiddenReport)oldHiddenReport.hidden=true;
  // Observed RZone lifecycle: one main button becomes Cancel, the setup remains
  // open during Processing, and completion removes that setup automatically.
  const done=d.createElement('span');done.textContent='BackTest Completed.';main.append(done);let cancel;
- cancel=button(main,'BackTest',()=>{const p=popup('Momentum Trading BackTest');form(p,E.fields(fixture,'execution'));button(p,'Backtest',()=>{
+ cancel=button(main,'BackTest',()=>{settingsReads++;const p=popup('Momentum Trading BackTest');form(p,E.fields(fixture,'execution'));button(p,'Backtest',()=>{
   if(submissions&&plan)savedBeforeNext.push(!!memory['run:'+plan.trials[submissions-1].runId]);submissions++;if(rejected){popup('Error');return;}
   if(driftDuringRun)nativeTimeout(()=>{main.querySelectorAll('input,select')[1].value='Manual drift';},100);
   if(!overlap&&!staleCompletion&&!noRunning)done.textContent='Processing';
@@ -71,7 +98,8 @@ async function scenario(options={}){
   vm.runInContext(fs.readFileSync(path.join(base,'background.js'),'utf8'),context,{filename:'background.js'});
   coordinator.handle=async(message,sender)=>{const result=await deliver(workerListeners,{type:'vault-experiment',...message},sender);if(message.action==='configure'&&bridgeConfigRequests){assert.equal(activeTab,10,'Return to the initiating Vault after a read or source rejection.');assert.deepEqual(focusEvents,Array.from({length:bridgeConfigRequests},()=>['active:9','read','active:10']).flat());}return result;};
  }
- w.chrome={storage:{local:storage},runtime:{...runtime,sendMessage:m=>coordinator.handle(m,source),onMessage:{addListener:fn=>listeners.push(fn)}}};
+ const sourceFailures=[];
+ w.chrome={storage:{local:storage},runtime:{...runtime,sendMessage:async m=>{try{const r=await coordinator.handle(m,source);if(!r?.ok)sourceFailures.push(r);return r;}catch(error){sourceFailures.push(error.message);throw error;}},onMessage:{addListener:fn=>listeners.push(fn)}}};
  w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};
  for(const file of ['core.js','presentation.js','intelligence.js','setup.js','experiments.js','capture.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
  if(vaultSetup){const status=w.VaultCapture.status;w.VaultCapture.status=message=>{sourceMessages.push(message);if(message==='RZone settings read. Return to Vault to finish setup.')sourceSuccessDialogs.push(!!w.VaultCapture.popup('Momentum Trading BackTest'));status(message);};}
@@ -84,7 +112,7 @@ async function scenario(options={}){
  w.eval(fs.readFileSync(path.join(base,'runner.js'),'utf8'));
  try{for(let n=0;n<50&&!memory['runner:tab:9'];n++)await sleep(10);
   const probe=()=>{let status;for(const fn of listeners)fn({type:'vault-runner-status'},{id:runtime.id},r=>status=r);return status;};
-  assert.equal(probe().ready,true);assert.equal(probe().session,memory['runner:tab:9'].session);
+  assert.equal(probe().ready,true,JSON.stringify({status:probe(),sourceFailures}));assert.equal(probe().session,memory['runner:tab:9'].session);
   const blockedDialog=popup('Existing report');assert.equal(probe().ready,false);assert.match(probe().reason,/Close/);blockedDialog.remove();
   cancel.textContent='Cancel BackTest';assert.equal(probe().ready,false);assert.match(probe().reason,/already running/);cancel.textContent='BackTest';
   const pending=popup('Momentum Trading BackTest');button(pending,'Backtest',()=>{}).click();pending.remove();assert.equal(probe().ready,false);assert.match(probe().reason,/earlier source submission/);const rejectedPending=popup('Error');w.VaultCapture.monitor();rejectedPending.remove();assert.equal(probe().ready,true);
@@ -95,12 +123,34 @@ async function scenario(options={}){
    if(refreshParents){main.hidden=true;d.querySelector('h1').textContent='Research dashboard';const nav=d.createElement('li');nav.setAttribute('token','bt');nav.textContent='Back Testing';nav.onclick=()=>{navigationCount++;nativeTimeout(()=>{const menu=d.createElement('div');menu.className='tool-popup';menu.innerHTML='<div class="popupContent"><div><ul class="Fav-menu"><li><a href="javascript:;"><span><div><span class="favourite-fill"></span><div class="scanner-name-scroll">Momentum Trading Back Testing</div></div></span></a></li></ul></div></div>';menu.querySelector('a').onclick=()=>{menu.remove();main.hidden=false;d.querySelector('h1').textContent='Momentum Trading BackTesting';};d.body.append(menu);},100);};d.body.append(nav);assert.equal(probe().ready,false);assert.equal(probe().capable,true);}
    const existing=popup('Existing user report'),blocked=await requestConfig();assert.equal(blocked.ok,false);assert.equal(existing.isConnected,true);assert.equal(submissions,0);existing.remove();
    const unsupported=await requestConfig({momentum:{0:'Renko'}});assert.equal(unsupported.ok,false);assert.equal(main.querySelector('select').selectedOptions[0].textContent,'Candle');
+   if(groupCatalogue){
+    const before=JSON.stringify(w.VaultCapture.fields(main)),beforeValue=main.querySelectorAll('input,select')[1].value;
+    const preexisting=d.createElement('div');preexisting.className='popupContent';preexisting.innerHTML='<div class="abcd-1"><ul class="ind-list"><li grpid="existing">Existing open group</li></ul></div>';d.body.append(preexisting);
+    const blockedGroup=await requestConfig();assert.equal(blockedGroup.ok,false);assert.equal(preexisting.isConnected,true);assert.equal(groupSearches.length,0,'An existing group menu must remain untouched.');preexisting.remove();
+    const response=await requestConfig();
+    assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before,'Catalogue reading must restore every source field exactly.');
+    assert.equal(groupCommits,0,'Reading choices must never select any group.');assert.equal(groupChanges,0,'Search text must not commit a group change.');
+    assert.equal(submissions,0);assert.equal(portfolios,0);assert.equal(d.querySelector('.ind-list'),null);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
+    assert.deepEqual(groupSearches[0],['open',''],'Open only after clearing the original search.');
+    assert.deepEqual(groupSearches.at(-1),['search',beforeValue],'Restore the original query before dismissing the owned menu.');
+    if(['duplicate','overflow','missing'].includes(groupCatalogue)){
+     assert.equal(response.ok,false);assert.match(response.error,groupCatalogue==='duplicate'?/ambiguous/:groupCatalogue==='overflow'?/3,000/:/finish loading its group choices/);
+     assert.equal(sourceSuccessDialogs.length,0);assert.equal(settingsReads,0,'A failed group read must stop before opening execution settings.');
+    }else{
+     assert.equal(response.ok,true,response.error);assert.equal(response.config.stages.momentum.fields.length,52);assert.equal(settingsReads,1);
+     assert.deepEqual(Array.from(response.config.stages.momentum.options[1],o=>({...o})),groupRows.map((label,i)=>({value:label,label,sourceValue:'group:'+i,disabled:false})));
+     assert.ok(groupMenuReads>=2,'Read the settled response, not just the initial popup.');
+     assert.equal(lastGroupQuery,beforeValue,'Await the restored query response before dismissing, even when it is delayed.');
+    }
+    return;
+   }
    if(noOptionRefresh){const failed=await requestConfig({momentum:{39:'My'}});assert.equal(failed.ok,false);assert.match(failed.error,/finish loading the dependent choices/);assert.equal(sourceMessages.at(-1),'Vault connection failed: '+failed.error);assert.equal(sourceSuccessDialogs.length,0);assert.equal(submissions,0);assert.equal(portfolios,0);return;}
    if(emptyOptions){const refreshed=await requestConfig({momentum:{43:'My'}});assert.equal(refreshed.ok,true,refreshed.error);assert.equal(refreshed.config.stages.momentum.options[44].length,0);assert.equal(refreshed.config.stages.momentum.fields[44].value,'');assert.equal(refreshed.config.stages.momentum.fields[46].checked,false);assert.equal(submissions,0);assert.equal(portfolios,0);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);if(!variableSet)return;}
    if(refreshParents){const refreshed=await requestConfig({momentum:{39:'My'}});assert.equal(refreshed.ok,true,refreshed.error);}
    const response=await requestConfig(refreshParents?{execution:{6:'My'}}:undefined);
    if(closeStuckAfterWake){assert.equal(response.ok,false);assert.match(response.error,/Source dialog did not close/);assert.ok(w.VaultCapture.popup('Momentum Trading BackTest'));assert.equal(submissions,0);assert.equal(portfolios,0);assert.equal(sourceSuccessDialogs.length,0);return;}
    assert.equal(response.ok,true,response.error);assert.equal(submissions,0,'Loading the setup must never run a backtest.');assert.equal(portfolios,0);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
+   assert.equal(response.config.stages.momentum.fields.length,52);assert.deepEqual(Array.from(response.config.stages.momentum.options[1],o=>o.value),groupRows);
    if(closeAfterWake){assert.deepEqual(sourceSuccessDialogs,[false]);return;}
    if(bridge){assert.equal(bridgeConfigRequests,2,'Both the rejected change and successful connection must cross the real background boundary.');assert.equal(response.config.session,memory['runner:tab:9'].session,'Reading settings must retain the registered document session.');assert.deepEqual(sourceMessages.slice(-4),['Connecting to Vault: opening Momentum settings…','Connecting to Vault: reading strategy choices…','Connecting to Vault: reading backtest settings…','RZone settings read. Return to Vault to finish setup.']);assert.deepEqual(sourceSuccessDialogs,[false],'Connection success must only appear after closing its own settings dialog.');}
    if(refreshParents)assert.equal(navigationCount,1);
@@ -178,4 +228,4 @@ async function backgroundFocusChecks(){
   assert.equal(timers.size,0);
  }
 }
-(async()=>{const cases=[{}, {overlap:true},{changeLocked:true},{staleCompletion:true},{noRunning:true},{rejected:true},{reuseReport:true},{preexistingReport:true},{vaultSetup:true,bridge:true},{vaultSetup:true,closeAfterWake:true},{vaultSetup:true,closeStuckAfterWake:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},{vaultSetup:true,emptyOptions:true,variableSet:'momentum'},{vaultSetup:true,missingGroup:true},{vaultSetup:true,changedOptions:true},{vaultSetup:true,driftDuringRun:true},{vaultSetup:true,variableSet:'momentum'},{vaultSetup:true,variableSet:'rules'}];if(!process.argv.includes('--variations'))await backgroundFocusChecks();for(const options of cases.filter(o=>(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake)))await scenario(options);console.log('PASS: '+(process.argv.includes('--close')?'dialog close':process.argv.includes('--bridge')?'background bridge':process.argv.includes('--variations')?'variation':process.argv.includes('--setup')?'Vault setup':'all')+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{const cases=[...['blank','nonblank','delayed','late-restore','duplicate','overflow','missing'].map(groupCatalogue=>({vaultSetup:true,groupCatalogue})),{}, {overlap:true},{changeLocked:true},{staleCompletion:true},{noRunning:true},{rejected:true},{reuseReport:true},{preexistingReport:true},{vaultSetup:true,bridge:true},{vaultSetup:true,closeAfterWake:true},{vaultSetup:true,closeStuckAfterWake:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},{vaultSetup:true,emptyOptions:true,variableSet:'momentum'},{vaultSetup:true,missingGroup:true},{vaultSetup:true,changedOptions:true},{vaultSetup:true,driftDuringRun:true},{vaultSetup:true,variableSet:'momentum'},{vaultSetup:true,variableSet:'rules'}];if(!process.argv.includes('--variations'))await backgroundFocusChecks();for(const options of cases.filter(o=>(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake)))await scenario(options);console.log('PASS: '+(process.argv.includes('--close')?'dialog close':process.argv.includes('--bridge')?'background bridge':process.argv.includes('--variations')?'variation':process.argv.includes('--setup')?'Vault setup':'all')+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');})().catch(e=>{console.error(e);process.exitCode=1;});

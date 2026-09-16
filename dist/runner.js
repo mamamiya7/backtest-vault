@@ -51,6 +51,93 @@ async function prepare(){
  throw Error('Momentum Trading BackTesting did not open.');
 }
 function descriptor(p){const fields=C.fields(p),options={};inputs(p).forEach((n,i)=>{if(n.tagName==='SELECT')options[i]=[...n.options].map(o=>({value:V.clean(o.textContent),label:V.clean(o.textContent),sourceValue:o.value,disabled:o.disabled}));});return {fields,options};}
+function groupSearch(node,value){
+ Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,value);
+ // Search text is not a selected group. Do not dispatch a change or select a
+ // suggestion while reading choices; the source commits groups on item clicks.
+ node.dispatchEvent(new Event('input',{bubbles:true}));
+ node.dispatchEvent(new KeyboardEvent('keyup',{key:'Backspace',bubbles:true}));
+}
+function groupMenu(){
+ const found=popups().filter(p=>!V.clean(p.querySelector('.caption')?.textContent)&&p.querySelector('.ind-list'));
+ if(found.length>1)throw Error('RZone opened more than one group menu. Close its menus and refresh choices.');
+ if(popups().some(p=>!found.includes(p)))throw Error('RZone opened an unexpected dialog while reading groups. Close it and refresh choices.');
+ return found[0];
+}
+function groupChoices(menu){
+ const rows=[...menu.querySelectorAll('.ind-list li[grpid]')];
+ if(rows.length>3000)throw Error('RZone has more than 3,000 group choices. Narrow the available source groups before refreshing.');
+ const labels=new Set(),ids=new Set();
+ return rows.map(row=>{
+  const label=V.clean(row.textContent),id=row.getAttribute('grpid');
+  if(!label||!id||label.length>500||id.length>500)throw Error('RZone group choices are incomplete. Refresh choices and try again.');
+  if(labels.has(label)||ids.has(id))throw Error('RZone group choices are ambiguous. Give duplicate groups unique names before refreshing.');
+  labels.add(label);ids.add(id);return {value:label,label,sourceValue:id,disabled:false};
+ });
+}
+async function groupCatalogue(main){
+ const before=C.fields(main),node=inputs(main)[1],oldPopups=new Set([...document.querySelectorAll('.popupContent')].filter(C.visible));
+ if(before.length!==52||node?.tagName!=='INPUT'||node.type!=='text'||node.placeholder!=='Search Group'||node.disabled)throw Error('Cannot identify the RZone group search. Refresh RZone and connect again.');
+ if(popups().length)throw Error('Close the open RZone menu before refreshing choices.');
+ // RZone appends a tooltip "i" inside .header-text; match the heading's own
+ // text so that icon text does not make the safe outside-click target vanish.
+ const outside=[...document.querySelectorAll('.header-text,h1,h2,h3,h4')].filter(n=>C.visible(n)&&/^Momentum Trading Back ?Testing$/i.test(V.clean([...n.childNodes].filter(child=>child.nodeType===Node.TEXT_NODE).map(child=>child.textContent).join(' ')))&&!n.closest('a,button,input,select,textarea'));
+ if(outside.length!==1)throw Error('Cannot identify the RZone page heading. Refresh RZone and connect again.');
+ const original=node.value,owned=new Set();let started=Date.now(),changedAt=started,signature='',fresh=false;
+ const observer=new MutationObserver(records=>{if(records.some(r=>[...owned].some(p=>{const list=p.querySelector('.ind-list');return list&&(r.target===list||list.contains(r.target)||[...r.addedNodes,...r.removedNodes].some(n=>n===list));}))){fresh=true;changedAt=Date.now();}});
+ observer.observe(document.body,{subtree:true,childList:true,characterData:true});
+ const read=()=>{
+  const menu=groupMenu();if(!menu)return null;
+  if(!owned.has(menu)){
+   if(oldPopups.has(menu))throw Error('An existing RZone group menu reappeared. Close it and refresh choices.');
+   owned.add(menu);fresh=true;changedAt=Date.now();
+  }
+  const choices=groupChoices(menu),next=JSON.stringify(choices);
+  if(next!==signature){signature=next;changedAt=Date.now();}
+  return {menu,choices};
+ };
+ try{
+  // Clear before focus/click: opening with an old query can first render a
+  // filtered list, which must never be mistaken for the full catalogue.
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,'');
+  node.focus();ownClick(node);groupSearch(node,'');
+  const deadline=Date.now()+10000;let choices;
+  while(Date.now()<deadline){
+   check();if(node.value!=='')throw Error('The RZone group search changed while reading. Refresh choices when ready.');
+   const current=read();
+   if(fresh&&current?.choices.length&&Date.now()-started>=1500&&Date.now()-changedAt>=750){choices=current.choices;break;}
+   await delay(100);
+  }
+  if(!choices)throw Error('RZone did not finish loading its group choices. Refresh choices and try again.');
+ return choices;
+ }finally{
+  try{
+  if(!interrupted&&node.isConnected){
+   observer.takeRecords();fresh=original===''||!owned.size;
+   groupSearch(node,original);
+   // Let the restored search settle before dismissing its own popup, so a
+   // delayed response cannot reopen it over the execution-settings dialog.
+   const restoreStarted=Date.now(),restoreDeadline=restoreStarted+5000;let restoredAt=restoreStarted,last='',restored=false;
+   while(Date.now()<restoreDeadline){
+    check();const menu=groupMenu();
+    if(menu&&!owned.has(menu)){if(oldPopups.has(menu))throw Error('An existing RZone menu reappeared. Close it and refresh choices.');owned.add(menu);fresh=true;changedAt=Date.now();}
+    const next=menu?menu.innerHTML:'';if(next!==last){last=next;restoredAt=Date.now();}
+    if(fresh&&Date.now()-restoreStarted>=1500&&Date.now()-Math.max(restoredAt,changedAt)>=750){restored=true;break;}
+    await delay(100);
+   }
+   if(!restored)throw Error('RZone group search did not settle. Close its menu and refresh choices.');
+   if([...owned].some(p=>p.isConnected&&C.visible(p))){
+    outside[0].dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));
+    outside[0].dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));ownClick(outside[0]);
+    const closeDeadline=Date.now()+5000;
+    for(;;){check();if([...owned].every(p=>!p.isConnected||!C.visible(p)))break;if(Date.now()>=closeDeadline)throw Error('RZone group menu did not close. Close it and refresh choices.');await delay(100);}
+   }
+   node.blur();
+   if(JSON.stringify(C.fields(main))!==JSON.stringify(before))throw Error('RZone settings changed while reading group choices. Review the source settings and connect again.');
+  }
+  }finally{observer.disconnect();}
+ }
+}
 function configChanges(changes){
  if(changes===undefined)return {};
  if(!changes||typeof changes!=='object'||Array.isArray(changes)||Object.keys(changes).some(s=>!['momentum','execution'].includes(s)))throw Error('Unsupported setup choices.');
@@ -105,6 +192,7 @@ async function configuration(requestedChanges){
   await changeParents(C.main(),changes.momentum,'momentum');const momentum=descriptor(C.main());
   if(momentum.fields.length!==52||momentum.fields[0]?.value!=='Candle'||momentum.fields[51]?.checked)throw Error('Vault setup currently supports the standard Candle layout without Relative Strength. This RZone layout needs a separate adapter.');
   if(momentum.fields[2]?.checked)throw Error('Market Trend Filter has additional source settings. Turn it off before connecting this setup.');
+  momentum.options[1]=await groupCatalogue(C.main());
   C.status('Connecting to Vault: reading backtest settings…');
   button(C.main(),/^BackTest$/i).click();setup=await wait(()=>C.popup('Momentum Trading BackTest'),Date.now()+10000,'Momentum settings did not open.');
   await changeParents(setup,changes.execution,'execution');const execution=descriptor(setup);

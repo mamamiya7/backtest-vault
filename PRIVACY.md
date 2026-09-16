@@ -29,3 +29,5 @@ A public copy of this source repository must not contain personal archives or re
 ## Experiment automation
 
 Experiment plans, ranges, decision rules, trial journals and temporary source-tab ownership are stored locally. When the user starts a plan, the content script changes approved settings and submits backtests to Definedge through its existing page. No source credentials are collected. There is no LLM service, telemetry, new host permission or external data transfer by Vault. Full backups include experiment journals; import always pauses them and removes source ownership. The localhost viewer cannot control an extension tab. Demo simulations stay entirely in memory.
+
+New test reads dropdown labels and available Group names from the signed-in RZone page. The form keeps them in memory; a created experiment stores its source-choice snapshot locally with its setup, so experiment exports/backups may also contain account-specific Group and rule names. Searching loaded choices happens locally. Opening the source Group menu or changing a parent selector can trigger RZone's own normal page requests; Vault does not send these choices to another service.

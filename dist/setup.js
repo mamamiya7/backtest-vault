@@ -8,6 +8,7 @@ const clone=x=>JSON.parse(JSON.stringify(x)),stages=['momentum','execution','por
 const ruleIndices={momentum:[36,40,44,48],execution:[7],portfolio:[]};
 const ordered=x=>Array.isArray(x)?x.map(ordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,ordered(x[k])])):x;
 const same=(a,b)=>JSON.stringify(ordered(a))===JSON.stringify(ordered(b));
+const owns=(o,key)=>!!o&&Object.prototype.hasOwnProperty.call(o,key);
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const blocked='This dynamic rule is not available in automatic setup yet.';
 
@@ -33,12 +34,14 @@ function template(source){
   });
   const options={};
   for(const f of fields){
-   const offered=s.options?.[f.index]??s.fields[f.index].options;
-   if(offered!==undefined){
+   const groupCatalogue=stage==='momentum'&&f.index===1&&owns(s.options,1);
+   const offered=groupCatalogue?s.options[1]:s.options?.[f.index]??s.fields[f.index].options;
+   if(offered!==undefined||groupCatalogue){
     if(!Array.isArray(offered)||offered.length>3000)throw Error('Invalid source choices for '+f.label);
     const seen=new Set();options[f.index]=offered.map(o=>{
      const raw=typeof o==='string'?{value:o,label:o}:o;
      if(!raw||typeof raw.value!=='string'||typeof raw.label!=='string'||raw.value.length>2000||raw.label.length>2000)throw Error('Invalid source choice for '+f.label);
+     if(stage==='momentum'&&f.index===1&&(!raw.label.trim()||/[\u0000-\u001f]/.test(raw.label)))throw Error('Invalid source choice for '+f.label);
      // Captured select values are display labels, never opaque DOM tokens.
      const value=raw.label,entry={value,label:raw.label,disabled:raw.disabled===true};
      if(seen.has(value))throw Error('Ambiguous source choices for '+f.label);seen.add(value);return entry;
@@ -62,7 +65,7 @@ function fieldsForUI(input){
  const group=(stage,key,title)=>{const g={stage,key:stage+'.'+key,title,fields:[]};groups.push(g);return g;};
  const add=(g,key,label,index,type,extra={})=>{
   const f=t.stages[g.stage].fields[index],d={key:g.stage+'.'+key,label,stage:g.stage,index,type,value:type==='boolean'?f.checked:type==='number'?V.number(f.value):f.value,...extra};
-  if(type==='select')d.options=clone(t.stages[g.stage].options[index]||[{value:f.value,label:f.value,disabled:false}]);
+  if(type==='select'||type==='combobox')d.options=clone(t.stages[g.stage].options[index]||[{value:f.value,label:f.value,disabled:false}]);
   g.fields.push(d);return d;
  };
  const number=(g,key,label,index,min,max,extra={})=>add(g,key,label,index,'number',{min,max,...extra});
@@ -70,9 +73,9 @@ function fieldsForUI(input){
  const fixed=(g,key,label,index,reason)=>{const d=add(g,key,label,index,t.stages[g.stage].fields[index].type==='checkbox'?'boolean':'select',{disabled:true,reason});if(d.options)d.options.forEach(o=>{if(o.value!==d.value){o.disabled=true;o.reason=reason;}});return d;};
  let g=group('momentum','universe','Strategy');
  fixed(g,'chart','Chart type',0,'Candle automation is available. P&F and Renko automatic setup is not yet available.');
- const groupOptions=t.stages.momentum.options[1];
- add(g,'group','Universe / group',1,groupOptions?.length?'select':'text',{maxLength:200,help:groupOptions?.length?'':'Enter the exact group name. RZone must resolve it before a backtest can start.'});
- add(g,'market','Market',3,'select');add(g,'timeframe','Timeframe',33,'select');
+ const hasGroupCatalogue=owns(t.stages.momentum.options,1);
+ add(g,'group','Universe / group',1,hasGroupCatalogue?'combobox':'text',{maxLength:200,help:hasGroupCatalogue?'':'Enter the exact group name. RZone must resolve it before a backtest can start.'});
+ add(g,'market','Market',3,'select',hasGroupCatalogue?{dynamic:true,refresh:true,refreshOnChange:true,dependents:[1],help:'Refreshes the available groups from RZone when changed.'}:{});add(g,'timeframe','Timeframe',33,'select');
  g=group('momentum','periods','Momentum periods');
  for(let i=1;i<=4;i++){
   toggle(g,'period.'+i+'.enabled','Use Period '+i,9+i*2);
@@ -112,6 +115,10 @@ function validateConfig(config,input){
  for(const f of descriptors){let v=config[f.key];if(v===undefined)throw Error('Choose '+f.label+'.');
   if(f.type==='boolean'){if(typeof v!=='boolean')throw Error(f.label+' must be on or off.');}
   else if(f.type==='number'){if(!['string','number'].includes(typeof v)||typeof v==='string'&&!/^\s*[+]?(?:\d+(?:\.\d*)?|\.\d+)\s*$/.test(v))throw Error(f.label+': enter a valid number.');v=Number(v);if(!Number.isFinite(v)||v<f.min||v>f.max||(f.integer&&!Number.isInteger(v)))throw Error(f.label+': enter '+(f.integer?'a whole number':'a number')+' between '+f.min+' and '+f.max+'.');}
+  else if(f.type==='combobox'){
+   if(!f.options.length)throw Error('No '+f.label.toLowerCase()+' choices are available. Refresh choices in RZone.');
+   if(typeof v!=='string'||!v.trim()||!f.options.some(o=>o.value===v&&!o.disabled))throw Error('Choose an available '+f.label.toLowerCase()+'.');
+  }
   else if(f.type==='select'){
    const unchangedInactive=(f.disabled||f.enabledBy&&config[f.enabledBy]===false)&&v===f.value;
    const emptyUnusedRule=f.rule&&f.options.length===0&&f.value===''&&v===''&&config[f.enabledBy]===false;
@@ -150,7 +157,7 @@ function demoTemplate(){
  const r=D.create()[0],source={demo:true,stages:{momentum:{fields:r.parameters.strategy.main.fields},execution:{fields:r.parameters.strategy.execution.fields},portfolio:portfolioTemplate()}};
  // Fictional UI choices are kept in demo-only memory and never advertised as
  // options fetched from the user's authenticated RZone account.
- source.stages.momentum.options={3:['NSE'].map(value=>({value,label:value})),33:['Daily','Weekly'].map(value=>({value,label:value}))};
+ source.stages.momentum.options={1:[r.parameters.strategy.main.fields[1].value,'Demo universe 20','Demo universe 60'],3:['NSE'].map(value=>({value,label:value})),33:['Daily','Weekly'].map(value=>({value,label:value}))};
  return template(source);
 }
 const api={template,portfolioTemplate,fieldsForUI,defaults,validateConfig,configToBaseline,validateBaseline,demoTemplate};
