@@ -116,7 +116,8 @@
 
   function executionGroups(fields) {
     const chart=fields[3]?.value,variant=['P&F','Renko'].includes(chart),selection=variant?8:4,mode=fields[selection]?.value,benchmark=['RS','Both'].includes(mode),exit=selection+1+(benchmark?2:0);
-    const signature='sdds'+(variant?'tsrr':'')+'s'+(benchmark?'st':'')+'cssctct';
+    let signature='sdds'+(variant?'tsrr':'')+'s'+(benchmark?'st':'')+'cssctct';
+    if(chart==='Candle'&&mode==='Price'&&['My','Public'].includes(fields[exit+1]?.value)&&fields[exit+2]?.type==='text')signature=signature.slice(0,exit+2)+'t'+signature.slice(exit+3);
     const anchors=[[0,/Rank/i],[1,/From/i],[2,/To/i],[3,/Chart/i],[selection,/Selection/i],[exit,/Exit/i],[exit+3,/Target/i],[exit+5,/Stop Loss/i]];
     if(variant)anchors.push([4,chart==='Renko'?/Brick Size/i:/Box Size/i]);
     if(benchmark)anchors.push([selection+1,/Exit Denominator/i]);

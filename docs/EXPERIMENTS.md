@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.8.8 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
+Version 0.8.9 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
@@ -26,11 +26,11 @@ flowchart LR
 
 ### Refresh the available choices
 
-**New test** and **Refresh choices** read the dropdowns available to your signed-in RZone account. Vault temporarily enables **Radar** and **Strategy 1–3** and records the control used by each offered category. Radar currently offers native **Pre / My** dropdowns. STR **Pre / Popular** use dropdowns; STR **My / Public** replace the rule dropdown with a search field. Vault loads native menus and marks searchable categories as needing a search, rather than waiting for a dropdown that will never appear. It restores the original category, rule, timeframe where present and checkbox state, and verifies the other settings stayed unchanged. Discovery never submits a backtest.
+**New test** and **Refresh choices** read the choices available to your signed-in RZone account. Vault temporarily enables **Radar**, **Strategy 1–3** and **Exit Strategy** and records the control used by each offered category. Radar currently offers native **Pre / My** dropdowns. Strategy and exit **Pre / Popular** use dropdowns; **My / Public** replace the rule dropdown with a search field. Vault loads native menus and marks searchable categories as needing a search, rather than waiting for a dropdown that will never appear. It restores the original category, rule, timeframe where present and checkbox state, and verifies the other settings stayed unchanged. Discovery never submits a backtest.
 
-In Vault, choose **On** or **Test both** beside Radar or a strategy, select its category, then choose its rule. For STR **My / Public**, enter a name or keyword and click **Search**. This reads matching choices from the chosen RZone row and category, then restores the source. A query is required: RZone does not expose a complete list for an empty strategy search. No matches means no matches for that query, not that the entire account has no rules. Repeated names are disabled because Vault cannot safely distinguish them by name. An unfinished nonempty search in RZone must be finished or cleared before discovery can change that row. Switching loaded categories retains separate selections and Test values. A new category begins at its source placeholder or an empty selection, never at the first real rule. Unavailable choices remain visible for review. Category sources stay fixed within each batch; eligible returned rules within that category can vary.
+In Vault, choose **On** or **Test both** beside Radar, a strategy or Exit Strategy, select its category, then choose its rule. For strategy/exit **My / Public**, enter a name or keyword and click **Search**. This reads matching choices from that specific RZone row and category, then restores the source. A query is required: RZone does not expose a complete list for an empty strategy search. No matches means no matches for that query, not that the entire account has no rules. Repeated names are disabled because Vault cannot safely distinguish them by name. An unfinished nonempty search in RZone must be finished or cleared before discovery can change that row. Switching loaded categories retains separate selections and Test values. A new category begins at its source placeholder or an empty selection, never at the first real rule. Unavailable choices remain visible for review. Category sources stay fixed within each batch; eligible returned rules within that category can vary.
 
-Changing **Market** refreshes Group. Exit-source menus refresh on demand, as do older setups without cached Radar/strategy categories. Vault does not traverse unsupported chart layouts or every possible filter combination. Filtering the loaded Group list and switching cached categories make no additional source request. STR **My / Public → Search** sends the entered query through RZone's own search UI. Execution clicks the exact unique returned choice; typing a strategy name alone is not treated as a selection. There is no separate catalogue download to manage.
+Fresh connected setups currently support **NSE**. Other markets remain visible as unavailable because their form removes Radar and needs a separate adapter. Older templates retain their original archive behavior. Filtering the loaded Group list and switching cached categories make no additional source request. Strategy/exit **My / Public → Search** sends the entered query through RZone's own search UI, bound to its stage and row. Execution commits the exact unique returned choice; typing a strategy name alone is not treated as a selection. There is no separate catalogue download to manage.
 
 Group discovery opens only its own search menu, clears the query to read the exposed full list, restores the original text and closes that menu before reading execution settings. It verifies that the main settings stayed unchanged and rejects ambiguous, missing or oversized lists. Existing reports/menus are never dismissed to make connection succeed. A refreshed source session requires reconnection; choices are not shared between accounts or silently reused from another session. Older saved setups without a Group catalogue retain their original validation behavior.
 
@@ -50,6 +50,36 @@ flowchart LR
 | Available choices | Current source labels and dropdown options; no calculated performance |
 | Setup and plan | Your selected settings, permitted variations and run count; no invented baseline result |
 | Saved trial | The actual submitted settings, source statistics, all reported trade rows and six chart snapshots |
+
+### Chart and dependent-control coverage
+
+A consolidated live source inspection on 2026-09-16 covered the parent branches below. It checked offered values, native control types, enabled states, dependent resets, search responses and restoration. It did not calculate every strategy in a catalogue or prove that every inspected branch can run through Vault.
+
+| Source controls inspected | Coverage | Automatic setup in this release |
+| --- | --- | --- |
+| Main chart and Group | Candle / P&F / Renko × four markets | NSE Candle |
+| STR1–3 | Three rows × four rule sources × three charts | Candle, including My/Public search |
+| Radar | Pre / My under all three charts | NSE Candle; an empty native menu stays empty |
+| Relative Strength | Separate chart rule families, five benchmark markets, exact benchmark selection | Still gated |
+| Market Trend Filter | Three charts × Index/RS × four actions; four methods; exit categories; both Renko construction blocks | Still gated; requires complete capture and replay support |
+| Backtest / exits | Three execution charts × Price/RS/Both × four rule sources; cross-check under all three main charts | Candle / Price, including exit My/Public search |
+| Portfolio | Fixed / Reinvestment × portfolio switch × daily-limit switch | Existing verified six-control template |
+
+Several visually similar controls have different behavior. Radar My is a native dropdown, while strategy/exit My is a keyword search. Candle Relative Strength has its own rule family. Changing a Renko brick mode also changes its numeric value. Changing market can remove controls. STR2 category changes can affect the raw labels captured for STR3.
+
+```mermaid
+flowchart LR
+    A["Section + chart + market"] --> B["Parent selection"]
+    B --> C{"Observed control"}
+    C -->|Dropdown| D["Read offered options"]
+    C -->|Search| E["Keyword → matching options"]
+    D --> F["Choices belong to this context"]
+    E --> F
+    F --> G["Select and verify exact source state"]
+    G --> H["Run only an accepted adapter"]
+```
+
+Broader adapters must share one context model across discovery, editing, validation and execution. Each needs complete settings capture, source restoration tests and a real submitted-result comparison before its execution gate opens. The private audit evidence contains account-specific menus and is excluded from the public package.
 
 ### Continue from a saved run
 
@@ -158,7 +188,7 @@ Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the sa
 
 Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, a three-trial full Candle DOM flow, complete backup/import and demo isolation. These are simulated tests, not proof of the installed extension operating the live service.
 
-Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.8's new full-setup and dropdown-refresh flow.**
+Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.9's new full-setup and dropdown-refresh flow.**
 
 ## Remaining delivery plan
 

@@ -142,10 +142,17 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const request={fieldKey:field.key,category,query};state.ruleLookup=request;state.ruleSearchDrafts.set(draftKey,query);setupPage();
   const current=()=>alive()&&wizard===state&&state.generation===generation&&state.sourceSession===session&&state.sourceId===sourceId&&state.template===template&&state.config[field.sourceKey]===category&&state.ruleSearchDrafts.get(draftKey)?.trim()===query;
   try{
-   const response=await command('lookup-rule',{tabId:Number(sourceId),session,parentIndex:field.index-1,category,query});if(!current()||!setupSourceValid())return;
-   const result=response.result;if(!result||result.parentIndex!==field.index-1||result.childIndex!==field.index||result.category!==category||result.query!==query||result.controlType!=='text'||!Array.isArray(result.options))throw Error('RZone returned choices for a different rule search. Search again.');
-   const next=structuredClone(template),stage=next.stages.momentum,catalogue=stage.ruleCatalogues[field.index];catalogue.categories[category]=result.options;(catalogue.searchQueries||={})[category]=query;
-   if(stage.fields[field.index-1].value===category)stage.options[field.index]=result.options;
+   const response=await command('lookup-rule',{tabId:Number(sourceId),session,...(field.stage==='execution'?{stage:'execution'}:{}),parentIndex:field.index-1,category,query});if(!current()||!setupSourceValid())return;
+   const result=response.result;if(!result||(result.stage??'momentum')!==field.stage||result.parentIndex!==field.index-1||result.childIndex!==field.index||result.category!==category||result.query!==query||result.controlType!=='text'||!Array.isArray(result.options))throw Error('RZone returned choices for a different rule search. Search again.');
+   const next=structuredClone(template),stage=next.stages[field.stage],catalogue=stage.ruleCatalogues[field.index],options=structuredClone(result.options);
+   if(stage.fields[field.index-1].value===category){
+    // Keep the original source reading intact, without presenting an old
+    // committed value as an available result of a different keyword search.
+    const original=stage.fields[field.index].value,choice=stage.options[field.index]?.find(o=>o.value===original);
+    if(original&&choice&&!options.some(o=>(typeof o==='string'?o:o?.label)===original)){if(options.length>=3000)throw Error('Too many rule matches. Search with a more specific name.');options.push({...choice,disabled:true});}
+    stage.options[field.index]=options;
+   }
+   catalogue.categories[category]=options;(catalogue.searchQueries||={})[category]=query;
    state.template=S.template(next);notice.textContent='';
   }catch(error){if(current())throw error;}
   finally{if(state.ruleLookup===request)state.ruleLookup=null;if(alive()&&wizard===state)setupPage();}
@@ -269,10 +276,10 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
    if(stateChoice){control=select([['false','Off'],['true','On'],...(variableState?[['both','Test both']]:[])]);control.classList.add('source-state-select');control.value=selectedState();control.dataset.mode=control.value;}
    else if(field.type==='boolean'){control=input('','checkbox');control.checked=!!value;}
    else if(field.type==='select'){
-    const options=field.options||[];control=select(options.map(o=>[String(o.value),(o.label||String(o.value))+(field.rule&&o.disabled?' · unavailable':'')]));options.forEach((o,i)=>{control.options[i].disabled=!!o.disabled;if(field.rule&&o.disabled)control.options[i].title='RZone did not provide a unique selectable rule for this choice.';});
+    const options=field.options||[];control=select(options.map(o=>[String(o.value),(o.label||String(o.value))+(field.rule&&o.disabled?' · unavailable':'')]));options.forEach((o,i)=>{control.options[i].disabled=!!o.disabled;if(o.reason)control.options[i].title=o.reason;else if(field.rule&&o.disabled)control.options[i].title='This choice is unavailable in the current source results.';});
     if(field.nativeType==='text'&&options.length&&!options.some(o=>o.value==='')){const placeholder=el('option','Select a rule');placeholder.value='';placeholder.disabled=true;control.prepend(placeholder);}
     if(!options.length){const empty=el('option',field.searchable?(field.searchQuery?'No matching choices':'Search RZone to load choices'):'No choices available');empty.value='';empty.disabled=true;control.append(empty);}
-    if(!options.some(o=>String(o.value)===String(value))&&String(value??'')){const missing=el('option',String(value)+' · unavailable');missing.value=String(value);missing.disabled=true;control.append(missing);unavailable=true;}control.value=String(value??'');
+    if(!options.some(o=>String(o.value)===String(value))&&String(value??'')){const missing=el('option',String(value)+' · unavailable');missing.value=String(value);missing.disabled=true;control.append(missing);unavailable=true;}else if(field.rule&&options.some(o=>String(o.value)===String(value)&&o.disabled))unavailable=true;control.value=String(value??'');
    }else if(field.type==='combobox'){
     control=input(value??'');combo=el('div',undefined,'source-combobox');const menu=el('div',undefined,'source-choice-menu'),status=el('span','','source-choice-status'),options=field.options||[];let shown=[],active=-1;
     menu.id='source-choices-'+key.replaceAll('.','-');menu.setAttribute('role','listbox');menu.setAttribute('aria-label',caption+' choices');menu.hidden=true;status.id=menu.id+'-status';status.setAttribute('role','status');status.hidden=true;

@@ -184,7 +184,7 @@ assert.equal(S.template({momentum:source.stages.momentum,execution:source.stages
   x=>{x.stages.momentum.ruleCatalogues[40].categories.Other=['Unknown'];},
   x=>{x.stages.momentum.options[39]=['Pre','My','Public',{value:'p',label:'Popular',disabled:true}];},
   x=>{x.stages.momentum.ruleCatalogues[40].categories.Pre=['Stale cached rule'];},
-  x=>{x.stages.execution.ruleCatalogues={};}
+  x=>{x.stages.execution.ruleCatalogues={40:clone(x.stages.momentum.ruleCatalogues[40])};}
  ]){const invalid=clone(cached);mutate(invalid);assert.throws(()=>S.template(invalid),/Invalid|Ambiguous|not available|do not match/);}
  const limit=clone(cached);limit.stages.momentum.ruleCatalogues[40].categories.My=Array.from({length:3000},(_,i)=>'Rule '+i);assert.equal(S.template(limit).stages.momentum.ruleCatalogues[40].categories.My.length,3000);
  assert.equal(S.fieldsForUI(t).flatMap(g=>g.fields).find(f=>f.key==='momentum.strategy.1.source').cachedCategories,undefined);
@@ -240,4 +240,40 @@ assert.equal(S.template({momentum:source.stages.momentum,execution:source.stages
  const noEvidence=clone(captured);delete noEvidence.stages.momentum.ruleCatalogues[40].searchQueries;assert.throws(()=>S.template(noEvidence),/need their source query/,'Populated search lists need the query that produced them');
  const unloaded=clone(empty);delete unloaded.stages.momentum.ruleCatalogues[40].searchQueries.Public;const unloadedT=S.template(unloaded),unloadedC=S.defaults(unloadedT);assert.equal(S.fieldsForUI(unloadedT).flatMap(g=>g.fields).find(f=>f.key==='momentum.strategy.1.rule').searchQuery,null);assert.throws(()=>S.validateConfig({...unloadedC,'momentum.strategy.1.enabled':true},unloadedT),/Search RZone/,'An unqueried category is not an empty search result');
 }
-console.log('PASS: source-derived setup, exact labels and choices, market-bound Group autocomplete and legacy archives, select/search strategy category types, editable Candle strategy/exits/portfolio, settings-only provenance, strict dates/weights/capital/rules, unsupported settings, immutable reconstruction and fictional isolation.');
+// Exit rules use the same native/search contract, with their own stage and row.
+for(const initial of ['Pre','Public']){
+ const input=clone(source),x=input.stages.execution,categories=['Pre','My','Public','Popular'],option=value=>({value,label:value,disabled:false}),lists=Object.fromEntries(categories.map(category=>[category,[option('Exit '+category+' A'),option('Exit '+category+' B')]])),labels=Object.fromEntries(categories.map(category=>[category,new Array(3).fill('Exit Stratergy: / '+category+'i')]));
+ x.fields[6].value=initial;x.fields[7].type=initial==='Public'?'text':'select-one';x.fields[7].value=lists[initial][0].value;x.fields[5].checked=false;x.fields[7].disabled=true;x.options[6]=categories.map(option);x.options[7]=lists[initial];[6,7,5].forEach((index,n)=>{x.fields[index].label=labels[initial][n];});
+ x.ruleCatalogues={7:{parentIndex:6,gateIndex:5,categories:lists,controlTypes:{Pre:'select-one',My:'text',Public:'text',Popular:'select-one'},searchQueries:{My:'private',Public:'public'},fieldLabels:labels}};
+ const template=S.template(input),defaults=S.defaults(template);
+ for(const category of categories){
+  const config={...defaults,'execution.exit.source':category,'execution.exit.rule':'Exit '+category+' A','execution.exit.enabled':true},baseline=S.configToBaseline(config,template),desc=S.fieldsForUI(template,config).flatMap(g=>g.fields).find(f=>f.key==='execution.exit.rule');
+  assert.equal(desc.sourceKey,'execution.exit.source');assert.equal(desc.stage,'execution');assert.equal(desc.searchable,['My','Public'].includes(category));assert.equal(baseline.parameters.strategy.execution.fields[7].type,desc.nativeType);assert.equal(baseline.parameters.strategy.execution.fields[7].label,labels[category][1]);assert.deepEqual(S.validateBaseline(clone(baseline)),baseline);
+  const plan=E.create({id:'exit-search-'+initial+'-'+category,name:'Exit rule variations',baseline,dimensions:[{key:'execution.exit.rule',values:lists[category].map(o=>o.value)}]});
+  for(const trial of plan.trials){const expected=E.expected(plan,trial);assert.equal(expected.parameters.strategy.execution.fields[7].value,trial.patch['execution.exit.rule']);assert.equal(expected.parameters.strategy.execution.fields[7].type,desc.nativeType);S.validateBaseline(expected);}
+  assert.throws(()=>E.create({id:'wrong-exit',name:'Wrong exit',baseline,dimensions:[{key:'execution.exit.rule',values:['Other category rule']}]}),/source values/);
+ }
+ const empty=clone(input);empty.stages.execution.ruleCatalogues[7].categories.Public=[];delete empty.stages.execution.ruleCatalogues[7].searchQueries.Public;
+ if(initial==='Public'){empty.stages.execution.fields[7].value='';empty.stages.execution.options[7]=[];}
+ const emptyT=S.template(empty),emptyConfig={...S.defaults(emptyT),'execution.exit.source':'Public','execution.exit.rule':'','execution.exit.enabled':false};S.validateBaseline(S.configToBaseline(emptyConfig,emptyT));assert.throws(()=>S.validateConfig({...emptyConfig,'execution.exit.enabled':true},emptyT),/Search RZone/);
+ for(const alter of [s=>delete s.stages.execution.ruleCatalogues[7].controlTypes,s=>{s.stages.execution.ruleCatalogues[7].parentIndex=39;},s=>{s.stages.execution.ruleCatalogues[7].gateIndex=8;},s=>{s.stages.execution.ruleCatalogues[7].fieldLabels.My=['wrong'];},s=>{s.stages.execution.ruleCatalogues[7].controlTypes.Pre='text';},s=>{s.stages.execution.ruleCatalogues[7].labelDependents=[47,48,49,50];}]){
+  const invalid=clone(input);alter(invalid);assert.throws(()=>S.template(invalid),/Invalid|need their source query/);
+ }
+}
+// The observed STR2 prefix belongs to both rows; STR3 still has its own category.
+for(const initial2 of ['Pre','Public'])for(const initial3 of ['Pre','My']){
+ const input=clone(source),m=input.stages.momentum,categories=['Pre','My','Public','Popular'],option=value=>({value,label:value,disabled:false}),prefix=category=>'Str 2 : / '+category+'i / Source help',suffix=category=>'Str 3 : / '+category+'i';m.ruleCatalogues={};
+ for(const [child,initial] of [[44,initial2],[48,initial3]]){
+  const parent=child-1,gate=child+2,slot=child===44?2:3,lists=Object.fromEntries(categories.map(cat=>[cat,[option(slot+' '+cat+' A'),option(slot+' '+cat+' B')]])),fieldLabels=Object.fromEntries(categories.map(cat=>[cat,new Array(4).fill(slot===2?prefix(cat):prefix(initial2)+' → '+suffix(cat))]));
+  m.fields[parent].value=initial;m.fields[child].type=['My','Public'].includes(initial)?'text':'select-one';m.fields[child].value=lists[initial][0].value;m.fields[gate].checked=false;m.fields[child].disabled=true;m.fields[child+1].disabled=true;m.options[parent]=categories.map(option);m.options[child]=lists[initial];for(let n=0;n<4;n++)m.fields[parent+n].label=fieldLabels[initial][n];
+  m.ruleCatalogues[child]={parentIndex:parent,gateIndex:gate,categories:lists,controlTypes:{Pre:'select-one',My:'text',Public:'text',Popular:'select-one'},searchQueries:{My:'private',Public:'public'},fieldLabels,...(slot===2?{labelDependents:[47,48,49,50]}:{})};
+ }
+ const template=S.template(input),defaults=S.defaults(template);assert.deepEqual(S.projectRuleLabels(m.fields,m.ruleCatalogues,m.fields),m.fields.map(f=>f.label));
+ for(const category2 of categories)for(const category3 of categories){const config={...defaults,'momentum.strategy.2.source':category2,'momentum.strategy.2.rule':'2 '+category2+' A','momentum.strategy.3.source':category3,'momentum.strategy.3.rule':'3 '+category3+' A'},baseline=S.configToBaseline(config,template),fields=baseline.parameters.strategy.main.fields;assert.ok(fields.slice(43,47).every(f=>f.label===prefix(category2)));assert.ok(fields.slice(47,51).every(f=>f.label===prefix(category2)+' → '+suffix(category3)));assert.deepEqual(S.validateBaseline(clone(baseline)),baseline);assert.equal(input.stages.momentum.fields[47].label,prefix(initial2)+' → '+suffix(initial3),'Projection never mutates its original source');}
+ for(const alter of [s=>{s.stages.momentum.ruleCatalogues[44].labelDependents=[47,48,49];},s=>{s.stages.momentum.ruleCatalogues[44].labelDependents=[50,49,48,47];},s=>{s.stages.momentum.ruleCatalogues[48].labelDependents=[47,48,49,50];},s=>delete s.stages.momentum.ruleCatalogues[48].fieldLabels,s=>{s.stages.momentum.ruleCatalogues[48].fieldLabels.Public[1]='Unrelated prefix → Str 3 : / Publici';},s=>{s.stages.momentum.ruleCatalogues[44].fieldLabels.My[2]='Different row label';}]){const invalid=clone(input);alter(invalid);assert.throws(()=>S.template(invalid),/label dependenc|field labels/);}
+}
+{
+ const input=clone(source);input.stages.momentum.supportedMarkets=['NSE'];const template=S.template(input),descriptor=S.fieldsForUI(template).flatMap(g=>g.fields).find(f=>f.key==='momentum.market');assert.equal(descriptor.options.find(o=>o.value==='BSE').disabled,true);assert.match(descriptor.options.find(o=>o.value==='BSE').reason,/different source layout/);assert.equal(template.stages.momentum.options[3].find(o=>o.value==='BSE').disabled,false,'Source choices remain original evidence');assert.throws(()=>S.validateConfig({...S.defaults(template),'momentum.market':'BSE'},template),/available market/);S.validateBaseline(S.configToBaseline(S.defaults(template),template));assert.equal(S.template(source).stages.momentum.supportedMarkets,undefined,'Legacy templates are not rewritten');S.validateBaseline(b);
+ for(const change of [s=>{s.stages.momentum.supportedMarkets=['BSE'];},s=>{s.stages.momentum.fields[3].value='BSE';},s=>{s.stages.execution.supportedMarkets=['NSE'];}]){const invalid=clone(input);change(invalid);assert.throws(()=>S.template(invalid),/market layout/);}
+}
+console.log('PASS: source-derived setup, exact labels and choices, native/search main and execution rules, cross-row label projection, explicit NSE capability and legacy archives, immutable reconstruction and fictional isolation.');

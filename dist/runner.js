@@ -170,6 +170,7 @@ function configChanges(changes){
   for(const [key,value]of Object.entries(values)){
    if(!/^\d+$/.test(key)||String(Number(key))!==key||!allowed[stage].includes(Number(key))||typeof value!=='string'||!value.length||value.length>200)throw Error('This setting needs a separate source adapter.');
    if(stage==='momentum'&&key==='0'&&value!=='Candle'||stage==='execution'&&key==='3'&&value!=='Candle'||stage==='execution'&&key==='4'&&value!=='Price')throw Error('Only Candle and Price setup can be refreshed automatically.');
+   if(stage==='momentum'&&key==='3'&&value!=='NSE')throw Error('Automatic setup currently supports NSE. Other markets use a different source layout.');
   }
  }
  if(Object.values(changes).reduce((n,values)=>n+Object.keys(values).length,0)>1)throw Error('Refresh one source selector at a time.');
@@ -209,12 +210,16 @@ async function changeParents(p,changes,stage){
  }
 }
 const strategyRows=[{parentIndex:35,childIndex:36,gateIndex:34},{parentIndex:39,childIndex:40,timeframeIndex:41,gateIndex:42},{parentIndex:43,childIndex:44,timeframeIndex:45,gateIndex:46},{parentIndex:47,childIndex:48,timeframeIndex:49,gateIndex:50}];
-const ruleRowName=row=>row.parentIndex===35?'Radar':'Strategy '+((row.parentIndex-35)/4);
+const executionRows=[{parentIndex:6,childIndex:7,gateIndex:5}],stageRows=stage=>stage==='execution'?executionRows:strategyRows;
+const ruleRowName=row=>row.parentIndex===6?'Exit strategy':row.parentIndex===35?'Radar':'Strategy '+((row.parentIndex-35)/4);
 const ruleRowIndices=row=>[row.parentIndex,row.childIndex,row.timeframeIndex,row.gateIndex].filter(Number.isInteger);
-function ruleFieldLabels(main,row){
+async function enabledRule(p,row,until=Infinity){
+ await wait(()=>{const nodes=inputs(p);return nodes[row.gateIndex]?.checked&&[row.parentIndex,row.childIndex,row.timeframeIndex].filter(Number.isInteger).every(i=>nodes[i]&&!nodes[i].disabled);},Math.min(Date.now()+5000,until),'RZone did not enable the rule controls. Review its checkbox and refresh choices.');
+}
+function ruleFieldLabels(main,row,indices=ruleRowIndices(row)){
  const nodes=inputs(main),skip=new Set(['TABLE','INPUT','SELECT','TEXTAREA','BUTTON','SVG']);
  const stripped=node=>{const copy=node.cloneNode(false);for(const child of node.childNodes){if(child.nodeType===1){if(!skip.has(child.tagName.toUpperCase()))copy.appendChild(stripped(child));}else copy.appendChild(child.cloneNode(false));}return copy;};
- return ruleRowIndices(row).map(index=>{const node=nodes[index],contexts=[];for(let p=node.parentElement;p&&p!==main.parentElement;p=p.parentElement){if(p.tagName!=='TR')continue;const labels=[...p.children].map(cell=>{const copy=stripped(cell);return V.clean(copy.innerText||copy.textContent);}).filter(Boolean).join(' / ');if(labels)contexts.push(labels);if(contexts.length>=2)break;}return contexts.reverse().join(' → ')||node.getAttribute('aria-label')||node.placeholder||'Field '+(index+1);});
+ return indices.map(index=>{const node=nodes[index],contexts=[];for(let p=node.parentElement;p&&p!==main.parentElement;p=p.parentElement){if(p.tagName!=='TR')continue;const labels=[...p.children].map(cell=>{const copy=stripped(cell);return V.clean(copy.innerText||copy.textContent);}).filter(Boolean).join(' / ');if(labels)contexts.push(labels);if(contexts.length>=2)break;}return contexts.reverse().join(' → ')||node.getAttribute('aria-label')||node.placeholder||'Field '+(index+1);});
 }
 const observedRuleShape=(row,node,category)=>node?.tagName==='SELECT'?'select-one':row.parentIndex!==35&&['My','Public'].includes(category)&&ruleSearch(node)?'text':null;
 function knownRule(main,row){const nodes=inputs(main),node=nodes[row.childIndex],known=selectedRules.get(node);return known&&known.value===node.value&&known.category===V.clean(nodes[row.parentIndex].selectedOptions[0]?.textContent)?known:null;}
@@ -234,10 +239,11 @@ function strategyOptions(node,allowAmbiguous=true){
  return compactRuleChoices(choices);
 }
 const noRules=menu=>[...menu.querySelectorAll('.gwt-HTML')].some(n=>C.visible(n)&&/^No matching system builder found\.?$/i.test(V.clean(n.textContent)));
-function ruleMenu(){
- const found=popups().filter(p=>!V.clean(p.querySelector('.caption')?.textContent)&&([...p.querySelectorAll('.ind-list li[sbid]')].some(C.visible)||noRules(p)));
+function ruleMenu(container){
+ const allowed=container!==C.main()&&C.popup('Momentum Trading BackTest')===container?container:null;
+ const others=popups().filter(p=>p!==allowed),found=others.filter(p=>!V.clean(p.querySelector('.caption')?.textContent)&&([...p.querySelectorAll('.ind-list li[sbid]')].some(C.visible)||noRules(p)));
  const loading=p=>!V.clean(p.querySelector('.caption')?.textContent)&&p.querySelector('.ind-list')&&![...p.querySelectorAll('.ind-list li')].some(C.visible);
- if(found.length>1||popups().some(p=>!found.includes(p)&&!loading(p)))throw Error('RZone opened an unexpected dialog while reading rules. Close it and refresh choices.');
+ if(found.length>1||others.some(p=>!found.includes(p)&&!loading(p)))throw Error('RZone opened an unexpected dialog while reading rules. Close it and refresh choices.');
  return found[0];
 }
 function ruleMenuChoices(menu){
@@ -246,12 +252,12 @@ function ruleMenuChoices(menu){
  return compactRuleChoices(rows.map(row=>{const label=V.clean(row.textContent),id=row.getAttribute('sbid');if(!label||!id||label.length>2000||id.length>2000)throw Error('RZone rule choices are incomplete. Refresh choices and try again.');return {value:label,label,sourceValue:id,disabled:false};}));
 }
 function ruleOutside(main){
- const row=inputs(main)[0]?.closest('tr'),outside=[...(row?.children||[])].filter(n=>n.tagName==='TD'&&C.visible(n)&&!n.children.length&&/^Chart Type\s*:$/i.test(V.clean(n.textContent)));
+ const row=inputs(main)[main===C.main()?0:3]?.closest('tr'),outside=[...(row?.children||[])].filter(n=>n.tagName==='TD'&&C.visible(n)&&!n.children.length&&/^Chart Type\s*:$/i.test(V.clean(n.textContent)));
  if(outside.length!==1)throw Error('Cannot identify the RZone chart label. Refresh RZone and connect again.');return outside[0];
 }
 async function dismissRuleMenu(main,owned,until){
  if(![...owned].some(p=>p.isConnected&&C.visible(p)))return;
- ruleMenu();const outside=ruleOutside(main);outside.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));outside.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));ownClick(outside);
+ ruleMenu(main);const outside=ruleOutside(main);outside.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));outside.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));ownClick(outside);
  const deadline=Math.min(Date.now()+5000,until);for(;;){check();if([...owned].every(p=>!p.isConnected||!C.visible(p)))return;if(Date.now()>=deadline)throw Error('RZone rule menu did not close. Close it before continuing.');await delay(100);}
 }
 function ruleQuery(node,value){
@@ -260,8 +266,9 @@ function ruleQuery(node,value){
  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,value);node.dispatchEvent(new Event('input',{bubbles:true}));node.dispatchEvent(new KeyboardEvent('keyup',{key,keyCode,which:keyCode,bubbles:true}));
 }
 async function searchRules(main,index,query,{choose=false,sourceValue=null,until=Infinity}={}){
+ if(Date.now()>=until)throw Error('RZone rule search timed out before it could start. Refresh choices and try again.');
  const node=inputs(main)[index];if(!ruleSearch(node)||node.disabled)throw Error('The RZone system-builder search is unavailable.');
- if(popups().length)throw Error('Close the open RZone menu before reading rules.');
+ if(popups().some(p=>p!==main))throw Error('Close the open RZone menu before reading rules.');
  const original=node.value,owned=new Set(),old=new Set(document.querySelectorAll('.popupContent')),changed=new Set();let signature='',stableAt=Date.now(),observed=false;
  const observer=new MutationObserver(records=>{for(const p of document.querySelectorAll('.popupContent'))if(records.some(r=>r.target===p||p.contains(r.target))){changed.add(p);if(owned.has(p))stableAt=Date.now();}});observer.observe(document.body,{childList:true,subtree:true,characterData:true});
  try{
@@ -269,13 +276,13 @@ async function searchRules(main,index,query,{choose=false,sourceValue=null,until
   const deadline=Math.min(Date.now()+10000,until);let choices,menu;
   while(Date.now()<deadline){
    check();if(inputs(main)[index]!==node||node.value!==query)throw Error('The RZone rule search changed while reading choices.');
-   menu=ruleMenu();if(menu){if(!owned.has(menu)&&(!old.has(menu)||changed.has(menu))){owned.add(menu);stableAt=Date.now();observed=true;}
+   menu=ruleMenu(main);if(menu){if(!owned.has(menu)&&(!old.has(menu)||changed.has(menu))){owned.add(menu);stableAt=Date.now();observed=true;}
     const read=ruleMenuChoices(menu),next=JSON.stringify(read);if(next!==signature){signature=next;stableAt=Date.now();}
     if(observed&&(read.length||noRules(menu))&&Date.now()-stableAt>=750){choices=read;break;}
    }await delay(100);
   }
   if(!choices){failed=true;throw Error('RZone did not finish loading its system-builder choices. Refresh RZone before reconnecting.');}
-  if(choose){const matches=[...menu.querySelectorAll('.ind-list li[sbid]')].filter(n=>C.visible(n)&&V.clean(n.textContent)===query&&(sourceValue===null||n.getAttribute('sbid')===sourceValue));if(matches.length!==1)throw Error(matches.length?'The rule name matches more than one RZone choice. Choose a unique rule.':'RZone did not confirm that rule. Choose an available rule.');const id=matches[0].getAttribute('sbid');ownClick(matches[0]);await delay(150);if(V.clean(node.value)!==query)throw Error('RZone selected a different rule.');const row=strategyRows.find(r=>r.childIndex===index);selectedRules.set(node,{value:query,sbid:id,category:V.clean(inputs(main)[row.parentIndex].selectedOptions[0]?.textContent)});}
+  if(choose){const matches=[...menu.querySelectorAll('.ind-list li[sbid]')].filter(n=>C.visible(n)&&V.clean(n.textContent)===query&&(sourceValue===null||n.getAttribute('sbid')===sourceValue));if(matches.length!==1)throw Error(matches.length?'The rule name matches more than one RZone choice. Choose a unique rule.':'RZone did not confirm that rule. Choose an available rule.');const id=matches[0].getAttribute('sbid');ownClick(matches[0]);await delay(150);if(V.clean(node.value)!==query)throw Error('RZone selected a different rule.');const row=[...strategyRows,...executionRows].find(r=>r.childIndex===index);selectedRules.set(node,{value:query,sbid:id,category:V.clean(inputs(main)[row.parentIndex].selectedOptions[0]?.textContent)});}
   return choices;
  }finally{
   observer.disconnect();if(!interrupted&&node.isConnected){if(!choose)Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,original);await dismissRuleMenu(main,owned,Math.max(Date.now()+1000,until));node.blur();}
@@ -310,7 +317,7 @@ async function restoreStrategyRow(main,row,snapshot,original){
   }
  }catch(error){restoreError=error;}
  finally{
-  if(!interrupted&&C.main()===main){
+  if(!interrupted&&main.isConnected&&C.visible(main)){
    const gate=inputs(main)[row.gateIndex];if(gate?.type==='checkbox'&&gate.checked!==original.enabled){ownClick(gate);await delay(150);}
   }
  }
@@ -319,19 +326,22 @@ async function restoreStrategyRow(main,row,snapshot,original){
  if(JSON.stringify(restored)!==JSON.stringify(snapshot))throw Error('RZone strategy settings changed during discovery. Review the source before reconnecting.');
  return restored;
 }
-async function strategyCatalogues(main,deadline){
+async function strategyCatalogues(main,deadline,stage='momentum'){
  const catalogues={};let snapshot=C.fields(main);
- for(const row of strategyRows){
+ for(const row of stageRows(stage)){
   check();if(Date.now()>=deadline)throw Error('RZone strategy choices took too long to load. Refresh choices and try again.');
   const nodes=inputs(main),parent=nodes[row.parentIndex],child=nodes[row.childIndex],gate=nodes[row.gateIndex],timeframe=nodes[row.timeframeIndex];
-  if(snapshot.length!==52||parent?.tagName!=='SELECT'||!observedRuleShape(row,child,V.clean(parent.selectedOptions[0]?.textContent))||Number.isInteger(row.timeframeIndex)&&timeframe?.tagName!=='SELECT'||gate?.type!=='checkbox'||gate.disabled)throw Error('RZone strategy layout changed. Refresh RZone and connect again.');
+  if(snapshot.length!==(stage==='execution'?12:52)||parent?.tagName!=='SELECT'||!observedRuleShape(row,child,V.clean(parent.selectedOptions[0]?.textContent))||Number.isInteger(row.timeframeIndex)&&timeframe?.tagName!=='SELECT'||gate?.type!=='checkbox'||gate.disabled)throw Error('RZone strategy layout changed. Refresh RZone and connect again.');
   const selection=restorableRule(main,row);
   const offered=strategyOptions(parent,false).filter(o=>!o.disabled&&['Pre','My','Public','Popular'].includes(o.value));
   const selected=V.clean(parent.selectedOptions[0]?.textContent);
   if(!offered.some(o=>o.value===selected))throw Error('The selected RZone strategy category is not available for automatic discovery.');
   const original={parentValue:parent.value,ruleValue:child.value,timeframeValue:timeframe?.value,enabled:gate.checked,selection},categories={},controlTypes={},fieldLabels={},searchQueries={};let reading=selected;
+  // On the observed source STR3 sits inside STR2's table row. Prove that
+  // exact ancestor prefix for every offered category before publishing it.
+  const dependents=row.parentIndex===43&&[47,48,49,50].every(i=>snapshot[i].label.startsWith(snapshot[43].label+' → '))?[47,48,49,50]:[];
   try{
-   if(!gate.checked){ownClick(gate);await delay(150);await settledOptions(main,row.childIndex,()=>true,deadline);}
+   if(!gate.checked){ownClick(gate);await delay(150);await enabledRule(main,row,deadline);await settledOptions(main,row.childIndex,()=>true,deadline);}
    if(inputs(main)[row.parentIndex].value!==original.parentValue)await selectValue(main,inputs(main)[row.parentIndex],original.parentValue,{gate:row.gateIndex,child:row.childIndex},deadline);
    const initialChild=inputs(main)[row.childIndex],initialAnchor=initialChild.tagName==='SELECT'&&initialChild.options.length?offered.find(o=>o.value===selected):null;
    const ordered=['Pre','Popular','My','Public'].map(name=>offered.find(option=>option.value===name)).filter(Boolean);
@@ -359,11 +369,12 @@ async function strategyCatalogues(main,deadline){
     if(V.clean(inputs(main)[row.parentIndex].selectedOptions[0]?.textContent)!==category.value)throw Error('The RZone strategy category changed while reading choices.');
     const child=inputs(main)[row.childIndex],shape=observedRuleShape(row,child,category.value);if(!shape)throw Error('The rule control changed to an unsupported layout.');
     controlTypes[category.value]=shape;categories[category.value]=shape==='text'?[]:strategyOptions(child);fieldLabels[category.value]=ruleFieldLabels(main,row);
+    if(dependents.length){const labels=ruleFieldLabels(main,row,dependents),prefix=fieldLabels[category.value][0]+' → ',oldPrefix=snapshot[43].label+' → ';if(dependents.some((index,i)=>labels[i]!==prefix+snapshot[index].label.slice(oldPrefix.length)))throw Error('The dependent strategy labels changed unexpectedly. Refresh choices.');}
    }
   }catch(error){throw Error(ruleRowName(row)+' / '+reading+': '+error.message);
   }finally{if(!interrupted)snapshot=await restoreStrategyRow(main,row,snapshot,original);}
   if(original.restoreChoices){categories[selected]=original.restoreChoices;searchQueries[selected]=original.ruleValue;}
-  catalogues[row.childIndex]={parentIndex:row.parentIndex,gateIndex:row.gateIndex,categories,controlTypes,fieldLabels,searchQueries};
+  catalogues[row.childIndex]={parentIndex:row.parentIndex,gateIndex:row.gateIndex,categories,controlTypes,fieldLabels,searchQueries,...(dependents.length?{labelDependents:dependents}:{})};
  }
  return catalogues;
 }
@@ -379,22 +390,27 @@ async function configuration(requestedChanges){
   for(const row of strategyRows)restorableRule(C.main(),row);
   C.status('Connecting to Vault: reading strategy choices…');
   const original=C.fields(C.main());if(original.length!==52||original[0]?.value!=='Candle')throw Error('This source layout needs a separate automatic setup adapter.');
-  await changeParents(C.main(),changes.momentum,'momentum');const momentum=descriptor(C.main());
+  await changeParents(C.main(),changes.momentum,'momentum');const momentum={...descriptor(C.main()),supportedMarkets:['NSE']};
   if(momentum.fields.length!==52||momentum.fields[0]?.value!=='Candle'||momentum.fields[51]?.checked)throw Error('Vault setup currently supports the standard Candle layout without Relative Strength. This RZone layout needs a separate adapter.');
   if(momentum.fields[2]?.checked)throw Error('Market Trend Filter has additional source settings. Turn it off before connecting this setup.');
   momentum.options[1]=await groupCatalogue(C.main());
-  // Scan for at most 35 s, stopping by 38 s from request start (28 s when an
-  // execution parent must also refresh). Reserve 5 s for row restoration,
-  // 10 s to open execution settings, optionally 10 s for that parent refresh,
-  // and 5 s to close the owned dialog: at most 58 s of the worker's 60 s.
-  // The dashboard's 70 s deadline and all fresh-response checks stay unchanged.
+  // Discovery shares a bounded request budget. Main scanning keeps its 35 s
+  // cap; execution must be open/refreshed by 43 s, and its scan ends at 48 s.
+  // Reserve 5 s each for exact exit restoration and owned-dialog closure,
+  // keeping the complete operation within the worker's unchanged 60 s.
   const scanDeadline=Math.min(Date.now()+35000,started+(Object.keys(changes.execution||{}).length?28000:38000));
   momentum.ruleCatalogues=await strategyCatalogues(C.main(),scanDeadline);
   for(const [child,catalogue]of Object.entries(momentum.ruleCatalogues))momentum.options[child]=catalogue.categories[momentum.fields[catalogue.parentIndex].value];
   C.status('Connecting to Vault: reading backtest settings…');
-  button(C.main(),/^BackTest$/i).click();setup=await wait(()=>C.popup('Momentum Trading BackTest'),Date.now()+10000,'Momentum settings did not open.');
+  const openUntil=started+43000-(Object.keys(changes.execution||{}).length?10000:0);
+  if(Date.now()>=openUntil)throw Error('RZone choices took too long to load. Refresh choices and try again.');
+  button(C.main(),/^BackTest$/i).click();setup=C.popup('Momentum Trading BackTest')||await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(Date.now()+10000,openUntil),'Momentum settings did not open.');
+  for(const row of executionRows)restorableRule(setup,row);
   await changeParents(setup,changes.execution,'execution');const execution=descriptor(setup);
   if(execution.fields.length!==12||execution.fields[3]?.value!=='Candle'||execution.fields[4]?.value!=='Price')throw Error('Vault setup currently supports Candle with Price execution. This execution layout needs a separate adapter.');
+  execution.ruleCatalogues=await strategyCatalogues(setup,started+48000,'execution');
+  for(const [child,catalogue]of Object.entries(execution.ruleCatalogues))execution.options[child]=catalogue.categories[execution.fields[catalogue.parentIndex].value];
+  if(JSON.stringify(C.fields(C.main()))!==JSON.stringify(momentum.fields))throw Error('RZone momentum settings changed while reading backtest choices. Review the source.');
   const portfolio=window.VaultSetup?.portfolioTemplate();if(!portfolio)throw Error('Vault setup template is unavailable. Reload the extension and RZone.');
   check();config={schemaVersion:1,session,capturedAt:new Date().toISOString(),stages:{momentum,execution,portfolio},supports:{charts:['Candle'],blocked:['relative-strength','market-filter']}};
   }finally{if(setup&&C.visible(setup)&&!interrupted)await close(setup);}
@@ -403,41 +419,46 @@ async function configuration(requestedChanges){
  finally{configuring=false;}
 }
 async function ruleLookup(request){
+ const started=Date.now(),workUntil=started+45000;
  if(request.session!==session)throw Error('The RZone page changed. Connect again before searching rules.');
- if(![39,43,47].includes(request.parentIndex)||!['My','Public'].includes(request.category)||typeof request.query!=='string'||request.query!==request.query.trim()||!request.query||request.query.length>200||/[\u0000-\u001f\u007f]/.test(request.query))throw Error('Enter a rule search of 1 to 200 characters for My or Public.');
+ const stage=request.stage===undefined?'momentum':request.stage;
+ if(!['momentum','execution'].includes(stage)||!(stage==='execution'?[6]:[39,43,47]).includes(request.parentIndex)||!['My','Public'].includes(request.category)||typeof request.query!=='string'||request.query!==request.query.trim()||!request.query||request.query.length>200||/[\u0000-\u001f\u007f]/.test(request.query))throw Error('Enter a rule search of 1 to 200 characters for My or Public.');
  if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
- configuring=true;interrupted=false;let main,row,snapshot,original;
+ configuring=true;interrupted=false;let main,row,snapshot,original,setup,mainSnapshot;
  try{
-  await prepare();await settledMain();main=C.main();row=strategyRows.find(r=>r.parentIndex===request.parentIndex);restorableRule(main,row);
-  snapshot=C.fields(main);if(snapshot.length!==52||snapshot[0].value!=='Candle')throw Error('This source layout needs a separate automatic setup adapter.');
+  await prepare();await settledMain();mainSnapshot=C.fields(C.main());
+  if(mainSnapshot.length!==52||mainSnapshot[0].value!=='Candle'||[2,51].some(i=>mainSnapshot[i].checked))throw Error('This source layout needs a separate automatic setup adapter.');
+  if(stage==='execution'){if(Date.now()>=workUntil)throw Error('RZone rule search timed out. Refresh choices and try again.');button(C.main(),/^BackTest$/i).click();setup=C.popup('Momentum Trading BackTest')||await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(Date.now()+10000,workUntil),'Momentum settings did not open.');}
+  main=setup||C.main();row=stageRows(stage).find(r=>r.parentIndex===request.parentIndex);restorableRule(main,row);
+  snapshot=C.fields(main);if(stage==='execution'&&(snapshot.length!==12||snapshot[3].value!=='Candle'||snapshot[4].value!=='Price'))throw Error('This execution layout needs a separate automatic setup adapter.');
   const nodes=inputs(main),parent=nodes[row.parentIndex],child=nodes[row.childIndex],gate=nodes[row.gateIndex],timeframe=nodes[row.timeframeIndex];
   if(parent.tagName!=='SELECT'||!observedRuleShape(row,child,V.clean(parent.selectedOptions[0]?.textContent))||gate.type!=='checkbox'||gate.disabled)throw Error('RZone strategy layout changed. Refresh RZone and connect again.');
   const offered=[...parent.options].filter(o=>!o.disabled&&V.clean(o.textContent)===request.category);if(offered.length!==1)throw Error('The requested source category is unavailable.');
-  original={parentValue:parent.value,ruleValue:child.value,timeframeValue:timeframe.value,enabled:gate.checked,selection:knownRule(main,row)};
-  const deadline=Date.now()+25000;
+  original={parentValue:parent.value,ruleValue:child.value,timeframeValue:timeframe?.value,enabled:gate.checked,selection:knownRule(main,row)};
+  const deadline=Math.min(Date.now()+25000,workUntil);
+  if(Date.now()>=deadline)throw Error('RZone rule search timed out. Refresh choices and try again.');
   if(!gate.checked){ownClick(gate);await delay(150);}
+  await enabledRule(main,row,deadline);
   if(parent.value!==offered[0].value)await selectValue(main,parent,offered[0].value,{gate:row.gateIndex,child:row.childIndex},deadline);
   if(!ruleSearch(inputs(main)[row.childIndex]))throw Error('This category does not expose a system-builder search. Refresh choices.');
   unchangedOutsideRow(main,snapshot,row);
   const options=await searchRules(main,row.childIndex,request.query,{until:deadline});
   unchangedOutsideRow(main,snapshot,row);
   if(V.clean(inputs(main)[row.parentIndex].selectedOptions[0]?.textContent)!==request.category)throw Error('The rule source changed while searching.');
-  return {parentIndex:row.parentIndex,childIndex:row.childIndex,category:request.category,query:request.query,controlType:'text',options};
+  return {stage,parentIndex:row.parentIndex,childIndex:row.childIndex,category:request.category,query:request.query,controlType:'text',options};
  }catch(error){throw Error((row?ruleRowName(row)+' / '+request.category+': ':'')+error.message);
- }finally{try{if(original&&!interrupted)await restoreStrategyRow(main,row,snapshot,original);}finally{configuring=false;}}
+ }finally{try{try{if(original&&!interrupted)await restoreStrategyRow(main,row,snapshot,original);}finally{if(setup?.isConnected&&C.visible(setup)&&!interrupted)await close(setup);}if(mainSnapshot&&stage==='execution'&&!interrupted&&JSON.stringify(C.fields(C.main()))!==JSON.stringify(mainSnapshot))throw Error('RZone momentum settings changed while reading exit rules. Review the source.');}finally{configuring=false;}}
 }
 function sameValue(a,b){try{E.verify([{...a,index:0}],[{...b,index:0}]);return true;}catch{return false;}}
 function ruleTransition(expected,current,index,catalogues){
- const row=strategyRows.find(r=>r.childIndex===index&&r.parentIndex!==35),types=row&&catalogues?.[index]?.controlTypes;if(!types)return false;
+ const row=[...strategyRows,...executionRows].find(r=>r.childIndex===index&&r.parentIndex!==35),types=row&&catalogues?.[index]?.controlTypes;if(!types)return false;
  const from=current[row.parentIndex]?.value,to=expected[row.parentIndex]?.value;
  return from!==to&&types[from]===current[index]?.type&&types[to]===expected[index]?.type&&['select-one','text'].includes(types[from])&&['select-one','text'].includes(types[to]);
 }
-function ruleLabelTransition(expected,current,index,catalogues){
- const row=strategyRows.find(r=>ruleRowIndices(r).includes(index)),labels=row&&catalogues?.[row.childIndex]?.fieldLabels;if(!labels)return false;
- const from=current[row.parentIndex]?.value,to=expected[row.parentIndex]?.value,at=ruleRowIndices(row).indexOf(index);
- return from!==to&&labels[from]?.[at]===current[index]?.label&&labels[to]?.[at]===expected[index]?.label;
+function layout(expected,current,catalogues,base){
+ const project=window.VaultSetup?.projectRuleLabels,from=base&&project?project(base,catalogues,current):null,to=base&&project?project(base,catalogues,expected):null;
+ if(expected.length!==current.length||expected.some((f,i)=>f.type!==current[i].type&&!ruleTransition(expected,current,i,catalogues)||V.clean(f.label)!==V.clean(current[i].label)&&!(from?.[i]===current[i].label&&to?.[i]===f.label)))throw Error('Settings layout changed. Review the source tab.');
 }
-function layout(expected,current,catalogues){if(expected.length!==current.length||expected.some((f,i)=>f.type!==current[i].type&&!ruleTransition(expected,current,i,catalogues)||V.clean(f.label)!==V.clean(current[i].label)&&!ruleLabelTransition(expected,current,i,catalogues)))throw Error('Settings layout changed. Review the source tab.');}
 function nodeField(node,field){return {...field,type:node.type,value:node.tagName==='SELECT'?[...node.selectedOptions].map(o=>V.clean(o.textContent)).join('; '):node.value,checked:['checkbox','radio'].includes(node.type)?node.checked:null,disabled:node.disabled};}
 function setupNodes(p,expected,catalogues){const nodes=inputs(p),current=nodes.map((n,i)=>nodeField(n,expected[i]));if(nodes.length!==expected.length||nodes.some((n,i)=>n.type!==expected[i].type&&(!ruleTransition(expected,current,i,catalogues)||!ruleShape(n))))throw Error('Settings layout changed. Review the source tab.');return nodes;}
 function setText(node,value){const proto=node.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(proto,'value').set.call(node,String(value));node.dispatchEvent(new Event('input',{bubbles:true}));node.dispatchEvent(new Event('change',{bubbles:true}));}
@@ -451,9 +472,9 @@ async function group(node,value){
  ownClick(selected);node.blur();await delay(150);if(V.clean(node.value)!==V.clean(value))throw Error('RZone selected a different group.');
 }
 async function setField(p,index,f,stage){
- check();const node=inputs(p)[index];if(!node||node.type!==f.type)throw Error('Settings layout changed. Review the source tab.');const current=nodeField(node,f),search=stage==='momentum'&&[40,44,48].includes(index)&&ruleSearch(node);if(sameValue(f,current)&&!(stage==='momentum'&&index===1)&&!(search&&f.value.trim()&&!node.disabled))return;
+ check();const node=inputs(p)[index];if(!node||node.type!==f.type)throw Error('Settings layout changed. Review the source tab.');const current=nodeField(node,f),search=(stage==='momentum'?[40,44,48]:stage==='execution'?[7]:[]).includes(index)&&ruleSearch(node);if(sameValue(f,current)&&!(stage==='momentum'&&index===1)&&!(search&&f.value.trim()&&!node.disabled))return;
  if(node.disabled)throw Error('Planned setting is disabled: '+f.label);
- if(['checkbox','radio'].includes(f.type)){if(f.type==='radio'&&!f.checked)return;ownClick(node);}
+ if(['checkbox','radio'].includes(f.type)){if(f.type==='radio'&&!f.checked)return;ownClick(node);const row=stageRows(stage).find(r=>r.gateIndex===index);if(row&&f.checked&&['momentum','execution'].includes(stage))await enabledRule(p,row);}
  else if(node.tagName==='SELECT'){const matches=[...node.options].filter(o=>!o.disabled&&V.clean(o.textContent)===String(f.value));if(matches.length!==1)throw Error('Planned dropdown value is unavailable: '+f.label);await selectValue(p,node,matches[0].value,sourceParents[stage]?.[index]);}
  else if(stage==='momentum'&&index===1)await group(node,String(f.value));
  else if(search){if(f.value.trim())await searchRules(p,index,String(f.value),{choose:true,until:Date.now()+10000});else {Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,'');node.blur();}}
@@ -461,8 +482,8 @@ async function setField(p,index,f,stage){
  await delay(150);
 }
 async function applySetup(p,expected,stage,template){
- const catalogues=stage==='momentum'?template?.stages?.momentum?.ruleCatalogues:null;
- layout(expected,C.fields(p),catalogues);
+ const descriptor=template?.stages?.[stage],catalogues=descriptor?.ruleCatalogues;
+ layout(expected,C.fields(p),catalogues,descriptor?.fields);
  if(stage==='momentum'&&(expected.length!==52||expected[0].value!=='Candle'||[2,51].some(i=>expected[i].checked)))throw Error('This setup uses a source filter that has not been validated for automatic execution.');
  if(stage==='execution'&&(expected.length!==12||expected[3].value!=='Candle'||expected[4].value!=='Price'))throw Error('This execution setup has not been validated for automatic execution.');
  // Checkbox gates may disable their retained numeric values. Populate those
@@ -486,6 +507,10 @@ async function apply(p,e,t,stage){
  // Validate fixed controls before changing anything. Never silently restore another strategy.
  const fixed=E.clone(expected);for(const i of allowed)if(current[i])fixed[i]={...fixed[i],value:current[i].value,checked:current[i].checked};E.verify(fixed,current);
  for(const i of allowed){check();const f=expected[i],nodes=inputs(p),node=nodes[i];if(!node||node.disabled)throw Error('Planned setting is disabled: '+f.label);if(f.type==='checkbox'){if(node.checked!==f.checked)ownClick(node);}else if(node.tagName==='SELECT'){const matches=[...node.options].filter(o=>V.clean(o.textContent)===String(f.value));if(matches.length!==1)throw Error('Planned dropdown value is unavailable.');node.value=matches[0].value;node.dispatchEvent(new Event('change',{bubbles:true}));}else{const setter=Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set;setter.call(node,String(f.value));node.dispatchEvent(new Event('input',{bubbles:true}));node.dispatchEvent(new Event('change',{bubbles:true}));node.blur();}await delay(150);}
+ // A saved report proves its earlier selection, not the current search box's
+ // committed ID. Re-select active text rules through exact visible suggestions
+ // even when the displayed value still matches that earlier report.
+ if(['momentum','execution'].includes(stage))for(const row of stageRows(stage)){const nodes=inputs(p),node=nodes[row.childIndex];if(nodes[row.gateIndex]?.checked&&ruleSearch(node)){if(!expected[row.childIndex]?.value.trim())throw Error('Choose a rule before running '+ruleRowName(row)+'.');await searchRules(p,row.childIndex,expected[row.childIndex].value,{choose:true,until:Date.now()+10000});}}
  E.verify(expected,C.fields(p));
 }
 async function run(job){
@@ -538,7 +563,7 @@ async function run(job){
  }catch(error){failed=true;C.status('Experiment stopped: '+error.message);try{await send({...common,action:'fail',error:error.message});}catch{/* Durable lease prevents replay if the worker is unreachable. */}}
  finally{active=false;}
 }
-for(const type of ['click','input','change'])document.addEventListener(type,event=>{if(!writing&&event.isTrusted&&!C.host.contains(event.target)){const nodes=C.main()?inputs(C.main()):[];if(['input','change'].includes(type)){selectedRules.delete(event.target);for(const row of strategyRows)if(event.target===nodes[row.parentIndex])selectedRules.delete(nodes[row.childIndex]);}if(type==='click'&&event.target.closest?.('.ind-list li[sbid]'))for(const row of strategyRows)if(ruleSearch(nodes[row.childIndex]))selectedRules.delete(nodes[row.childIndex]);if(active||configuring)interrupted=true;}},true);
+for(const type of ['click','input','change'])document.addEventListener(type,event=>{if(!writing&&event.isTrusted&&!C.host.contains(event.target)){for(const [container,rows]of [[C.main(),strategyRows],[C.popup('Momentum Trading BackTest'),executionRows]]){if(!container)continue;const nodes=inputs(container);if(['input','change'].includes(type)){selectedRules.delete(event.target);for(const row of rows)if(event.target===nodes[row.parentIndex])selectedRules.delete(nodes[row.childIndex]);}if(type==='click'&&event.target.closest?.('.ind-list li[sbid]'))for(const row of rows)if(ruleSearch(nodes[row.childIndex]))selectedRules.delete(nodes[row.childIndex]);}if(active||configuring)interrupted=true;}},true);
 async function tick(){if(polling)return;polling=true;try{const r=await send({action:'hello',...sourceStatus(),failed});if(r.id&&!active&&!configuring&&!failed){const job=await send({action:'claim',id:r.id});if(job.trial)void run(job);}}catch{/* Reload invalidates the document; do not keep sending or submit again. */failed=true;}finally{polling=false;}}
 window.VaultRunner={get active(){return active;},apply};
 const timer=setInterval(tick,3000);void tick();window.addEventListener('pagehide',()=>{clearInterval(timer);interrupted=true;},{once:true});

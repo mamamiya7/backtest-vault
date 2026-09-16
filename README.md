@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.8.8 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.8.9 preview** · Chrome · Local storage · MIT · No cloud account
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
@@ -37,7 +37,7 @@ flowchart LR
 4. **Backtest:** check the compact summary, test count and comparison rules, then choose **Run … tests**. All source settings are already editable on the main page. Leave the range controls unused to run the current setup once.
 5. **Results:** Vault saves each report automatically. Open a saved trial or compare the batch in **Decision desk**. Exporting is an optional backup, not a step required to finish a run.
 
-**New test** and **Refresh choices** load Group and the native dropdowns for **Radar** and **Strategy 1–3**, temporarily enabling each source row and restoring its settings afterward. Radar currently offers **Pre / My**. STR **Pre / Popular** are dropdowns; STR **My / Public** are searches in RZone. Choose a category in Vault, enter a strategy name or keyword and click **Search** for those searchable categories, then select a returned rule. An untouched search is not an empty account; a completed search with no matches shows that explicitly. Identical names are unavailable for automatic selection because the source identity would be ambiguous. Each category retains its own rule and Test values while you edit. Refresh again after adding rules in RZone; removed choices stay visible for review. Market changes refresh Group; exit-source menus refresh on demand. Loading or searching choices never submits a backtest.
+**New test** and **Refresh choices** load Group and the native dropdowns for **Radar**, **Strategy 1–3** and **Exit Strategy**, temporarily enabling each source row and restoring its settings afterward. Radar currently offers **Pre / My**. Strategy and exit **Pre / Popular** are dropdowns; strategy/exit **My / Public** are searches in RZone. Choose a category in Vault, enter a strategy name or keyword and click **Search** for those searchable categories, then select a returned rule. An untouched search is not an empty account; a completed search with no matches shows that explicitly. Identical names are unavailable for automatic selection because the source identity would be ambiguous. Each category retains its own rule and Test values while you edit. Refresh again after adding rules in RZone; removed choices stay visible for review. Fresh connected setups currently support NSE; other markets require a separate form adapter. Loading or searching choices never submits a backtest.
 
 Keep RZone open during execution and leave its settings alone until the batch finishes. **Use a saved run** remains available in Experiments for an existing research baseline.
 
@@ -53,7 +53,7 @@ Dates, universe, market, chart model and portfolio assumptions stay shared withi
 
 ```mermaid
 flowchart LR
-    A["Signed-in RZone<br/>Group + native Radar / STR dropdowns"] -->|"Open New test / Refresh choices"| B["Choose in Vault<br/>Radar · STR1 · STR2 · STR3<br/>Each category keeps its own choices"]
+    A["Signed-in RZone<br/>Group + native Radar / STR / exit dropdowns"] -->|"Open New test / Refresh choices"| B["Choose in Vault<br/>Radar · STR1 · STR2 · STR3 · Exit<br/>Each category keeps its own choices"]
     B -->|"My / Public: keyword + Search"| Q["RZone matched choices<br/>Select an exact unique rule"]
     Q --> B
     B -->|"Refresh after source changes"| A
@@ -64,7 +64,7 @@ flowchart LR
 
 [Open the fictional experiment demo](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [full workflow and recovery guide](docs/EXPERIMENTS.md).
 
-| Available in 0.8.8 preview | Acceptance boundary |
+| Available in 0.8.9 preview | Acceptance boundary |
 | --- | --- |
 | Vault-first Candle/Price setup, source dropdown refresh and single or multiple tests | New flow covered by local checks; live acceptance of this full setup flow remains pending |
 | Finite plans, reproducible samples, bounded adaptive neighborhood search | Local planner and isolated simulation tested |
@@ -74,7 +74,7 @@ flowchart LR
 
 ![Experiment Decision Desk with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
 
-No LLM setup is required. Current automatic setup uses **Candle**, **Price**, **Relative Strength off** and **Market Trend Filter off**. P&F/Renko execution and dynamic RS/filter adapters remain on the delivery plan. Existing captures from those chart families can still be inspected and compared.
+No LLM setup is required. Current automatic setup uses **NSE**, **Candle**, **Price**, **Relative Strength off** and **Market Trend Filter off**. P&F/Renko execution and dynamic RS/filter adapters remain on the delivery plan. Existing captures from those chart families can still be inspected and compared. A [consolidated source-control audit](docs/EXPERIMENTS.md#chart-and-dependent-control-coverage) records the broader form dependencies separately from automation support.
 
 ### Sample results or a real backtest?
 
@@ -357,7 +357,7 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 
 **Validation evidence:** all nine local test suites passed for v0.7.3. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
 
-On 2026-09-16, a real three-trial Candle experiment completed through the installed extension's **v0.7.3 saved-baseline flow**. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This establishes the tested older flow; it does not validate v0.8.8's new full setup, every source layout or P&F/Renko execution. Private reports remain outside this repository.
+On 2026-09-16, a real three-trial Candle experiment completed through the installed extension's **v0.7.3 saved-baseline flow**. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This establishes the tested older flow; it does not validate v0.8.9's new full setup, every source layout or P&F/Renko execution. Private reports remain outside this repository.
 
 Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. Earlier dashboard revisions were checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
 
@@ -407,7 +407,7 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/U
 npm run package:public
 ```
 
-This copies an explicit public-file allowlist into `releases/backtest-vault-0.8.8-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.8.9-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
 
 ## License and affiliation
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.8.9 preview - 2026-09-16
+
+- Extend native-menu discovery and My/Public keyword search to Candle/Price Exit Strategy, with the same source restoration and exact-selection checks as STR1–3.
+- Preserve the observed label dependency between STR2 and STR3 when their categories change, including simultaneous changes. Keep final submitted-settings comparison exact.
+- Make the current NSE setup limit explicit: other markets remove Radar and require a separate form adapter. Existing archives remain readable.
+- Wait for rule controls to become enabled before searching, and reserve source-restoration time inside the existing connection deadline.
+- Consolidate a live inspection of Candle, P&F, Renko, market/group choices, STR1–3, Radar, Relative Strength, Market Trend Filter, execution and portfolio controls. This inspection does not enable unvalidated chart automation.
+- Add cross-stage search, restoration, ambiguous/missing result, combined strategy/exit and capability regressions. Installed acceptance remains separate from these checks.
+
 ## 0.8.8 preview - 2026-09-16
 
 - Fix connection discovery for STR My/Public: RZone replaces native dropdowns with searchable fields, so an empty search is no longer mistaken for a stuck dropdown.

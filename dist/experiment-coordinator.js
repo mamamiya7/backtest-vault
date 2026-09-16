@@ -61,13 +61,17 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    if(!tab?.capable&&!tab?.ready)throw Error(tab?.reason||'Open RZone and sign in, then connect again.');
    if(m.action==='lookup-rule'){
     if(m.session!==tab.session)throw Error('RZone changed or reloaded. Reconnect before searching for strategies.');
-    if(![39,43,47].includes(m.parentIndex)||!['My','Public'].includes(m.category)||typeof m.query!=='string'||!m.query.length||m.query.length>200||m.query!==m.query.trim()||/[\u0000-\u001f\u007f]/.test(m.query))throw Error('Enter a strategy search of 1–200 characters.');
-    const request={parentIndex:m.parentIndex,category:m.category,query:m.query,session:tab.session};
+    const stage=m.stage===undefined?'momentum':m.stage,parents=stage==='momentum'?[39,43,47]:stage==='execution'?[6]:[];
+    if(!parents.includes(m.parentIndex)||!['My','Public'].includes(m.category)||typeof m.query!=='string'||!m.query.length||m.query.length>200||m.query!==m.query.trim()||/[\u0000-\u001f\u007f]/.test(m.query))throw Error('Enter a strategy search of 1–200 characters.');
+    const request={stage,parentIndex:m.parentIndex,category:m.category,query:m.query,session:tab.session};
     const r=await configure(tab.id,{},request);
     if(!r?.ok)throw Error(r?.error||'RZone strategy search could not be read.');
     if(r.session!==tab.session)throw Error('RZone reloaded during the search. Reconnect and try again.');
     const result=r.result;
-    if(!result||result.parentIndex!==m.parentIndex||result.childIndex!==m.parentIndex+1||result.category!==m.category||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000)throw Error('RZone returned a different strategy search. Search again.');
+    // Older source readers omitted stage for momentum searches. Execution
+    // must identify its stage explicitly; its result cannot satisfy a main-form query.
+    const resultStage=result?.stage===undefined?'momentum':result.stage;
+    if(!result||resultStage!==stage||result.parentIndex!==m.parentIndex||result.childIndex!==m.parentIndex+1||result.category!==m.category||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000)throw Error('RZone returned a different strategy search. Search again.');
     return {ok:true,result};
    }
    const changes=m.changes??{};
