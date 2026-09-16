@@ -41,6 +41,7 @@ The standalone viewer cannot directly read Chrome extension storage or connect t
 | A dropdown is missing a recently added rule | Use **Refresh choices**, then choose the intended category. Strategy 1–3 load all offered Pre/My/Public/Popular lists. Empty account categories stay empty; unavailable old selections need review. |
 | Group could not be confirmed | Refresh choices and select a Group from the searchable dropdown. Execution still requires the same exact choice to exist in RZone. |
 | Group list did not load | Let RZone finish loading its Group search, close that menu, then retry Connect or Refresh choices. Vault preserves your entries and does not run a test after a failed read. |
+| RZone settings changed while reading Group | Let the named control finish loading and retry Connect or Refresh choices. Vault waits for initial controls to settle and stops if settings change during discovery. |
 | Refreshing choices seems to open RZone settings | This reads the available controls and may change a rule source. It does not submit a backtest. **Run** starts the calculations. |
 | An experiment finishes almost instantly | Check the workspace label. **Generate … sample results** creates fictional examples without contacting RZone. Real execution uses **Run … tests**, or **Start experiment** for a saved plan, inside the installed extension. Inspect **Execution evidence** for source submission and capture times. |
 | A duplicate import adds zero runs | Existing IDs stay unchanged. This prevents accidental overwrites. |

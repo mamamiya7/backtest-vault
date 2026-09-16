@@ -12,7 +12,7 @@ async function scenario(options={}){
  Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});
  w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')&&!this.closest('[style*="display: none"]')?[{width:100,height:20}]:[];};
  const nativeTimeout=w.setTimeout.bind(w),nativeInterval=w.setInterval.bind(w);w.setTimeout=(fn,ms)=>nativeTimeout(fn,Math.min(ms,20));w.setInterval=(fn,ms)=>nativeInterval(fn,Math.min(ms,30));
- const main=d.querySelector('.account-right'),categoryLoads=[];
+ const main=d.querySelector('.account-right'),categoryLoads=[];let initialOptionsReady=false,initialSnapshot;
  function form(container,fields){const table=d.createElement('table');for(const f of fields){const tr=d.createElement('tr'),td=d.createElement('td'),cell=d.createElement('td');td.textContent=f.label;let n;if(f.type==='select-one'){n=d.createElement('select');const choices=[f.value,...(/Allocation/.test(f.label)?['Fixed','Reinvestment']:/Timeframe|Str \d/.test(f.label)&&f.value==='Daily'?['Weekly']:f.value==='Pre'?['My']:f.value.startsWith('Demo ')?[f.value.replace(/^Demo /,'Alternate ')]:[])];for(const value of new Set(choices)){const o=d.createElement('option');o.textContent=value;o.value='source:'+value;n.append(o);}n.value='source:'+f.value;}else {n=d.createElement('input');n.type=f.type;n.value=f.value;if(f.checked!==null)n.checked=f.checked;if(f.type==='radio')n.name=/52 Week/.test(f.label)?'reference':'volume';}n.disabled=f.disabled;cell.append(n);tr.append(td,cell);table.append(tr);}container.append(table);
   if(vaultSetup){const nodes=[...table.querySelectorAll('input,select')],stage=fields.length===52?'momentum':fields.length===12?'execution':'portfolio';const gates=stage==='momentum'?[[4,5,6,7,8,9,10],[11,12],[13,14],[15,16],[17,18],[26,27],[28,29],[30,31],[34,35,36],[37,38],[42,39,40,41],[46,43,44,45],[50,47,48,49]]:stage==='execution'?[[5,6,7],[8,9],[10,11]]:[[4,5]];for(const [gate,...children]of gates){const update=()=>children.forEach(i=>nodes[i].disabled=!nodes[gate].checked);nodes[gate].addEventListener('change',update);update();}
    for(const index of stage==='momentum'?[35,39,43,47]:stage==='execution'?[6]:[]){
@@ -22,7 +22,7 @@ async function scenario(options={}){
     const available=category=>{
      if(emptyOptions&&category==='My'||ruleCatalogue==='empty'&&strategy&&['My','Public'].includes(category))return [];
      if(ruleCatalogue&&strategy)return ['first','second'].map(word=>({label:'Strategy '+number+' '+category+' '+word,value:'rule:'+number+':'+category+':'+word}));
-     if(category==='Pre')return predefined;
+     if(category==='Pre')return groupCatalogue==='initial-options'&&initialOptionsReady&&stage==='momentum'&&index===39?[...predefined,{label:'Loaded initial rule',value:'initial:rule'}]:predefined;
      return [category+' trend rule',category+' alternate rule'].map(label=>({label,value:'custom:'+label}));
     };
     const populate=category=>{target.replaceChildren();for(const choice of available(category)){const option=d.createElement('option');option.textContent=choice.label;option.value=choice.value;target.append(option);}};
@@ -47,7 +47,7 @@ async function scenario(options={}){
   }else p.remove();
  };h.append(caption,close);p.append(h);d.body.append(p);return p;}
  form(main,E.fields(fixture,'momentum'));let submissions=0,portfolios=0,priorReport=null,groupCommits=0,settingsReads=0;const guardedStates=[],savedBeforeNext=[],strategyNativeSubmissions=[];
- const groupSearches=[],groupRows=['Demo universe 40','Nifty 50 Index','Nifty 500 Index','Other index'];let groupMenuReads=0,groupChanges=0,lastGroupQuery;
+ const groupSearches=[],groupRows=['Demo universe 40','Nifty 50 Index','Nifty 500 Index','Other index'];let groupMenuReads=0,groupChanges=0,lastGroupQuery,headingClicks=0,openedBeforeInitial=false;
  if(vaultSetup){
   const group=main.querySelectorAll('input,select')[1];group.placeholder='Search Group';
   if(groupCatalogue==='blank')group.value='';
@@ -67,13 +67,29 @@ async function scenario(options={}){
   };
   const names=query=>groupCatalogue==='duplicate'&&!query?['Same group','Same group']:groupCatalogue==='overflow'&&!query?Array.from({length:3001},(_,i)=>'Group '+i):groupRows.filter(name=>!query||name.toLowerCase().includes(query.toLowerCase()));
   group.addEventListener('change',()=>groupChanges++);
-  group.addEventListener('click',()=>{groupSearches.push(['open',group.value]);render(names(group.value),group.value);});
+  group.addEventListener('click',()=>{
+   groupSearches.push(['open',group.value]);render(names(group.value),group.value);
+   if(groupCatalogue==='initial-options'&&!initialOptionsReady)openedBeforeInitial=true;
+   if(['field-drift','label-drift'].includes(groupCatalogue))nativeTimeout(()=>{
+    const field=main.querySelectorAll('input,select')[12];
+    if(groupCatalogue==='field-drift')field.value='987654321';
+    else field.closest('tr').firstElementChild.textContent='Period 1 changed label';
+   },100);
+  });
   group.addEventListener('keyup',()=>{
    cancelSearches();const query=group.value;groupSearches.push(['search',query]);
    if(groupCatalogue==='delayed'&&!query){render(groupRows.filter(name=>name.startsWith('Nifty')),query);pending.push(nativeTimeout(()=>render(names(query),query),1200));}
    else pending.push(nativeTimeout(()=>render(names(query),query),groupCatalogue==='late-restore'&&query?1800:180));
   });
-  d.querySelector('h1').addEventListener('click',()=>{cancelSearches();menu?.remove();});
+  const outside=main.querySelector('select').closest('tr').firstElementChild;
+  assert.equal(outside.textContent,'Chart Type :');assert.equal(outside.childElementCount,0);
+  outside.addEventListener('click',()=>{cancelSearches();menu?.remove();});
+  // The real source heading opens an empty help tooltip, so it is not a safe
+  // outside-click target even though it dismisses the autocomplete list.
+  d.querySelector('h1').addEventListener('click',()=>{
+   headingClicks++;cancelSearches();menu?.remove();const help=d.createElement('div');help.className='tool-popup tool-tip';
+   help.innerHTML='<div class="popupContent"><div class="gwt-HTML"></div></div>';d.body.append(help);
+  });
  }
  const oldHiddenReport=preexistingReport?popup('Portfolio Backtesting Report'):null;if(oldHiddenReport)oldHiddenReport.hidden=true;
  // Observed RZone lifecycle: one main button becomes Cancel, the setup remains
@@ -180,13 +196,26 @@ async function scenario(options={}){
     const before=JSON.stringify(w.VaultCapture.fields(main)),beforeValue=main.querySelectorAll('input,select')[1].value;
     const preexisting=d.createElement('div');preexisting.className='popupContent';preexisting.innerHTML='<div class="abcd-1"><ul class="ind-list"><li grpid="existing">Existing open group</li></ul></div>';d.body.append(preexisting);
     const blockedGroup=await requestConfig();assert.equal(blockedGroup.ok,false);assert.equal(preexisting.isConnected,true);assert.equal(groupSearches.length,0,'An existing group menu must remain untouched.');preexisting.remove();
+    if(groupCatalogue==='initial-options')nativeTimeout(()=>{
+     const child=main.querySelectorAll('input,select')[40],option=d.createElement('option');
+     option.textContent='Loaded initial rule';option.value='initial:rule';child.append(option);child.value=option.value;
+     initialOptionsReady=true;initialSnapshot=JSON.stringify(w.VaultCapture.fields(main));
+    },1100);
     const response=await requestConfig();
-    assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before,'Catalogue reading must restore every source field exactly.');
+    const expected=JSON.parse(before);
+    if(groupCatalogue==='field-drift')expected[12].value='987654321';
+    if(groupCatalogue==='label-drift')expected[12].label='Period 1 changed label';
+    assert.equal(JSON.stringify(w.VaultCapture.fields(main)),initialSnapshot||JSON.stringify(expected),'Catalogue reading must restore its changes without overwriting genuine source drift.');
     assert.equal(groupCommits,0,'Reading choices must never select any group.');assert.equal(groupChanges,0,'Search text must not commit a group change.');
     assert.equal(submissions,0);assert.equal(portfolios,0);assert.equal(d.querySelector('.ind-list'),null);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
+    assert.equal(headingClicks,0,'Dismiss using the inert Chart Type cell, never the tooltip-bearing heading.');assert.equal(d.querySelector('.tool-popup.tool-tip'),null);assert.equal(d.querySelector('.popupContent'),null);
     assert.deepEqual(groupSearches[0],['open',''],'Open only after clearing the original search.');
     assert.deepEqual(groupSearches.at(-1),['search',beforeValue],'Restore the original query before dismissing the owned menu.');
-    if(['duplicate','overflow','missing'].includes(groupCatalogue)){
+    if(['field-drift','label-drift'].includes(groupCatalogue)){
+     assert.equal(response.ok,false);assert.match(response.error,/settings changed while reading group choices/i);assert.match(response.error,/\b13\b/);
+     assert.match(response.error,/Period/i);assert.doesNotMatch(response.error,/987654321/,'Diagnostics must not disclose raw field values.');
+     assert.equal(settingsReads,0);assert.equal(categoryLoads.length,0);assert.equal(sourceSuccessDialogs.length,0);
+    }else if(['duplicate','overflow','missing'].includes(groupCatalogue)){
      assert.equal(response.ok,false);assert.match(response.error,groupCatalogue==='duplicate'?/ambiguous/:groupCatalogue==='overflow'?/3,000/:/finish loading its group choices/);
      assert.equal(sourceSuccessDialogs.length,0);assert.equal(settingsReads,0,'A failed group read must stop before opening execution settings.');
     }else{
@@ -194,6 +223,12 @@ async function scenario(options={}){
      assert.deepEqual(Array.from(response.config.stages.momentum.options[1],o=>({...o})),groupRows.map((label,i)=>({value:label,label,sourceValue:'group:'+i,disabled:false})));
      assert.ok(groupMenuReads>=2,'Read the settled response, not just the initial popup.');
      assert.equal(lastGroupQuery,beforeValue,'Await the restored query response before dismissing, even when it is delayed.');
+     if(groupCatalogue==='initial-options'){
+      assert.equal(initialOptionsReady,true);assert.equal(openedBeforeInitial,false,'Wait for initial native choices before freezing the Group snapshot.');
+      assert.equal(JSON.stringify(response.config.stages.momentum.fields),initialSnapshot);
+      assert.equal(response.config.stages.momentum.fields[40].value,'Loaded initial rule');
+      assert.ok(response.config.stages.momentum.options[40].some(option=>option.sourceValue==='initial:rule'),'Read the settled native option catalogue.');
+     }
     }
     return;
    }
@@ -283,4 +318,19 @@ async function backgroundFocusChecks(){
   assert.equal(timers.size,0);
  }
 }
-(async()=>{const cases=[...['complete','delayed','empty','rejected','execute'].map(ruleCatalogue=>({vaultSetup:true,ruleCatalogue})),...['blank','nonblank','delayed','late-restore','duplicate','overflow','missing'].map(groupCatalogue=>({vaultSetup:true,groupCatalogue})),{}, {overlap:true},{changeLocked:true},{staleCompletion:true},{noRunning:true},{rejected:true},{reuseReport:true},{preexistingReport:true},{vaultSetup:true,bridge:true},{vaultSetup:true,closeAfterWake:true},{vaultSetup:true,closeStuckAfterWake:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},{vaultSetup:true,emptyOptions:true,variableSet:'momentum'},{vaultSetup:true,missingGroup:true},{vaultSetup:true,changedOptions:true},{vaultSetup:true,driftDuringRun:true},{vaultSetup:true,variableSet:'momentum'},{vaultSetup:true,variableSet:'rules'}];if(!requestedCatalogue&&!process.argv.includes('--variations'))await backgroundFocusChecks();for(const options of cases.filter(o=>(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake)))await scenario(options);console.log('PASS: '+(process.argv.includes('--close')?'dialog close':process.argv.includes('--bridge')?'background bridge':process.argv.includes('--variations')?'variation':process.argv.includes('--setup')?'Vault setup':'all')+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{
+ const readinessCases=['initial-options','field-drift','label-drift'];
+ const cases=[
+  ...['complete','delayed','empty','rejected','execute'].map(ruleCatalogue=>({vaultSetup:true,ruleCatalogue})),
+  ...['blank','nonblank','delayed','late-restore','duplicate','overflow','missing',...readinessCases].map(groupCatalogue=>({vaultSetup:true,groupCatalogue})),
+  {},{overlap:true},{changeLocked:true},{staleCompletion:true},{noRunning:true},{rejected:true},{reuseReport:true},{preexistingReport:true},
+  {vaultSetup:true,bridge:true},{vaultSetup:true,closeAfterWake:true},{vaultSetup:true,closeStuckAfterWake:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},
+  {vaultSetup:true,emptyOptions:true,variableSet:'momentum'},{vaultSetup:true,missingGroup:true},{vaultSetup:true,changedOptions:true},{vaultSetup:true,driftDuringRun:true},{vaultSetup:true,variableSet:'momentum'},{vaultSetup:true,variableSet:'rules'}
+ ];
+ if(!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus and deadline checks (9 cases).');}
+ const selected=cases.filter(o=>(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake));
+ for(const [index,options]of selected.entries()){
+  await scenario(options);console.log('PASS: runner '+(index+1)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
+ }
+ console.log('PASS: '+selected.length+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');
+})().catch(e=>{console.error(e);process.exitCode=1;});

@@ -51,6 +51,28 @@ async function prepare(){
  throw Error('Momentum Trading BackTesting did not open.');
 }
 function descriptor(p){const fields=C.fields(p),options={};inputs(p).forEach((n,i)=>{if(n.tagName==='SELECT')options[i]=[...n.options].map(o=>({value:V.clean(o.textContent),label:V.clean(o.textContent),sourceValue:o.value,disabled:o.disabled}));});return {fields,options};}
+async function settledMain(){
+ const started=Date.now(),deadline=started+8000;let signature='',stableAt=started;
+ while(Date.now()<deadline){
+  check();if(workingPopups().length)throw Error('Close the open RZone menu or dialog, then connect again.');
+  const main=C.main(),nodes=inputs(main);
+  const next=JSON.stringify(nodes.map(n=>[n.type,n.value,n.checked??null,n.disabled,n.tagName==='SELECT'?[...n.options].map(o=>[o.value,V.clean(o.textContent),o.disabled]):null]));
+  if(next!==signature){signature=next;stableAt=Date.now();}
+  if(nodes.length===52&&Date.now()-started>=1500&&Date.now()-stableAt>=750)return main;
+  await delay(100);
+ }
+ throw Error('RZone settings are still loading. Wait for the form to finish loading, then connect again.');
+}
+function changedControls(before,after){
+ const changes=[];
+ for(let index=0;index<Math.max(before.length,after.length);index++){
+  const a=before[index],b=after[index];if(JSON.stringify(a)===JSON.stringify(b))continue;
+  const label=V.clean(a?.label||b?.label||'Control').slice(0,80);
+  const properties=!a||!b?['layout']:['label','type','value','checked','disabled'].filter(key=>a[key]!==b[key]).map(key=>({type:'control type',value:'selection',checked:'on/off',disabled:'availability'}[key]||key));
+  changes.push('field '+(index+1)+' ('+label+': '+properties.join(', ')+')');
+ }
+ return changes.slice(0,3).join('; ')+(changes.length>3?'; '+(changes.length-3)+' more controls':'');
+}
 function groupSearch(node,value){
  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,value);
  // Search text is not a selected group. Do not dispatch a change or select a
@@ -79,10 +101,10 @@ async function groupCatalogue(main){
  const before=C.fields(main),node=inputs(main)[1],oldPopups=new Set([...document.querySelectorAll('.popupContent')].filter(C.visible));
  if(before.length!==52||node?.tagName!=='INPUT'||node.type!=='text'||node.placeholder!=='Search Group'||node.disabled)throw Error('Cannot identify the RZone group search. Refresh RZone and connect again.');
  if(popups().length)throw Error('Close the open RZone menu before refreshing choices.');
- // RZone appends a tooltip "i" inside .header-text; match the heading's own
- // text so that icon text does not make the safe outside-click target vanish.
- const outside=[...document.querySelectorAll('.header-text,h1,h2,h3,h4')].filter(n=>C.visible(n)&&/^Momentum Trading Back ?Testing$/i.test(V.clean([...n.childNodes].filter(child=>child.nodeType===Node.TEXT_NODE).map(child=>child.textContent).join(' ')))&&!n.closest('a,button,input,select,textarea'));
- if(outside.length!==1)throw Error('Cannot identify the RZone page heading. Refresh RZone and connect again.');
+ // The heading opens RZone's help tooltip. Its plain Chart Type label was
+ // verified to dismiss Group without opening a popup or changing a control.
+ const row=inputs(main)[0]?.closest('tr'),outside=[...(row?.children||[])].filter(n=>n.tagName==='TD'&&C.visible(n)&&!n.children.length&&/^Chart Type\s*:$/i.test(V.clean(n.textContent)));
+ if(outside.length!==1)throw Error('Cannot identify the RZone chart label. Refresh RZone and connect again.');
  const original=node.value,owned=new Set();let started=Date.now(),changedAt=started,signature='',fresh=false;
  const observer=new MutationObserver(records=>{if(records.some(r=>[...owned].some(p=>{const list=p.querySelector('.ind-list');return list&&(r.target===list||list.contains(r.target)||[...r.addedNodes,...r.removedNodes].some(n=>n===list));}))){fresh=true;changedAt=Date.now();}});
  observer.observe(document.body,{subtree:true,childList:true,characterData:true});
@@ -133,7 +155,7 @@ async function groupCatalogue(main){
     for(;;){check();if([...owned].every(p=>!p.isConnected||!C.visible(p)))break;if(Date.now()>=closeDeadline)throw Error('RZone group menu did not close. Close it and refresh choices.');await delay(100);}
    }
    node.blur();
-   if(JSON.stringify(C.fields(main))!==JSON.stringify(before))throw Error('RZone settings changed while reading group choices. Review the source settings and connect again.');
+   const after=C.fields(main);if(JSON.stringify(after)!==JSON.stringify(before))throw Error('RZone settings changed while reading group choices: '+changedControls(before,after)+'. Review the source settings and connect again.');
   }
   }finally{observer.disconnect();}
  }
@@ -275,6 +297,7 @@ async function configuration(requestedChanges){
   try{
   C.status('Connecting to Vault: opening Momentum settings…');
   await prepare();
+  await settledMain();
   C.status('Connecting to Vault: reading strategy choices…');
   const original=C.fields(C.main());if(original.length!==52||original[0]?.value!=='Candle')throw Error('This source layout needs a separate automatic setup adapter.');
   await changeParents(C.main(),changes.momentum,'momentum');const momentum=descriptor(C.main());

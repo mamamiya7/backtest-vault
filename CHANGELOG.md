@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.6 preview - 2026-09-16
+
+- Wait for RZone's initial controls to settle before recording the setup used for Group discovery. Keep strict change detection and identify affected controls when a source changes during a read.
+- Close only the discovered Group menu by clicking the verified plain Chart Type label. The previous heading target could open RZone's help popup; the new target was checked on the live form with 264 groups and no changed settings.
+- Add delayed-initialization and real-setting-drift regressions. Strategy category caching and execution remain unchanged; installed connection acceptance is pending activation.
+
 ## 0.8.5 preview - 2026-09-16
 
 - Load every offered Pre, My, Public and Popular rule category for Strategy 1–3 during New test and Refresh choices. Temporarily enable each source row, then restore its exact category, rule, timeframe and checkbox state without submitting a backtest.
