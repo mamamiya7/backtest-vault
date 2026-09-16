@@ -27,7 +27,19 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
 function button(p,name){const matches=[...p.querySelectorAll('button')].filter(e=>C.visible(e)&&!e.disabled&&name.test(V.clean(e.textContent)));if(matches.length!==1)throw Error('Cannot identify the '+name+' control.');return matches[0];}
 function check(){if(interrupted)throw Error('The source tab was changed manually. Review the current trial.');if(!C.main())throw Error('RZone Momentum page is unavailable.');if(C.popup('Error'))throw Error('Definedge rejected the submitted settings.');}
 async function wait(checkValue,deadline,message){while(Date.now()<deadline){check();const v=checkValue();if(v)return v;await delay(250);}throw Error(message);}
-async function close(p){const controls=[...p.querySelectorAll('.custom-dialog-header .close-buton')].filter(C.visible);if(controls.length!==1)throw Error('Cannot close the completed experiment report. Close it manually before continuing.');controls[0].click();await wait(()=>!C.visible(p),Date.now()+5000,'Source dialog did not close.');}
+async function close(p){
+ check();if(!p.isConnected||!C.visible(p))return;
+ const controls=[...p.querySelectorAll('.custom-dialog-header .close-buton')].filter(C.visible);
+ if(controls.length!==1)throw Error('Cannot identify the RZone dialog close control. Close that dialog in RZone before continuing.');
+ controls[0].click();const deadline=Date.now()+5000;
+ for(;;){
+  // A hidden tab can wake after the deadline, after GWT has already finished
+  // closing. Read the owned dialog first; a late timer is not a failed close.
+  check();if(!p.isConnected||!C.visible(p))return;
+  if(Date.now()>=deadline)throw Error('Source dialog did not close.');
+  await delay(250);
+ }
+}
 async function prepare(){
  if(C.pending()||C.running()||C.awaitingResult()||workingPopups().length)throw Error('Finish or close the current RZone work first. Your report and settings were left intact.');
  if(onMomentum()&&!popups().length)return;

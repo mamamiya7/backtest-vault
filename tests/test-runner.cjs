@@ -4,7 +4,7 @@ const E=require('../dist/experiments.js'),S=require('../dist/setup.js'),D=requir
 const base=path.resolve(__dirname,'../dist'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const reordered=x=>Array.isArray(x)?x.map(reordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,reordered(x[k])])):x;
 async function scenario(options={}){
- const {changeLocked=false,overlap=false,staleCompletion=false,rejected=false,reuseReport=false,noRunning=false,preexistingReport=false,vaultSetup=false,missingGroup=false,changedOptions=false,driftDuringRun=false,refreshParents=false,noOptionRefresh=false,emptyOptions=false,variableSet='',bridge=false}=options;
+ const {changeLocked=false,overlap=false,staleCompletion=false,rejected=false,reuseReport=false,noRunning=false,preexistingReport=false,vaultSetup=false,missingGroup=false,changedOptions=false,driftDuringRun=false,refreshParents=false,noOptionRefresh=false,emptyOptions=false,variableSet='',bridge=false,closeAfterWake=false,closeStuckAfterWake=false}=options;
  const dom=new JSDOM('<body><h1>Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document;
  const fixture=D.create()[0];fixture.demo=false;w.structuredClone=structuredClone;
  Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});
@@ -17,7 +17,13 @@ async function scenario(options={}){
   }
  }
  function button(p,label,fn){const n=d.createElement('button');n.textContent=label;n.onclick=fn;p.append(n);return n;}
- function popup(title){const p=d.createElement('div');p.className='popupContent';const h=d.createElement('div');h.className='custom-dialog-header';const caption=d.createElement('div');caption.className='caption';caption.textContent=title;const close=d.createElement('a');close.className='close-buton';close.onclick=()=>p.remove();h.append(caption,close);p.append(h);d.body.append(p);return p;}
+ function popup(title){const p=d.createElement('div');p.className='popupContent';const h=d.createElement('div');h.className='custom-dialog-header';const caption=d.createElement('div');caption.className='caption';caption.textContent=title;const close=d.createElement('a');close.className='close-buton';close.onclick=()=>{
+  if(title==='Momentum Trading BackTest'&&(closeAfterWake||closeStuckAfterWake)){
+   // Model a hidden page waking after the deadline: the close animation may
+   // already have removed the owned node before the next poll can run.
+   const now=w.Date.now.bind(w.Date);nativeTimeout(()=>{if(closeAfterWake)p.remove();w.Date.now=()=>now()+6000;},5);
+  }else p.remove();
+ };h.append(caption,close);p.append(h);d.body.append(p);return p;}
  form(main,E.fields(fixture,'momentum'));let submissions=0,portfolios=0,priorReport=null,groupCommits=0;const guardedStates=[],savedBeforeNext=[];
  if(vaultSetup){const group=main.querySelectorAll('input,select')[1];group.placeholder='Search Group';group.addEventListener('keyup',()=>{d.querySelector('.ind-list')?.remove();if(missingGroup)return;const list=d.createElement('ul');list.className='ind-list';for(const name of ['Nifty 50 Index','Nifty 500 Index']){const li=d.createElement('li');li.textContent=name;li.onclick=()=>{group.value=name;groupCommits++;list.remove();};list.append(li);}d.body.append(list);});}
  const oldHiddenReport=preexistingReport?popup('Portfolio Backtesting Report'):null;if(oldHiddenReport)oldHiddenReport.hidden=true;
@@ -53,14 +59,17 @@ async function scenario(options={}){
    const reply=response=>{if(replied)return;if(!listening&&!open){reject(Error('Asynchronous response port was not retained.'));return;}replied=true;resolve(E.clone(response));};
    try{for(const fn of handlers)if(fn(E.clone(message),sender,reply)===true)open=true;listening=false;if(!replied&&!open)resolve(undefined);}catch(error){reject(error);}
   });
+  let activeTab=10;const focusEvents=[];
   const vm=require('node:vm'),workerChrome={storage:{local:storage},runtime:{...runtime,onMessage:{addListener:fn=>workerListeners.push(fn)}},action:{onClicked:{addListener:()=>{}}},tabs:{
-   sendMessage:(id,message,options)=>{assert.equal(id,9);assert.equal(options.frameId,0);if(message.type==='vault-runner-config')bridgeConfigRequests++;return deliver(listeners,message,{id:runtime.id,url:runtime.getURL('background.js')});},
-   update:async id=>({id}),create:async ()=>({id:10})
+   sendMessage:(id,message,options)=>{assert.equal(id,9);assert.equal(options.frameId,0);if(message.type==='vault-runner-config'){bridgeConfigRequests++;assert.equal(activeTab,9,'RZone must be active before its settings are read.');focusEvents.push('read');}return deliver(listeners,message,{id:runtime.id,url:runtime.getURL('background.js')});},
+   get:async id=>({id,windowId:1,url:id===9?w.location.href:runtime.getURL('index.html')}),
+   query:async query=>{assert.deepEqual({...query},{active:true,windowId:1});return [{id:activeTab,windowId:1,url:activeTab===9?w.location.href:runtime.getURL('index.html')}];},
+   update:async(id,update)=>{assert.equal(update.active,true);activeTab=id;focusEvents.push('active:'+id);return {id};},create:async ()=>({id:10})
   }};
   const context=vm.createContext({chrome:workerChrome,URL,crypto:require('node:crypto').webcrypto,structuredClone,setTimeout,clearTimeout});
   context.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),context,{filename:file}));
   vm.runInContext(fs.readFileSync(path.join(base,'background.js'),'utf8'),context,{filename:'background.js'});
-  coordinator.handle=(message,sender)=>deliver(workerListeners,{type:'vault-experiment',...message},sender);
+  coordinator.handle=async(message,sender)=>{const result=await deliver(workerListeners,{type:'vault-experiment',...message},sender);if(message.action==='configure'&&bridgeConfigRequests){assert.equal(activeTab,10,'Return to the initiating Vault after a read or source rejection.');assert.deepEqual(focusEvents,Array.from({length:bridgeConfigRequests},()=>['active:9','read','active:10']).flat());}return result;};
  }
  w.chrome={storage:{local:storage},runtime:{...runtime,sendMessage:m=>coordinator.handle(m,source),onMessage:{addListener:fn=>listeners.push(fn)}}};
  w.URL.createObjectURL=()=> 'blob:test';w.URL.revokeObjectURL=()=>{};
@@ -89,7 +98,10 @@ async function scenario(options={}){
    if(noOptionRefresh){const failed=await requestConfig({momentum:{39:'My'}});assert.equal(failed.ok,false);assert.match(failed.error,/finish loading the dependent choices/);assert.equal(sourceMessages.at(-1),'Vault connection failed: '+failed.error);assert.equal(sourceSuccessDialogs.length,0);assert.equal(submissions,0);assert.equal(portfolios,0);return;}
    if(emptyOptions){const refreshed=await requestConfig({momentum:{43:'My'}});assert.equal(refreshed.ok,true,refreshed.error);assert.equal(refreshed.config.stages.momentum.options[44].length,0);assert.equal(refreshed.config.stages.momentum.fields[44].value,'');assert.equal(refreshed.config.stages.momentum.fields[46].checked,false);assert.equal(submissions,0);assert.equal(portfolios,0);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);if(!variableSet)return;}
    if(refreshParents){const refreshed=await requestConfig({momentum:{39:'My'}});assert.equal(refreshed.ok,true,refreshed.error);}
-   const response=await requestConfig(refreshParents?{execution:{6:'My'}}:undefined);assert.equal(response.ok,true,response.error);assert.equal(submissions,0,'Loading the setup must never run a backtest.');assert.equal(portfolios,0);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
+   const response=await requestConfig(refreshParents?{execution:{6:'My'}}:undefined);
+   if(closeStuckAfterWake){assert.equal(response.ok,false);assert.match(response.error,/Source dialog did not close/);assert.ok(w.VaultCapture.popup('Momentum Trading BackTest'));assert.equal(submissions,0);assert.equal(portfolios,0);assert.equal(sourceSuccessDialogs.length,0);return;}
+   assert.equal(response.ok,true,response.error);assert.equal(submissions,0,'Loading the setup must never run a backtest.');assert.equal(portfolios,0);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
+   if(closeAfterWake){assert.deepEqual(sourceSuccessDialogs,[false]);return;}
    if(bridge){assert.equal(bridgeConfigRequests,2,'Both the rejected change and successful connection must cross the real background boundary.');assert.equal(response.config.session,memory['runner:tab:9'].session,'Reading settings must retain the registered document session.');assert.deepEqual(sourceMessages.slice(-4),['Connecting to Vault: opening Momentum settings…','Connecting to Vault: reading strategy choices…','Connecting to Vault: reading backtest settings…','RZone settings read. Return to Vault to finish setup.']);assert.deepEqual(sourceSuccessDialogs,[false],'Connection success must only appear after closing its own settings dialog.');}
    if(refreshParents)assert.equal(navigationCount,1);
    const template=S.template(response.config),config=S.defaults(template);
@@ -129,4 +141,41 @@ async function scenario(options={}){
   }
  }finally{dom.window.close();}
 }
-(async()=>{const cases=[{}, {overlap:true},{changeLocked:true},{staleCompletion:true},{noRunning:true},{rejected:true},{reuseReport:true},{preexistingReport:true},{vaultSetup:true,bridge:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},{vaultSetup:true,emptyOptions:true,variableSet:'momentum'},{vaultSetup:true,missingGroup:true},{vaultSetup:true,changedOptions:true},{vaultSetup:true,driftDuringRun:true},{vaultSetup:true,variableSet:'momentum'},{vaultSetup:true,variableSet:'rules'}];for(const options of cases.filter(o=>(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)))await scenario(options);console.log('PASS: '+(process.argv.includes('--bridge')?'background bridge':process.argv.includes('--variations')?'variation':process.argv.includes('--setup')?'Vault setup':'all')+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');})().catch(e=>{console.error(e);process.exitCode=1;});
+async function backgroundFocusChecks(){
+ const vm=require('node:vm'),dashboardURL='chrome-extension://test-ext/index.html',sourceURL='https://zone.definedgesecurities.com/index.html#research';
+ for(const mode of ['return','source-error','user-switch','closed-vault','changed-vault','moved-vault','unrelated-tab','late-read','late-activation']){
+  let active=10,clock=1000,expired,release,reads=0;const actions=[],timers=new Map();let timerId=0;
+  const browserTabs=new Map([[9,{id:9,windowId:1,url:sourceURL}],[10,{id:10,windowId:1,url:mode==='unrelated-tab'?'https://example.com/':dashboardURL}],[11,{id:11,windowId:1,url:'https://example.org/'}]]);
+  const chrome={storage:{local:{}},runtime:{id:'test-ext',getURL:file=>'chrome-extension://test-ext/'+file,onMessage:{addListener:()=>{}}},action:{onClicked:{addListener:()=>{}}},tabs:{
+   get:async id=>{if(!browserTabs.has(id))throw Error('Tab closed');return {...browserTabs.get(id)};},
+   query:async query=>{assert.deepEqual({...query},{active:true,windowId:1});return [{...browserTabs.get(active)}];},
+   update:async(id,update)=>{assert.equal(update.active,true);actions.push(id);active=id;if(mode==='late-activation'&&id===9)return await new Promise(resolve=>{release=resolve;});return {...browserTabs.get(id)};},
+   sendMessage:async(id,message)=>{
+    assert.equal(id,9);assert.equal(active,9);assert.equal(message.type,'vault-runner-config');reads++;
+    if(mode==='user-switch')active=11;
+    if(mode==='closed-vault')browserTabs.delete(10);
+    if(mode==='changed-vault')browserTabs.get(10).url='https://example.net/';
+    if(mode==='moved-vault')browserTabs.get(10).windowId=2;
+    if(mode==='source-error')throw Error('Source rejected connection');
+    if(mode==='late-read')return await new Promise(resolve=>{release=resolve;});
+    return {ok:true,session:'s',config:{session:'s'}};
+   },create:async()=>({id:12})
+  }};
+  class FakeDate extends Date {static now(){return clock;}}
+  const context=vm.createContext({chrome,URL,Date:FakeDate,crypto:require('node:crypto').webcrypto,structuredClone,setTimeout:(fn,ms)=>{assert.equal(ms,60000);const id=++timerId;timers.set(id,fn);expired=fn;return id;},clearTimeout:id=>timers.delete(id)});
+  context.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),context,{filename:file}));
+  vm.runInContext(fs.readFileSync(path.join(base,'background.js'),'utf8'),context,{filename:'background.js'});
+  const result=context.configure(9,{});
+  if(mode.startsWith('late-')){
+   for(let n=0;n<20&&!release;n++)await Promise.resolve();assert.equal(typeof release,'function');clock+=60001;expired();
+   await assert.rejects(result,/did not finish connecting/);release({ok:true,session:'s',config:{session:'s'}});
+   for(let n=0;n<20;n++)await Promise.resolve();
+   assert.deepEqual(actions,[9],'An expired request must never restore focus when its late operation completes.');assert.equal(reads,mode==='late-read'?1:0,'Expired activation must not start a late configuration read.');
+  }else if(mode==='source-error')await assert.rejects(result,/Source rejected connection/);
+  else assert.equal((await result).ok,true);
+  if(['return','source-error'].includes(mode))assert.deepEqual(actions,[9,10]);
+  if(['user-switch','closed-vault','changed-vault','moved-vault','unrelated-tab'].includes(mode))assert.deepEqual(actions,[9],mode+' must not restore focus to a tab the user did not request.');
+  assert.equal(timers.size,0);
+ }
+}
+(async()=>{const cases=[{}, {overlap:true},{changeLocked:true},{staleCompletion:true},{noRunning:true},{rejected:true},{reuseReport:true},{preexistingReport:true},{vaultSetup:true,bridge:true},{vaultSetup:true,closeAfterWake:true},{vaultSetup:true,closeStuckAfterWake:true},{vaultSetup:true,refreshParents:true},{vaultSetup:true,noOptionRefresh:true},{vaultSetup:true,emptyOptions:true,variableSet:'momentum'},{vaultSetup:true,missingGroup:true},{vaultSetup:true,changedOptions:true},{vaultSetup:true,driftDuringRun:true},{vaultSetup:true,variableSet:'momentum'},{vaultSetup:true,variableSet:'rules'}];if(!process.argv.includes('--variations'))await backgroundFocusChecks();for(const options of cases.filter(o=>(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake)))await scenario(options);console.log('PASS: '+(process.argv.includes('--close')?'dialog close':process.argv.includes('--bridge')?'background bridge':process.argv.includes('--variations')?'variation':process.argv.includes('--setup')?'Vault setup':'all')+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');})().catch(e=>{console.error(e);process.exitCode=1;});

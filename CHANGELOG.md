@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.8.3 preview - 2026-09-16
+
+- Bring the selected RZone tab forward while connecting or refreshing choices so its dialog animations can finish. Return to the initiating Vault tab only if the user has stayed in RZone and that Vault tab still exists.
+- Recheck the owned dialog after a delayed timer wakes. An already closed dialog now succeeds even if the timer woke past its deadline; an open dialog still fails without starting a backtest.
+- Preserve source selection, existing reports, connection deadlines, draft entries and all execution guards. No additional browser permissions are requested. Installed acceptance of this connection update remains pending.
+
 ## 0.8.2 preview - 2026-09-16
 
 - Replace editable setup checkboxes and separate On/Off variation popups with one **Off / On / Test both** selector. Test both creates separate enabled and disabled trials; choosing a fixed state removes that variation.

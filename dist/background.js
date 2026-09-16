@@ -4,7 +4,38 @@ async function probe(tabId){
  let timeout;try{return await Promise.race([chrome.tabs.sendMessage(tabId,{type:'vault-runner-status'},{frameId:0}),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('RZone did not respond.')),2500);})]);}finally{clearTimeout(timeout);}
 }
 async function configure(tabId,changes={}){
- let timeout;try{return await Promise.race([chrome.tabs.sendMessage(tabId,{type:'vault-runner-config',changes},{frameId:0}),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('RZone did not finish connecting. Check its tab and reconnect.')),60000);})]);}finally{clearTimeout(timeout);}
+ const deadline=Date.now()+60000,message='RZone did not finish connecting. Check its tab and reconnect.';
+ let timeout,live=true;
+ const current=()=>live&&Date.now()<deadline;
+ const check=()=>{if(!current())throw Error(message);};
+ const ownPage=url=>typeof url==='string'&&(url===chrome.runtime.getURL('index.html')||url.startsWith(chrome.runtime.getURL('index.html')+'?')||url.startsWith(chrome.runtime.getURL('index.html')+'#'));
+ const work=async()=>{
+  let source,previous;
+  try{
+   source=await chrome.tabs.get(tabId);check();
+   const tabs=await chrome.tabs.query({active:true,windowId:source.windowId});check();
+   previous=tabs.find(tab=>ownPage(tab.url)&&(!tab.pendingUrl||ownPage(tab.pendingUrl)));
+   // RZone animates its dialogs. Keep its rendering active while reading and
+   // closing the settings we opened; hidden tabs may pause that animation.
+   await chrome.tabs.update(tabId,{active:true});check();
+   return await chrome.tabs.sendMessage(tabId,{type:'vault-runner-config',changes},{frameId:0});
+  }finally{
+   if(previous&&source&&current()){
+    try{
+     const tabs=await chrome.tabs.query({active:true,windowId:source.windowId});
+     if(current()&&tabs.some(tab=>tab.id===tabId)){
+      const tab=await chrome.tabs.get(previous.id);
+      if(current()&&tab.windowId===source.windowId&&ownPage(tab.url)&&(!tab.pendingUrl||ownPage(tab.pendingUrl))){
+       // Recheck after the lookup so a user switch is not overwritten.
+       const active=await chrome.tabs.query({active:true,windowId:source.windowId});
+       if(current()&&active.some(tab=>tab.id===tabId))await chrome.tabs.update(previous.id,{active:true});
+      }
+     }
+    }catch{/* A closed or changed Vault tab must not turn a successful read into a failure. */}
+   }
+  }
+ };
+ try{return await Promise.race([work(),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error(message)),60000);})]);}finally{live=false;clearTimeout(timeout);}
 }
 async function openSource(knownTabs){
  for(const tab of [...knownTabs].sort((a,b)=>b.seenAt-a.seenAt)){
