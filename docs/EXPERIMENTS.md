@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.8.4 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
+Version 0.8.5 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
@@ -26,11 +26,15 @@ flowchart LR
 
 ### Refresh the available choices
 
-**Refresh choices** reads the dropdowns currently available to your signed-in RZone account. Changing **Market** refreshes its Group list. Changing a rule source, such as **Pre**, **My**, **Public** or **Popular** when offered by RZone, refreshes that source's rule menu. These are choices for the current source context; Vault does not traverse every parent combination or enable unsupported chart layouts. A previous choice that disappears stays visible for review rather than being silently replaced. Searching the loaded Group list is local and makes no source request per keystroke. There is no separate catalogue download to manage.
+**New test** and **Refresh choices** read the dropdowns available to your signed-in RZone account. For each of **Strategy 1–3**, Vault temporarily enables its source checkbox and reads each offered **Pre / My / Public / Popular** category. It restores the original category, selected rule, timeframe and checkbox state, and verifies the other settings stayed unchanged. Discovery never submits a backtest. Slow, ambiguous or incomplete reads stop with a review message instead of returning a partial catalogue.
+
+In Vault, choose **On** or **Test both** beside a strategy, select its category, then choose its rule. Switching loaded strategy categories uses their separate lists immediately; your rule selection and Test values for each category are kept while editing. A new category begins at its source placeholder, never at the first real rule. Empty My or Public lists remain empty and cannot be enabled for a test. A choice removed by **Refresh choices** stays visible for review. Category sources stay fixed within each batch; eligible rules within that category can vary.
+
+Changing **Market** refreshes Group. Radar and exit-source menus still refresh on demand, as do older setups without cached strategy categories. Vault does not traverse unsupported chart layouts or every possible filter combination. Searching Group and switching loaded strategy categories make no additional source request. There is no separate catalogue download to manage.
 
 Group discovery opens only its own search menu, clears the query to read the exposed full list, restores the original text and closes that menu before reading execution settings. It verifies that the main settings stayed unchanged and rejects ambiguous, missing or oversized lists. Existing reports/menus are never dismissed to make connection succeed. A refreshed source session requires reconnection; choices are not shared between accounts or silently reused from another session. Older saved setups without a Group catalogue retain their original validation behavior.
 
-Refreshing brings RZone forward to open and close its setup dialog and may change the selected rule source. Vault returns to its initiating tab afterward if you have not switched away yourself. It does **not** click the source submission button or create a backtest result. This is separate from **Run**.
+Refreshing brings RZone forward while it reads the strategy menus and opens and closes its own setup dialog. Leave the source controls alone during this brief read; manual changes interrupt discovery. Vault returns to its initiating tab afterward if you have not switched away yourself. An explicit Radar/exit source change may retain that chosen source, while the strategy-category scan restores the source form. This is separate from **Run**.
 
 ```mermaid
 flowchart LR
@@ -80,7 +84,7 @@ For example, Period 3 at **90**, with **Test both**, compares including and excl
 | Relative Strength and Market Trend Filter | Must remain off for this adapter | Unavailable |
 | P&F and Renko | Automatic setup/execution gated | Existing saved runs can still prepare plans; execution remains gated |
 
-The current new-test adapter is **Candle with Price selection**. Other source choices remain visibly unavailable where their dependent controls need a separate adapter. Shared context and source-menu parents stay fixed during a batch so comparisons use the same assumptions. Change a rule source and refresh its choices before selecting the rules to test. In the saved-run route, inactive fields remain excluded from that baseline's sweep picker. Named rules are recorded as names; hidden rule definitions are never inferred.
+The current new-test adapter is **Candle with Price selection**. Other source choices remain visibly unavailable where their dependent controls need a separate adapter. Shared context and source-menu parents stay fixed during a batch so comparisons use the same assumptions. Choose a strategy category from its loaded choices, then select the rules to test. In the saved-run route, inactive fields remain excluded from that baseline's sweep picker. Named rules are recorded as names; hidden rule definitions are never inferred.
 
 ## Search modes
 
@@ -154,7 +158,7 @@ Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the sa
 
 Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, a three-trial full Candle DOM flow, complete backup/import and demo isolation. These are simulated tests, not proof of the installed extension operating the live service.
 
-Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.4's new full-setup and dropdown-refresh flow.**
+Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.5's new full-setup and dropdown-refresh flow.**
 
 ## Remaining delivery plan
 

@@ -135,4 +135,54 @@ const demoT=S.demoTemplate(),demoB=S.configToBaseline(S.defaults(demoT),demoT,{i
  const demoGroup=S.fieldsForUI(demoT).flatMap(g=>g.fields).find(f=>f.key==='momentum.group');assert.equal(demoGroup.type,'combobox');assert.equal(demoGroup.options.length,3);assert.ok(demoGroup.options.every(o=>o.label.startsWith('Demo universe ')),'Preview groups are explicitly fictional');
 }
 assert.equal(S.template({momentum:source.stages.momentum,execution:source.stages.execution,portfolio:source.stages.portfolio}).stages.momentum.fields.length,52,'Direct stage aliases remain supported');
+// Strategy rules belong to one observed category of one exact strategy slot.
+{
+ const cached=clone(source),m=cached.stages.momentum,categories=['Pre','My','Public','Popular'];m.ruleCatalogues={};
+ for(let n=1;n<=3;n++){
+  const parent=35+4*n,child=parent+1,gate=parent+3,lists={};
+  m.options[parent]=categories;m.fields[parent].value='Pre';m.fields[gate].checked=true;
+  for(const category of categories)lists[category]=[`${n} ${category} first`,{value:'opaque-token',label:`${n} ${category} second`},{value:'disabled-token',label:`${n} ${category} unavailable`,disabled:true}];
+  m.options[child]=clone(lists.Pre);m.fields[child].value=`${n} Pre first`;m.ruleCatalogues[child]={parentIndex:parent,gateIndex:gate,categories:lists};
+ }
+ const before=clone(cached),catalogueT=S.template(cached),defaults=S.defaults(catalogueT);assert.deepEqual(cached,before);
+ for(let n=1;n<=3;n++)for(const category of categories){
+  const prefix='momentum.strategy.'+n,chosen={...defaults,[prefix+'.source']:category,[prefix+'.rule']:`${n} ${category} second`},descriptors=S.fieldsForUI(catalogueT,chosen).flatMap(g=>g.fields),parent=descriptors.find(f=>f.key===prefix+'.source'),child=descriptors.find(f=>f.key===prefix+'.rule');
+  assert.deepEqual(parent.cachedCategories,categories);assert.equal(parent.refreshOnChange,true);
+  assert.equal(child.sourceKey,parent.key);assert.equal(child.categoryKey,category);assert.deepEqual(child.options.map(o=>o.value),[`${n} ${category} first`,`${n} ${category} second`,`${n} ${category} unavailable`]);
+  const baseline=S.configToBaseline(chosen,catalogueT,{id:`cached-${n}-${category}`,name:'Cached category'});assert.equal(S.validateBaseline(canonical(baseline)).id,baseline.id);
+  assert.equal(baseline.parameters.strategy.main.fields[35+4*n].value,category);assert.equal(baseline.parameters.strategy.main.fields[36+4*n].value,`${n} ${category} second`);
+  assert.deepEqual(baseline.setup.template.stages.momentum.fields,catalogueT.stages.momentum.fields,'Local category changes never rewrite the original source snapshot');
+  assert.throws(()=>S.validateConfig({...chosen,[prefix+'.rule']:`${n} ${category==='My'?'Public':'My'} first`},catalogueT),/available strategy/,'Rules are not unioned across categories');
+  assert.throws(()=>S.validateConfig({...chosen,[prefix+'.rule']:`${n} ${category} unavailable`},catalogueT),/available strategy/,'A cached disabled rule cannot execute');
+  if(category!=='Pre')assert.equal(child.value,'','An unselected cached category cannot invent a selected rule');
+ }
+ const partial=clone(cached);delete partial.stages.momentum.ruleCatalogues[40].categories.My;const partialT=S.template(partial);
+ assert.throws(()=>S.validateConfig({...defaults,'momentum.strategy.1.source':'My','momentum.strategy.1.rule':'1 My first'},partialT),/Refresh choices for Strategy 1 source/,'Uncached categories retain the live refresh requirement');
+ for(let n=1;n<=3;n++){
+  const empty=clone(cached),child=36+4*n,prefix='momentum.strategy.'+n;empty.stages.momentum.ruleCatalogues[child].categories.My=[];
+  const emptyT=S.template(empty),emptyConfig={...defaults,[prefix+'.source']:'My',[prefix+'.enabled']:false,[prefix+'.rule']:''};
+  assert.equal(S.validateBaseline(S.configToBaseline(emptyConfig,emptyT)).setup.config[prefix+'.rule'],'');
+  assert.throws(()=>S.validateConfig({...emptyConfig,[prefix+'.enabled']:true},emptyT),/No strategy .* choices/);
+  assert.throws(()=>S.validateConfig({...emptyConfig,[prefix+'.rule']:`${n} Pre first`},emptyT),/available strategy/,'Even an inactive removed rule cannot use another category');
+ }
+ for(const mutate of [
+  x=>{x.stages.momentum.ruleCatalogues=null;},x=>{x.stages.momentum.ruleCatalogues=[];},
+  x=>{x.stages.momentum.ruleCatalogues[36]=clone(x.stages.momentum.ruleCatalogues[40]);},
+  x=>{x.stages.momentum.ruleCatalogues[40].parentIndex=43;},x=>{x.stages.momentum.ruleCatalogues[40].gateIndex=46;},
+  x=>{x.stages.momentum.ruleCatalogues[40].unexpected=true;},x=>{x.stages.momentum.ruleCatalogues[40].categories={};},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories=[];},x=>{x.stages.momentum.ruleCatalogues[40].categories.My=null;},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories.My=[{value:'v'}];},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories.My=[{value:'v',label:'Rule',disabled:'yes'}];},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories.My=['Rule\nline'];},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories.My=['Same','Same'];},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories.My=Array.from({length:3001},(_,i)=>'Rule '+i);},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories.Other=['Unknown'];},
+  x=>{x.stages.momentum.options[39]=['Pre','My','Public',{value:'p',label:'Popular',disabled:true}];},
+  x=>{x.stages.momentum.ruleCatalogues[40].categories.Pre=['Stale cached rule'];},
+  x=>{x.stages.execution.ruleCatalogues={};}
+ ]){const invalid=clone(cached);mutate(invalid);assert.throws(()=>S.template(invalid),/Invalid|Ambiguous|not available|do not match/);}
+ const limit=clone(cached);limit.stages.momentum.ruleCatalogues[40].categories.My=Array.from({length:3000},(_,i)=>'Rule '+i);assert.equal(S.template(limit).stages.momentum.ruleCatalogues[40].categories.My.length,3000);
+ assert.equal(S.fieldsForUI(t).flatMap(g=>g.fields).find(f=>f.key==='momentum.strategy.1.source').cachedCategories,undefined);
+ assert.equal(S.validateBaseline(clone(b)).id,b.id,'Legacy archives with no category metadata rebuild unchanged');
+}
 console.log('PASS: source-derived setup, exact labels and choices, market-bound Group autocomplete and legacy archives, editable Candle strategy/exits/portfolio, settings-only provenance, strict dates/weights/capital/rules, unsupported settings, immutable reconstruction and fictional isolation.');

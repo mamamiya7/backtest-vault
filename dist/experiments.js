@@ -23,7 +23,7 @@ function catalogFromSetup(template,config={}){
  if(!S)throw Error('Reload Vault to load the test setup editor.');
  const strategy=/^momentum\.(?:period\.[1-4](?:\.enabled|\.weight)?|ema\.[1-3](?:\.enabled)?|tma|retracement(?:\.enabled|\.mode|\.reference)?|volume(?:\.reference)?|radar\.(?:enabled|rule)|trend-quality(?:\.enabled)?|strategy\.[1-3]\.(?:enabled|rule|timeframe))$/;
  const exits=/^execution\.(?:target(?:\.enabled)?|stop(?:\.enabled)?|exit\.(?:enabled|rule))$/;
- return S.fieldsForUI(template).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key))).map(f=>{
+ return S.fieldsForUI(template,config).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key))).map(f=>{
   const d={key:f.key,label:(f.stage==='execution'?'Exit · ':'')+f.label,stage:f.stage,type:f.type==='select'?'enum':f.type,value:Object.hasOwn(config,f.key)?config[f.key]:f.value};
   if(f.index!==undefined)d.index=f.index;if(f.indices)d.indices=clone(f.indices);
   if(f.type==='number'){d.min=f.min;d.max=f.max;d.integer=f.integer===true;}
@@ -77,7 +77,7 @@ function dimensions(b,input){
 }
 function combos(dims){let out=[{}];for(const d of dims){if(out.length*d.values.length>10000)throw Error('This plan exceeds 10,000 combinations. Narrow the ranges.');out=out.flatMap(c=>d.values.map(v=>({...c,[d.key]:v})));}return out;}
 function shuffled(list,seed){let s=Number(seed)>>>0;const next=()=>{s=(s+0x6D2B79F5)>>>0;let x=Math.imul(s^(s>>>15),1|s);x^=x+Math.imul(x^(x>>>7),61|x);return ((x^(x>>>14))>>>0)/4294967296;};const a=[...list];for(let i=a.length-1;i>0;i--){const j=Math.floor(next()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
-function combinationRules(b){return S.fieldsForUI(b.setup.template).flatMap(g=>g.fields).filter(f=>f.rule).map(f=>({key:f.key,label:f.label,gate:f.enabledBy,available:new Set(f.options.filter(o=>!o.disabled).map(o=>o.value))}));}
+function combinationRules(b){return S.fieldsForUI(b.setup.template,b.setup.config).flatMap(g=>g.fields).filter(f=>f.rule).map(f=>({key:f.key,label:f.label,gate:f.enabledBy,available:new Set(f.options.filter(o=>!o.disabled).map(o=>o.value))}));}
 function checkSetupCombination(config,rules){
  // The unchanged baseline already passed S.validateBaseline. Dimension values
  // passed the exact source enum, boolean and numeric domains in dimensions().

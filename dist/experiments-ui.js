@@ -105,7 +105,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
  }
 
  function newTest(){
-  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
+  selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');wizard.template=S.demoTemplate();wizard.config=S.defaults(wizard.template);wizard.step=1;}
   setupPage();
  }
@@ -176,6 +176,29 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
  }
 
  const setupEnabled=(state,key)=>!key||!!state.config[key]||state.dimensions.some(d=>d.key===key&&Array.isArray(d.values)&&d.values.includes(true));
+ function rememberRuleCategory(state,field){
+  const children=[...state.fields.values()].filter(f=>f.rule&&f.sourceKey===field.key);
+  for(const child of children){
+   let drafts=state.ruleDrafts.get(child.key);if(!drafts){drafts=new Map();state.ruleDrafts.set(child.key,drafts);}
+   const dimension=state.dimensions.find(d=>d.key===child.key);drafts.set(state.config[field.key],{value:state.config[child.key],dimension:dimension?structuredClone(dimension):null});
+  }
+  return children;
+ }
+ function switchRuleCategory(state,field,category){
+  const previous=state.config[field.key];if(previous===category)return true;
+  const children=rememberRuleCategory(state,field);
+  const nextConfig={...state.config,[field.key]:category},nextFields=S.fieldsForUI(state.template,nextConfig).flatMap(g=>g.fields);
+  let dimensions=state.dimensions.filter(d=>!children.some(f=>f.key===d.key));
+  for(const child of children){
+   const saved=state.ruleDrafts.get(child.key).get(category),next=nextFields.find(f=>f.key===child.key);
+   const placeholder=next?.options.find(o=>o.value===''||/^[-\s]*select\b/i.test(o.label||o.value));
+   nextConfig[child.key]=saved?saved.value:placeholder?.value??'';
+   if(saved?.dimension)dimensions.push(structuredClone(saved.dimension));
+  }
+  if(dimensions.length>6){notice.textContent='Use at most six changing settings in one test batch. Remove a test range before restoring this category.';return false;}
+  state.config=nextConfig;state.dimensions=dimensions;state.editorOpen=null;setupPage();
+  content.querySelector('[data-setup-field="'+field.key+'"]')?.focus();return true;
+ }
  function workbenchChanged(state){
   for(const item of state.controls||[]){
    if(!item.control.isConnected)continue;
@@ -196,7 +219,8 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
    if(candidate.type==='enum'){
     const choices=candidate.options;
     const list=el('div',undefined,'source-value-choices');
-    for(const option of choices){const checkbox=input('','checkbox');checkbox.checked=Array.isArray(d.values)&&d.values.includes(option.value);checkbox.onchange=()=>{const values=Array.isArray(d.values)?d.values:[];d.values=checkbox.checked?[...values,option.value]:values.filter(v=>v!==option.value);workbenchChanged(state);};list.append(label(option.label,checkbox));}editor.append(list);
+    const missing=Array.isArray(d.values)?d.values.filter(value=>!choices.some(o=>o.value===value)).map(value=>({value,label:value+' · unavailable'})):[];
+    for(const option of [...choices,...missing]){const checkbox=input('','checkbox');checkbox.checked=Array.isArray(d.values)&&d.values.includes(option.value);checkbox.onchange=()=>{const values=Array.isArray(d.values)?d.values:[];d.values=checkbox.checked?[...values,option.value]:values.filter(v=>v!==option.value);workbenchChanged(state);};list.append(label(option.label,checkbox));}editor.append(list);
    }else{
     const modes=el('div',undefined,'source-value-modes');for(const mode of ['Values','Range']){const b=button(mode,()=>{d.editorMode=mode.toLowerCase();draw();},'quiet');b.setAttribute('aria-pressed',String((d.editorMode||'values')===mode.toLowerCase()));modes.append(b);}editor.append(modes);
     if(d.editorMode==='range'){
@@ -259,13 +283,20 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
     }else state.config[key]=control.type==='checkbox'?control.checked:control.value;
     workbenchChanged(state);
    };
-   control.addEventListener('input',update);control.addEventListener('change',()=>{update();if(field.refreshOnChange&&extension)void action(()=>refreshSetupChoices({[field.stage]:{[field.index]:control.value}}));});state.controls.push({field,control});
+   if(!field.cachedCategories)control.addEventListener('input',update);
+   control.addEventListener('change',()=>{
+    if(field.cachedCategories?.includes(control.value)){
+     if(!switchRuleCategory(state,field,control.value))control.value=state.config[key];return;
+    }
+    if(field.cachedCategories)rememberRuleCategory(state,field);
+    update();if(field.refreshOnChange&&extension)void action(()=>refreshSetupChoices({[field.stage]:{[field.index]:control.value}}));
+   });state.controls.push({field,control});
   }
   if(field.disabled)wrap.classList.add('source-fixed');if(variation){const editor=variationEditor(state,field);if(editor)wrap.append(editor);}return wrap;
  }
 
  function buildWorkbench(shell,state){
-  const groups=S.fieldsForUI(state.template);state.fields=new Map(groups.flatMap(g=>g.fields).map(f=>[f.key,f]));state.catalog=E.catalogFromSetup?E.catalogFromSetup(state.template,state.config):[];state.controls=[];state.countUpdates=[];
+  const groups=S.fieldsForUI(state.template,state.config);state.fields=new Map(groups.flatMap(g=>g.fields).map(f=>[f.key,f]));state.catalog=E.catalogFromSetup?E.catalogFromSetup(state.template,state.config):[];state.controls=[];state.countUpdates=[];
   const form=el('form',undefined,'setup-form source-main-form');form.onsubmit=event=>{event.preventDefault();openBacktest(state);};shell.append(form);
   const main=el('div',undefined,'source-main-grid'),left=el('section',undefined,'source-main-left'),right=el('section',undefined,'source-main-right');left.setAttribute('aria-label','Chart, periods and timeframe');right.setAttribute('aria-label','Group and filters');main.append(left,right);form.append(main);
   const field=(key,opts)=>sourceField(state,'momentum.'+key,opts);

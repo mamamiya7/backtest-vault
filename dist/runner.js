@@ -153,8 +153,8 @@ function configChanges(changes){
  return changes;
 }
 const sourceParents={momentum:{35:{gate:34,child:36},39:{gate:42,child:40},43:{gate:46,child:44},47:{gate:50,child:48}},execution:{6:{gate:5,child:7}}};
-async function settledOptions(p,index,changed){
- const deadline=Date.now()+10000,started=Date.now();let signature='',stableAt=Date.now();
+async function settledOptions(p,index,changed,until=Infinity){
+ const deadline=Math.min(Date.now()+10000,until),started=Date.now();let signature='',stableAt=Date.now();
  while(Date.now()<deadline){check();const n=inputs(p)[index],next=n?.tagName==='SELECT'?JSON.stringify([...n.options].map(o=>[o.value,V.clean(o.textContent),o.disabled])):'';
   if(next!==signature){signature=next;stableAt=Date.now();}
   if(changed()&&n?.tagName==='SELECT'&&Date.now()-started>=750&&Date.now()-stableAt>=750)return;
@@ -162,10 +162,11 @@ async function settledOptions(p,index,changed){
  }
  throw Error('RZone did not finish loading the dependent choices. Try refreshing those choices again.');
 }
-async function selectValue(p,node,value,parent){
+async function selectValue(p,node,value,parent,until=Infinity){
+ if(Date.now()>=until)throw Error('RZone strategy choices took too long to load. Refresh choices and try again.');
  let observer=null,refreshed=!parent;
  if(parent){const child=inputs(p)[parent.child];observer=new MutationObserver(records=>{if(records.some(r=>r.target===child||child?.contains(r.target)||[...r.removedNodes,...r.addedNodes].some(n=>n===child||n.contains?.(child))))refreshed=true;});observer.observe(p,{subtree:true,childList:true,characterData:true});}
- try{node.value=value;node.dispatchEvent(new Event('change',{bubbles:true}));if(parent)await settledOptions(p,parent.child,()=>refreshed);}finally{observer?.disconnect();}
+ try{node.value=value;node.dispatchEvent(new Event('change',{bubbles:true}));if(parent)await settledOptions(p,parent.child,()=>refreshed,until);}finally{observer?.disconnect();}
 }
 async function changeParents(p,changes,stage){
  for(const [key,value]of Object.entries(changes||{})){
@@ -179,10 +180,97 @@ async function changeParents(p,changes,stage){
   }finally{if(restore&&!interrupted&&C.visible(p))await setField(p,parent.gate,{...C.fields(p)[parent.gate],checked:false},stage);}
  }
 }
+const strategyRows=[{parentIndex:39,childIndex:40,timeframeIndex:41,gateIndex:42},{parentIndex:43,childIndex:44,timeframeIndex:45,gateIndex:46},{parentIndex:47,childIndex:48,timeframeIndex:49,gateIndex:50}];
+function strategyOptions(node){
+ if(node?.tagName!=='SELECT'||node.options.length>3000)throw Error('RZone strategy choices are unavailable or exceed 3,000 entries.');
+ const labels=new Set();return [...node.options].map(option=>{
+  const label=V.clean(option.textContent);
+  if(!label||label.length>2000||option.value.length>2000||labels.has(label))throw Error('RZone strategy choices have missing or duplicate names. Review them before refreshing.');
+  labels.add(label);return {value:label,label,sourceValue:option.value,disabled:option.disabled};
+ });
+}
+function unchangedOutsideRow(main,before,row){
+ const nodes=inputs(main),expected=before.map(field=>({...field}));
+ if(nodes.length!==before.length)throw Error('RZone settings layout changed while reading strategy choices.');
+ // The full labelled snapshot is checked again after restoring this row.
+ // During its requests, read native values directly instead of repeatedly
+ // cloning every source table and its potentially thousands of rule options.
+ const current=nodes.map((node,index)=>nodeField(node,before[index]));
+ for(const index of [row.parentIndex,row.childIndex,row.timeframeIndex,row.gateIndex]){
+  const actual=current[index];expected[index]={...expected[index],value:actual.value,checked:actual.checked,disabled:actual.disabled};
+ }
+ if(JSON.stringify(expected)!==JSON.stringify(current))throw Error('Other RZone settings changed while reading strategy choices. Review the source before reconnecting.');
+}
+async function restoreStrategyRow(main,row,snapshot,original){
+ const deadline=Date.now()+5000;let restoreError;
+ try{
+  check();let nodes=inputs(main),parent=nodes[row.parentIndex];
+  if(parent.value!==original.parentValue){
+   if(![...parent.options].some(o=>o.value===original.parentValue&&V.clean(o.textContent)===snapshot[row.parentIndex].value))throw Error('The original category is no longer available.');
+   await selectValue(main,parent,original.parentValue,{gate:row.gateIndex,child:row.childIndex},deadline);
+  }
+  for(const [index,value]of [[row.childIndex,original.ruleValue],[row.timeframeIndex,original.timeframeValue]]){
+   check();nodes=inputs(main);const node=nodes[index];
+   if(node.value===value&&V.clean(node.selectedOptions[0]?.textContent)===snapshot[index].value)continue;
+   if(![...node.options].some(o=>o.value===value&&V.clean(o.textContent)===snapshot[index].value))throw Error('The original selected rule or timeframe is no longer available.');
+   await selectValue(main,node,value,null,deadline);await delay(150);
+  }
+ }catch(error){restoreError=error;}
+ finally{
+  if(!interrupted&&C.main()===main){
+   const gate=inputs(main)[row.gateIndex];if(gate?.type==='checkbox'&&gate.checked!==original.enabled){ownClick(gate);await delay(150);}
+  }
+ }
+ if(restoreError)throw Error('RZone strategy settings could not be restored: '+restoreError.message+' Review the source before reconnecting.');
+ if(JSON.stringify(C.fields(main))!==JSON.stringify(snapshot))throw Error('RZone strategy settings changed during discovery. Review the source before reconnecting.');
+}
+async function strategyCatalogues(main,deadline){
+ const catalogues={};
+ for(const row of strategyRows){
+  check();if(Date.now()>=deadline)throw Error('RZone strategy choices took too long to load. Refresh choices and try again.');
+  const snapshot=C.fields(main),nodes=inputs(main),parent=nodes[row.parentIndex],child=nodes[row.childIndex],gate=nodes[row.gateIndex],timeframe=nodes[row.timeframeIndex];
+  if(snapshot.length!==52||parent?.tagName!=='SELECT'||child?.tagName!=='SELECT'||timeframe?.tagName!=='SELECT'||gate?.type!=='checkbox'||gate.disabled)throw Error('RZone strategy layout changed. Refresh RZone and connect again.');
+  const offered=strategyOptions(parent).filter(o=>!o.disabled&&['Pre','My','Public','Popular'].includes(o.value));
+  const selected=V.clean(parent.selectedOptions[0]?.textContent);
+  if(!offered.some(o=>o.value===selected))throw Error('The selected RZone strategy category is not available for automatic discovery.');
+  const original={parentValue:parent.value,ruleValue:child.value,timeframeValue:timeframe.value,enabled:gate.checked},categories={};
+  try{
+   if(!gate.checked){ownClick(gate);await delay(150);await settledOptions(main,row.childIndex,()=>true,deadline);}
+   if(inputs(main)[row.parentIndex].value!==original.parentValue)await selectValue(main,inputs(main)[row.parentIndex],original.parentValue,{gate:row.gateIndex,child:row.childIndex},deadline);
+   const initialAnchor=inputs(main)[row.childIndex].options.length?offered.find(o=>o.value===selected):null;
+   const ordered=['Pre','Popular','My','Public'].map(name=>offered.find(option=>option.value===name)).filter(Boolean);
+   for(const category of [...ordered.filter(o=>o.value!==selected),...ordered.filter(o=>o.value===selected)]){
+    check();unchangedOutsideRow(main,snapshot,row);
+    if(Date.now()>=deadline)throw Error('RZone strategy choices took too long to load. Refresh choices and try again.');
+    const current=inputs(main),categoryNode=current[row.parentIndex];
+    if(!current[row.gateIndex].checked||categoryNode.disabled||current[row.childIndex].disabled)throw Error('RZone did not enable the strategy choices. Review its strategy checkbox and reconnect.');
+    // Empty -> empty can produce no DOM mutation at all. Visit a known
+    // populated category first, so clearing its options is a fresh, observable
+    // empty response rather than an assumed completion of a pending request.
+    if(!current[row.childIndex].options.length&&categoryNode.value!==category.sourceValue&&!categories[category.value]?.length&&initialAnchor?.value!==category.value){
+     const anchor=offered.find(o=>categories[o.value]?.length)||initialAnchor;
+     if(anchor&&anchor.sourceValue!==category.sourceValue&&anchor.sourceValue!==categoryNode.value){
+      await selectValue(main,categoryNode,anchor.sourceValue,{gate:row.gateIndex,child:row.childIndex},deadline);
+      const options=strategyOptions(inputs(main)[row.childIndex]);
+      if(!options.length)throw Error('RZone strategy choices changed during discovery. Refresh choices and try again.');
+      categories[anchor.value]=options;
+     }
+    }
+    if(inputs(main)[row.parentIndex].value!==category.sourceValue)await selectValue(main,inputs(main)[row.parentIndex],category.sourceValue,{gate:row.gateIndex,child:row.childIndex},deadline);
+    else await settledOptions(main,row.childIndex,()=>true,deadline);
+    check();unchangedOutsideRow(main,snapshot,row);
+    if(V.clean(inputs(main)[row.parentIndex].selectedOptions[0]?.textContent)!==category.value)throw Error('The RZone strategy category changed while reading choices.');
+    categories[category.value]=strategyOptions(inputs(main)[row.childIndex]);
+   }
+  }finally{if(!interrupted)await restoreStrategyRow(main,row,snapshot,original);}
+  catalogues[row.childIndex]={parentIndex:row.parentIndex,gateIndex:row.gateIndex,categories};
+ }
+ return catalogues;
+}
 async function configuration(requestedChanges){
  if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
  const changes=configChanges(requestedChanges);
- configuring=true;interrupted=false;let setup=null,config;
+ configuring=true;interrupted=false;const started=Date.now();let setup=null,config;
  try{
   try{
   C.status('Connecting to Vault: opening Momentum settings…');
@@ -193,6 +281,14 @@ async function configuration(requestedChanges){
   if(momentum.fields.length!==52||momentum.fields[0]?.value!=='Candle'||momentum.fields[51]?.checked)throw Error('Vault setup currently supports the standard Candle layout without Relative Strength. This RZone layout needs a separate adapter.');
   if(momentum.fields[2]?.checked)throw Error('Market Trend Filter has additional source settings. Turn it off before connecting this setup.');
   momentum.options[1]=await groupCatalogue(C.main());
+  // Scan for at most 35 s, stopping by 38 s from request start (28 s when an
+  // execution parent must also refresh). Reserve 5 s for row restoration,
+  // 10 s to open execution settings, optionally 10 s for that parent refresh,
+  // and 5 s to close the owned dialog: at most 58 s of the worker's 60 s.
+  // The dashboard's 70 s deadline and all fresh-response checks stay unchanged.
+  const scanDeadline=Math.min(Date.now()+35000,started+(Object.keys(changes.execution||{}).length?28000:38000));
+  momentum.ruleCatalogues=await strategyCatalogues(C.main(),scanDeadline);
+  for(const [child,catalogue]of Object.entries(momentum.ruleCatalogues))momentum.options[child]=catalogue.categories[momentum.fields[catalogue.parentIndex].value];
   C.status('Connecting to Vault: reading backtest settings…');
   button(C.main(),/^BackTest$/i).click();setup=await wait(()=>C.popup('Momentum Trading BackTest'),Date.now()+10000,'Momentum settings did not open.');
   await changeParents(setup,changes.execution,'execution');const execution=descriptor(setup);

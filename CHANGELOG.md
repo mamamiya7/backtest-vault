@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.5 preview - 2026-09-16
+
+- Load every offered Pre, My, Public and Popular rule category for Strategy 1–3 during New test and Refresh choices. Temporarily enable each source row, then restore its exact category, rule, timeframe and checkbox state without submitting a backtest.
+- Switch loaded strategy categories immediately in Vault. Keep separate rule selections and Test values for each category; never mix rules between strategies or categories. Empty lists stay empty, and removed choices remain visible for review.
+- Validate plans and imports against the chosen category, retain legacy setup compatibility, and keep source categories fixed within a batch. Discovery has a bounded read and restoration budget; existing source dialogs remain untouched.
+- Add model, UI and runner regressions covering all three rows and four categories, delayed/empty/rejected menus, exact restoration, draft retention and category-specific trial validation. Installed acceptance of the new strategy catalogue scan remains pending activation.
+
 ## 0.8.4 preview - 2026-09-16
 
 - Load current source dropdowns automatically on New test when exactly one RZone tab is available. Multiple tabs still require a choice; failed reads allow explicit retry without a polling loop.

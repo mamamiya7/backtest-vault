@@ -11,6 +11,35 @@ const same=(a,b)=>JSON.stringify(ordered(a))===JSON.stringify(ordered(b));
 const owns=(o,key)=>!!o&&Object.prototype.hasOwnProperty.call(o,key);
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const blocked='This dynamic rule is not available in automatic setup yet.';
+const strategyCatalogues={40:{parentIndex:39,gateIndex:42},44:{parentIndex:43,gateIndex:46},48:{parentIndex:47,gateIndex:50}};
+const ruleCategories=['Pre','My','Public','Popular'];
+const record=x=>!!x&&typeof x==='object'&&!Array.isArray(x);
+function catalogueChoices(input,label){
+ if(!Array.isArray(input)||input.length>3000)throw Error('Invalid cached rule choices for '+label+'.');
+ const seen=new Set();return input.map(option=>{
+  const raw=typeof option==='string'?{value:option,label:option}:option;
+  if(!record(raw)||typeof raw.value!=='string'||typeof raw.label!=='string'||raw.value.length>2000||raw.label.length>2000||/[\u0000-\u001f]/.test(raw.label)||(raw.disabled!==undefined&&typeof raw.disabled!=='boolean'))throw Error('Invalid cached rule choice for '+label+'.');
+  if(seen.has(raw.label))throw Error('Ambiguous cached rule choices for '+label+'.');seen.add(raw.label);
+  return {value:raw.label,label:raw.label,disabled:raw.disabled===true};
+ });
+}
+function ruleCatalogues(input,stage,fields,options){
+ if(stage!=='momentum'||!record(input)||Object.keys(input).some(key=>!owns(strategyCatalogues,key)))throw Error('Invalid strategy rule catalogues.');
+ const out={};
+ for(const [key,entry] of Object.entries(input)){
+  const shape=strategyCatalogues[key],child=fields[Number(key)];
+  if(!record(entry)||Object.keys(entry).some(k=>!['parentIndex','gateIndex','categories'].includes(k))||entry.parentIndex!==shape.parentIndex||entry.gateIndex!==shape.gateIndex||fields[shape.parentIndex]?.type!=='select-one'||child?.type!=='select-one'||fields[shape.gateIndex]?.type!=='checkbox'||!record(entry.categories)||!Object.keys(entry.categories).length||Object.keys(entry.categories).length>4)throw Error('Invalid strategy rule catalogue association.');
+  const categories={};
+  for(const [category,choices] of Object.entries(entry.categories)){
+   if(!ruleCategories.includes(category)||!options[shape.parentIndex]?.some(o=>o.value===category&&!o.disabled))throw Error('Cached strategy category is not available from its source.');
+   categories[category]=catalogueChoices(choices,child.label+' / '+category);
+  }
+  const selected=fields[shape.parentIndex].value;
+  if(owns(categories,selected)&&!same(categories[selected],options[key]))throw Error('Cached strategy rules do not match the selected source category.');
+  out[key]={parentIndex:shape.parentIndex,gateIndex:shape.gateIndex,categories};
+ }
+ return out;
+}
 
 function portfolioTemplate(){
  // These six labels, their order and both allocation labels were observed in
@@ -51,6 +80,7 @@ function template(source){
    if(f.type==='select-one'&&!emptyRule&&!options[f.index].some(o=>o.value===f.value))throw Error('Selected source value is absent from its choices: '+f.label);
   }
   t.stages[stage]={fields,options};
+  if(owns(s,'ruleCatalogues'))t.stages[stage].ruleCatalogues=ruleCatalogues(s.ruleCatalogues,stage,fields,options);
   if(s.template===true){t.stages[stage].template=true;t.stages[stage].origin=s.origin==='verified-layout'?'verified-layout':'template';}
  }
  const m=t.stages.momentum.fields,x=t.stages.execution.fields;
@@ -60,7 +90,7 @@ function template(source){
  t.supports={charts:['Candle'],selection:['Price'],blocked:['market-filter','relative-strength']};
  return t;
 }
-function fieldsForUI(input){
+function fieldsForUI(input,config={}){
  const t=template(input),groups=[],m=t.stages.momentum.fields,x=t.stages.execution.fields,p=t.stages.portfolio.fields;
  const group=(stage,key,title)=>{const g={stage,key:stage+'.'+key,title,fields:[]};groups.push(g);return g;};
  const add=(g,key,label,index,type,extra={})=>{
@@ -95,7 +125,20 @@ function fieldsForUI(input){
  for(const [key,label,index] of [['market-filter','Market trend filter',2],['rs','Relative Strength',51]])fixed(g,key,label,index,blocked).value=false;
  const dynamic=(g,key,label,index,dependents)=>add(g,key,label,index,'select',{dynamic:true,refresh:true,refreshOnChange:true,dependents,help:'Refreshes the available rules from RZone when changed.'});
  toggle(g,'radar.enabled','Use Radar',34);dynamic(g,'radar.source','Radar source',35,[36]);add(g,'radar.rule','Radar rule',36,'select',{enabledBy:'momentum.radar.enabled',rule:true});
- for(let i=1;i<=3;i++){const at=35+i*4,key='strategy.'+i;toggle(g,key+'.enabled','Use Strategy '+i,at+3);dynamic(g,key+'.source','Strategy '+i+' source',at,[at+1]);add(g,key+'.rule','Strategy '+i+' rule',at+1,'select',{enabledBy:'momentum.'+key+'.enabled',rule:true});add(g,key+'.timeframe','Strategy '+i+' timeframe',at+2,'select',{enabledBy:'momentum.'+key+'.enabled'});}
+ for(let i=1;i<=3;i++){
+  const at=35+i*4,key='strategy.'+i;toggle(g,key+'.enabled','Use Strategy '+i,at+3);
+  const parent=dynamic(g,key+'.source','Strategy '+i+' source',at,[at+1]),child=add(g,key+'.rule','Strategy '+i+' rule',at+1,'select',{enabledBy:'momentum.'+key+'.enabled',rule:true}),catalogue=t.stages.momentum.ruleCatalogues?.[at+1];
+  if(catalogue){
+   const category=owns(config,parent.key)?config[parent.key]:parent.value;
+   parent.cachedCategories=parent.options.filter(o=>owns(catalogue.categories,o.value)).map(o=>o.value);
+   parent.help='Choose a category to see its loaded rules. Refresh choices after changing rules in RZone.';
+   child.sourceKey=parent.key;child.categoryKey=category;
+   if(owns(catalogue.categories,category))child.options=clone(catalogue.categories[category]);
+   else if(category!==parent.value)child.options=[];
+   if(category!==parent.value)child.value='';
+  }
+  add(g,key+'.timeframe','Strategy '+i+' timeframe',at+2,'select',{enabledBy:'momentum.'+key+'.enabled'});
+ }
  g=group('execution','test','Backtest');
  add(g,'rank','Rank criteria',0,'select');add(g,'from','From date',1,'date');add(g,'to','To date',2,'date');fixed(g,'chart','Chart type',3,'The execution chart stays Candle.');fixed(g,'selection','Selection type',4,'Automatic testing currently supports Price. RS and Both are not yet available.');
  g=group('execution','exits','Exits');
@@ -110,7 +153,7 @@ function defaults(input){return Object.fromEntries(fieldsForUI(input).flatMap(g=
 function validDate(value){return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;}
 function validateConfig(config,input){
  if(!config||typeof config!=='object'||Array.isArray(config))throw Error('Check the backtest setup.');
- const descriptors=fieldsForUI(input).flatMap(g=>g.fields),keys=new Set(descriptors.map(f=>f.key)),out={};
+ const descriptors=fieldsForUI(input,config).flatMap(g=>g.fields),keys=new Set(descriptors.map(f=>f.key)),out={};
  if(Object.keys(config).some(k=>!keys.has(k)))throw Error('Unknown setting in the backtest setup.');
  for(const f of descriptors){let v=config[f.key];if(v===undefined)throw Error('Choose '+f.label+'.');
   if(f.type==='boolean'){if(typeof v!=='boolean')throw Error(f.label+' must be on or off.');}
@@ -129,7 +172,7 @@ function validateConfig(config,input){
   else if(f.type==='date'){if(!validDate(v))throw Error(f.label+': choose a valid date.');}
   else {if(typeof v!=='string'||!v.trim()||v.trim().length>(f.maxLength||2000)||/[\u0000-\u001f]/.test(v))throw Error('Enter a valid '+f.label.toLowerCase()+'.');v=v.trim();}
   if(f.disabled&&!same(v,f.value))throw Error(f.label+' is not available for automatic setup.');
-  if(f.dynamic&&!same(v,f.value))throw Error('Refresh choices for '+f.label+' before continuing.');out[f.key]=v;
+  if(f.dynamic&&!same(v,f.value)&&!f.cachedCategories?.includes(v))throw Error('Refresh choices for '+f.label+' before continuing.');out[f.key]=v;
  }
  if(out['execution.from']>=out['execution.to'])throw Error('The end date must be after the start date.');
  if(![1,2,3,4].some(i=>out['momentum.period.'+i+'.enabled']&&out['momentum.period.'+i+'.weight']>0))throw Error('Enable at least one period with a positive weight.');
@@ -140,10 +183,10 @@ function configToBaseline(config,input,{id='vault-setup',name='New strategy',dem
  if(!idOK(id)||typeof name!=='string'||!name.trim()||name.length>120)throw Error('Give this setup a short name.');
  if(demo!==undefined&&demo!==t.demo)throw Error('Real and fictional setup cannot be mixed.');
  const p=parameters(t),get=stage=>stage==='momentum'?p.strategy.main.fields:stage==='execution'?p.strategy.execution.fields:p.settings.fields;
- for(const d of fieldsForUI(t).flatMap(g=>g.fields)){const f=get(d.stage),v=values[d.key];if(d.indices){for(const i of d.indices)f[i].checked=String(i)===v;}else if(d.type==='boolean')f[d.index].checked=v;else f[d.index].value=String(v);}
+ for(const d of fieldsForUI(t,values).flatMap(g=>g.fields)){const f=get(d.stage),v=values[d.key];if(d.indices){for(const i of d.indices)f[i].checked=String(i)===v;}else if(d.type==='boolean')f[d.index].checked=v;else f[d.index].value=String(v);}
  // Disabled is a recorded UI condition, not a user setting. Keep dependencies
  // consistent for presentation while the runner always verifies source values.
- for(const d of fieldsForUI(t).flatMap(g=>g.fields)){if(d.enabledBy&&d.index!==undefined)get(d.stage)[d.index].disabled=!values[d.enabledBy];}
+ for(const d of fieldsForUI(t,values).flatMap(g=>g.fields)){if(d.enabledBy&&d.index!==undefined)get(d.stage)[d.index].disabled=!values[d.enabledBy];}
  return {id,name:name.trim(),demo:t.demo,origin:'vault-setup',setupVersion:1,parameters:p,setup:{version:1,template:t,config:values}};
 }
 function validateBaseline(b){
