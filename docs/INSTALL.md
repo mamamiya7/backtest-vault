@@ -10,7 +10,7 @@ Sign in to RZone as usual, then open Vault using the extension toolbar. **You do
 
 1. Choose **New test** in Vault.
 2. Select your signed-in RZone tab and click **Connect RZone**. Connecting reads the available controls without submitting a backtest. If Vault cannot find Momentum Trading BackTesting, open RZone's Research menu as prompted, then reconnect.
-3. Set up the strategy in the RZone-style form. Add **Test values** beside a setting to compare explicit values, a numeric range or available choices. Use **Refresh choices** to reread your account's current menus.
+3. Set up the strategy in the RZone-style form. Choose **Off** to skip a period/filter, **On** to include it, or **Test both** to compare separate On and Off runs. Add **Test values** beside a number or menu to compare values or a range. Use **Refresh choices** to reread your account's current menus.
 4. Click **Backtest**, review dates, exits, portfolio settings and the test count, then click **Run … tests**. Leaving all variation controls unused runs the current setup once.
 5. Leave RZone open and avoid editing its settings while the queue runs. Vault saves each completed report automatically. Use **Export experiment** for a backup of that test, or **Back up all** on the main library page.
 

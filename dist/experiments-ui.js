@@ -171,25 +171,26 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   return {id:'preview',name:state.name,baseline:S.configToBaseline(state.config,state.template,{id:'setup-preview',name:state.name,demo:store.demo}),dimensions:state.dimensions.map(d=>({key:d.key,values:d.values})),mode:state.mode,budget:state.budget,objective:state.objective,ceiling:state.ceiling,minTrades:state.minTrades,seed:state.seed,timeoutMinutes:state.timeout};
  }
 
+ const setupEnabled=(state,key)=>!key||!!state.config[key]||state.dimensions.some(d=>d.key===key&&Array.isArray(d.values)&&d.values.includes(true));
  function workbenchChanged(state){
   for(const item of state.controls||[]){
    if(!item.control.isConnected)continue;
    const f=item.field,inspect=f.key.endsWith('.chart')&&f.options?.length>1;
-   item.control.disabled=!!(f.disabled&&!inspect)||!!(f.enabledBy&&!state.config[f.enabledBy]);
+   item.control.disabled=!!(f.disabled&&!inspect)||!setupEnabled(state,f.enabledBy);
   }
   for(const update of state.countUpdates||[])update();
  }
 
  function variationEditor(state,field){
-  const candidate=state.catalog.find(f=>f.key===field.key);if(!candidate||candidate.type==='enum'&&!candidate.options.length)return null;
+  const candidate=state.catalog.find(f=>f.key===field.key);if(!candidate||candidate.type==='boolean'||candidate.type==='enum'&&!candidate.options.length)return null;
   const holder=el('div',undefined,'source-variation'),toggle=button('Test values',()=>{},'source-test-values'),editor=el('div',undefined,'source-values-editor');holder.dataset.variationFor=field.key;editor.dataset.editorFor=field.key;editor.hidden=state.editorOpen!==field.key;holder.append(toggle,editor);
   const dimension=()=>state.dimensions.find(d=>d.key===field.key);
-  const summary=()=>{const d=dimension();toggle.textContent=d?'Edit values':candidate.type==='boolean'?'On/off':'Test values';toggle.setAttribute('aria-label','Test values for '+field.label);toggle.classList.toggle('is-active',!!d);toggle.setAttribute('aria-expanded',String(!editor.hidden));};
+  const summary=()=>{const d=dimension();toggle.textContent=d?'Edit values':'Test values';toggle.setAttribute('aria-label','Test values for '+field.label);toggle.classList.toggle('is-active',!!d);toggle.setAttribute('aria-expanded',String(!editor.hidden));};
   function draw(){
    const d=dimension();editor.replaceChildren();if(!d)return;editor.append(el('strong',field.label));
    const current=state.config[field.key];
-   if(candidate.type==='enum'||candidate.type==='boolean'){
-    const choices=candidate.type==='boolean'?[{value:true,label:'On'},{value:false,label:'Off'}]:candidate.options;
+   if(candidate.type==='enum'){
+    const choices=candidate.options;
     const list=el('div',undefined,'source-value-choices');
     for(const option of choices){const checkbox=input('','checkbox');checkbox.checked=Array.isArray(d.values)&&d.values.includes(option.value);checkbox.onchange=()=>{const values=Array.isArray(d.values)?d.values:[];d.values=checkbox.checked?[...values,option.value]:values.filter(v=>v!==option.value);workbenchChanged(state);};list.append(label(option.label,checkbox));}editor.append(list);
    }else{
@@ -205,7 +206,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
    const actions=el('div',undefined,'source-value-actions');actions.append(button('Use current value',()=>{state.dimensions=state.dimensions.filter(d=>d.key!==field.key);state.editorOpen=null;editor.hidden=true;summary();workbenchChanged(state);},'quiet'),button('Done',()=>{state.editorOpen=null;editor.hidden=true;summary();workbenchChanged(state);},'secondary'));editor.append(actions);summary();
   }
   toggle.onclick=()=>{
-   if(!dimension()){if(state.dimensions.length>=6){notice.textContent='Use at most six changing settings in one test batch.';return;}state.dimensions.push({key:field.key,values:candidate.type==='boolean'||candidate.type==='enum'?[state.config[field.key]]:String(state.config[field.key]),editorMode:'values'});}
+   if(!dimension()){if(state.dimensions.length>=6){notice.textContent='Use at most six changing settings in one test batch.';return;}state.dimensions.push({key:field.key,values:candidate.type==='enum'?[state.config[field.key]]:String(state.config[field.key]),editorMode:'values'});}
    const open=editor.hidden;for(const n of content.querySelectorAll('.source-values-editor'))n.hidden=true;state.editorOpen=open?field.key:null;editor.hidden=!open;draw();summary();workbenchChanged(state);
   };draw();summary();return holder;
  }
@@ -215,19 +216,33 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const caption=field.label.replace(/^Use /,'');if(showLabel&&field.type!=='boolean')wrap.append(el('span',caption,'source-control-label'));
   const line=el('div',undefined,'source-control-line');wrap.append(line);
   if(radios){
-   const options=el('div',undefined,'source-radios');for(const option of field.options||[]){const n=input(option.value,'radio');n.name='setup-'+key;n.checked=String(value)===String(option.value);n.disabled=!!field.disabled||!!option.disabled||!!(field.enabledBy&&!state.config[field.enabledBy]);n.dataset.setupField=key;n.setAttribute('aria-label',caption+' · '+option.label);n.onchange=()=>{if(n.checked){state.config[key]=n.value;workbenchChanged(state);}};state.controls.push({field,control:n});options.append(label(option.label,n));}line.append(options);
+   const options=el('div',undefined,'source-radios');for(const option of field.options||[]){const n=input(option.value,'radio');n.name='setup-'+key;n.checked=String(value)===String(option.value);n.disabled=!!field.disabled||!!option.disabled||!setupEnabled(state,field.enabledBy);n.dataset.setupField=key;n.setAttribute('aria-label',caption+' · '+option.label);n.onchange=()=>{if(n.checked){state.config[key]=n.value;workbenchChanged(state);}};state.controls.push({field,control:n});options.append(label(option.label,n));}line.append(options);
   }else{
    let control,unavailable=false;
-   if(field.type==='boolean'){control=input('','checkbox');control.checked=!!value;}
+   const stateChoice=field.type==='boolean'&&!field.disabled;
+   const variableState=stateChoice&&variation&&state.catalog.some(f=>f.key===key&&f.type==='boolean');
+   const selectedState=()=>state.dimensions.some(d=>d.key===key&&Array.isArray(d.values)&&d.values.includes(true)&&d.values.includes(false))?'both':String(!!state.config[key]);
+   if(stateChoice){control=select([['false','Off'],['true','On'],...(variableState?[['both','Test both']]:[])]);control.classList.add('source-state-select');control.value=selectedState();control.dataset.mode=control.value;}
+   else if(field.type==='boolean'){control=input('','checkbox');control.checked=!!value;}
    else if(field.type==='select'){
     const options=field.options||[];control=select(options.map(o=>[String(o.value),o.label||String(o.value)]));options.forEach((o,i)=>control.options[i].disabled=!!o.disabled);
     if(!options.length){const empty=el('option','No choices available');empty.value='';empty.disabled=true;control.append(empty);}
     if(!options.some(o=>String(o.value)===String(value))&&String(value??'')){const missing=el('option',String(value)+' · unavailable');missing.value=String(value);missing.disabled=true;control.append(missing);unavailable=true;}control.value=String(value??'');
    }else{control=input(value??'',field.type==='number'?'number':field.type==='date'?'date':'text');if(field.min!==undefined)control.min=field.min;if(field.max!==undefined)control.max=field.max;if(field.type==='number')control.step=field.integer?'1':'any';}
-   control.dataset.setupField=key;control.setAttribute('aria-label',caption);control.title=field.reason||field.help||caption;if(key==='momentum.group')control.placeholder='Search Group';control.required=!field.disabled&&field.type!=='boolean';const inspectChart=key.endsWith('.chart')&&field.options?.length>1;control.disabled=!!(field.disabled&&!inspectChart)||!!(field.enabledBy&&!state.config[field.enabledBy]);
-   if(field.type==='boolean'){const l=label(text,control);l.className='source-check';line.append(l);}else line.append(control);
-   if(unavailable){wrap.classList.add('setup-unavailable');control.setAttribute('aria-invalid','true');line.title='This choice is no longer available. Select another option.';if(field.rule&&!field.options?.length)wrap.append(button('Clear unavailable choice',()=>{state.config[key]='';if(field.enabledBy)state.config[field.enabledBy]=false;setupPage();},'quiet'));}
-   const update=()=>{state.config[key]=control.type==='checkbox'?control.checked:control.value;workbenchChanged(state);};
+   control.dataset.setupField=key;control.setAttribute('aria-label',caption);control.title=field.reason||field.help||(variableState?caption+': On uses it, Off skips it, Test both compares separate On and Off runs.':caption);if(key==='momentum.group')control.placeholder='Search Group';control.required=!field.disabled&&field.type!=='boolean';const inspectChart=key.endsWith('.chart')&&field.options?.length>1;control.disabled=!!(field.disabled&&!inspectChart)||!setupEnabled(state,field.enabledBy);
+   if(field.type==='boolean'&&(!stateChoice||text)){const l=label(text,control);l.className=stateChoice?'source-state-label':'source-check';line.append(l);}else line.append(control);
+   if(unavailable){wrap.classList.add('setup-unavailable');control.setAttribute('aria-invalid','true');line.title='This choice is no longer available. Select another option.';if(field.rule&&!field.options?.length)wrap.append(button('Clear unavailable choice',()=>{state.config[key]='';if(field.enabledBy)state.config[field.enabledBy]=false;state.dimensions=state.dimensions.filter(d=>d.key!==key&&d.key!==field.enabledBy);setupPage();},'quiet'));}
+   const update=()=>{
+    if(stateChoice){
+     if(control.value==='both'){
+      if(!variableState)return;
+      if(!state.dimensions.some(d=>d.key===key)){if(state.dimensions.length>=6){notice.textContent='Use at most six changing settings in one test batch.';control.value=selectedState();return;}state.dimensions.push({key,values:[true,false]});}
+      else state.dimensions.find(d=>d.key===key).values=[true,false];
+     }else{state.config[key]=control.value==='true';state.dimensions=state.dimensions.filter(d=>d.key!==key);}
+     control.dataset.mode=control.value;
+    }else state.config[key]=control.type==='checkbox'?control.checked:control.value;
+    workbenchChanged(state);
+   };
    control.addEventListener('input',update);control.addEventListener('change',()=>{update();if(field.refreshOnChange&&extension)void action(()=>refreshSetupChoices({[field.stage]:{[field.index]:control.value}}));});state.controls.push({field,control});
   }
   if(field.disabled)wrap.classList.add('source-fixed');if(variation){const editor=variationEditor(state,field);if(editor)wrap.append(editor);}return wrap;
@@ -240,17 +255,17 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const field=(key,opts)=>sourceField(state,'momentum.'+key,opts);
   const row=(title,children,cls='')=>{const n=el('div',undefined,'source-row '+cls);n.append(el('span',title,'source-row-label'));const values=el('div',undefined,'source-row-controls');values.append(...children);n.append(values);return n;};
   left.append(row('Chart Type :',[field('chart',{variation:false})]),row('Market :',[field('market',{variation:false})]));
-  const periods=[],weights=[];for(let i=1;i<=4;i++){const pair=el('div',undefined,'source-period-pair');pair.append(field('period.'+i+'.enabled'),field('period.'+i));periods.push(pair);weights.push(field('period.'+i+'.weight'));}
+  const periods=[],weights=[];for(let i=1;i<=4;i++){const pair=el('div',undefined,'source-period-pair');pair.append(el('span','Period '+i,'source-pair-heading'),field('period.'+i+'.enabled'),field('period.'+i));periods.push(pair);weights.push(field('period.'+i+'.weight'));}
   left.append(row('Period :',periods,'source-period-row'),row('Weight :',weights,'source-weight-row'),row('Timeframe :',[field('timeframe',{variation:false})]));
   right.append(row('Group :',[field('group',{variation:false}),field('market-filter',{text:'MARKET TREND FILTER',variation:false})],'source-group-row'));
   right.append(row('Retracement :',[field('retracement.enabled'),field('retracement'),field('retracement.mode'),field('retracement.reference',{radios:true})],'source-retracement-row'));
   right.append(row('Volume above :',[field('volume'),field('volume.reference',{radios:true})],'source-volume-row'));
-  const emas=[];for(let i=1;i<=3;i++){const pair=el('div',undefined,'source-period-pair');pair.append(field('ema.'+i+'.enabled'),field('ema.'+i));emas.push(pair);}emas.push(field('tma',{text:'TMA Trend'}));right.append(row('EMA :',emas,'source-ema-row'));
+  const emas=[];for(let i=1;i<=3;i++){const pair=el('div',undefined,'source-period-pair');pair.append(el('span','EMA '+i,'source-pair-heading'),field('ema.'+i+'.enabled'),field('ema.'+i));emas.push(pair);}emas.push(field('tma',{text:'TMA Trend'}));right.append(row('EMA :',emas,'source-ema-row'));
   const quality=el('div',undefined,'source-quality');quality.append(field('trend-quality.enabled',{text:'Trend Quality >'}),field('trend-quality'));right.append(row('Radar :',[field('radar.enabled'),field('radar.source',{variation:false}),field('radar.rule'),quality],'source-radar-row'));
   const strategies=el('div',undefined,'source-strategies');for(let i=1;i<=3;i++){const n=el('section',undefined,'source-strategy');n.setAttribute('aria-label','Strategy '+i);n.append(el('span','Str '+i+' :','source-row-label'),field('strategy.'+i+'.source',{variation:false}),field('strategy.'+i+'.rule'),field('strategy.'+i+'.timeframe'),field('strategy.'+i+'.enabled'));strategies.append(n);}form.append(strategies,field('rs',{text:'Relative Strength :',variation:false}));
   const limitations=el('p','Candle automation · P&F, Renko, Market Trend Filter and Relative Strength are unavailable for automatic execution.','source-availability');form.append(limitations);
   const bar=el('div',undefined,'source-count-bar'),count=el('div',undefined,'source-combination-count'),backtest=button('Backtest',()=>openBacktest(state),'primary');bar.append(count,backtest);shell.append(bar);
-  const update=()=>{try{const dimensions=state.dimensions.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget);count.replaceChildren(el('strong',planned+' '+(planned===1?'test':'tests')),el('span',dimensions.length?combinations+' '+(combinations===1?'combination':'combinations')+' · '+dimensions.length+' changing '+(dimensions.length===1?'setting':'settings'):'Current settings'));}catch(error){count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting;};state.countUpdates.push(update);update();
+  const update=()=>{try{const dimensions=state.dimensions.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget);count.replaceChildren(el('strong',planned+' '+(planned===1?'test':'tests')),el('span',dimensions.length?combinations+' '+(combinations===1?'combination':'combinations')+' · '+dimensions.length+' changing '+(dimensions.length===1?'setting':'settings'):'Current settings'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting;};state.countUpdates.push(update);update();
   if(state.reviewOpen)openBacktest(state);
  }
 
@@ -264,7 +279,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
   const body=el('div',undefined,'source-dialog-body'),columns=el('div',undefined,'source-review-columns'),execution=el('section'),portfolio=el('section');execution.append(el('h4','Backtest settings'));portfolio.append(el('h4','Portfolio Backtesting'));columns.append(execution,portfolio);form.append(body);body.append(columns);
   const field=(key,opts={})=>sourceField(state,key,{showLabel:true,variation:key.startsWith('execution.'),...opts});
   const pair=(keys,className='')=>{const grid=el('div',undefined,'source-review-fields '+className);grid.append(...keys.map(key=>field(key)));return grid;};
-  const toggleRow=(key,value,title)=>{const row=el('div',undefined,'source-review-toggle-row');row.append(field(key,{showLabel:false,text:title}),field(value,{showLabel:false}));return row;};
+  const toggleRow=(key,value,title)=>{const row=el('div',undefined,'source-review-toggle-row');row.append(el('span',title,'source-review-toggle-label'),field(key,{showLabel:false}),field(value,{showLabel:false}));return row;};
   execution.append(pair(['execution.from','execution.to'],'source-date-pair'),pair(['execution.rank','execution.chart','execution.selection'],'source-execution-options'),toggleRow('execution.target.enabled','execution.target','Profit target (%)'),toggleRow('execution.stop.enabled','execution.stop','Stop loss (%)'));
   const exit=el('div',undefined,'source-review-exit-row');exit.append(field('execution.exit.enabled',{showLabel:false,text:'Exit strategy'}),field('execution.exit.source',{showLabel:false}),field('execution.exit.rule',{showLabel:false}));execution.append(exit);
   portfolio.append(field('portfolio.enabled',{showLabel:false,text:'Portfolio testing'}),pair(['portfolio.allocation'],'source-allocation-row'),pair(['portfolio.capital','portfolio.max-open']),toggleRow('portfolio.daily-limit.enabled','portfolio.daily-limit','Limit new stocks per day'));

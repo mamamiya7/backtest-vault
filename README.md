@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.8.1 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.8.2 preview** · Chrome · Local storage · MIT · No cloud account
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
@@ -33,7 +33,7 @@ flowchart LR
 
 1. **Connect:** keep RZone signed in, choose its tab, then click **Connect RZone**. Connecting reads choices; it does not run a backtest.
 2. **Set up:** work in one form arranged like RZone, with periods and weights together, filters alongside them and Strategy 1–3 below. Enter the exact group name; RZone must confirm its autocomplete selection before execution.
-3. **Add variations beside a setting:** Period 1 = `252,500` means two tests. A numeric range also needs a step. Switches can test On and Off; eligible rule menus can test selected choices from the loaded source catalogue.
+3. **Add variations beside a setting:** Period 1 = `252,500` means two tests. A numeric range also needs a step. Choose **Off** to skip a period or filter, **On** to use it, or **Test both** for separate On and Off runs. Eligible rule menus can test selected choices from the loaded source catalogue.
 4. **Backtest:** review dates, exits, allocation, capital, position limits and the combination count, then choose **Run … tests**. Leave the range controls unused to run the current setup once.
 5. **Results:** Vault saves each report automatically. Open a saved trial or compare the batch in **Decision desk**. Exporting is an optional backup, not a step required to finish a run.
 
@@ -61,7 +61,7 @@ flowchart LR
 
 [Open the fictional experiment demo](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [full workflow and recovery guide](docs/EXPERIMENTS.md).
 
-| Available in 0.8.1 preview | Acceptance boundary |
+| Available in 0.8.2 preview | Acceptance boundary |
 | --- | --- |
 | Vault-first Candle/Price setup, source dropdown refresh and single or multiple tests | New flow covered by local checks; live acceptance of this full setup flow remains pending |
 | Finite plans, reproducible samples, bounded adaptive neighborhood search | Local planner and isolated simulation tested |
@@ -354,7 +354,7 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 
 **Validation evidence:** all nine local test suites passed for v0.7.3. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
 
-On 2026-09-16, a real three-trial Candle experiment completed through the installed extension's **v0.7.3 saved-baseline flow**. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This establishes the tested older flow; it does not validate v0.8.1's new full setup, every source layout or P&F/Renko execution. Private reports remain outside this repository.
+On 2026-09-16, a real three-trial Candle experiment completed through the installed extension's **v0.7.3 saved-baseline flow**. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This establishes the tested older flow; it does not validate v0.8.2's new full setup, every source layout or P&F/Renko execution. Private reports remain outside this repository.
 
 Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. Earlier dashboard revisions were checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
 
@@ -404,7 +404,7 @@ Read [Contributing](CONTRIBUTING.md), [Security](SECURITY.md), [UI audit](docs/U
 npm run package:public
 ```
 
-This copies an explicit public-file allowlist into `releases/backtest-vault-0.8.1-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
+This copies an explicit public-file allowlist into `releases/backtest-vault-0.8.2-public/` and writes a hash manifest. Private archives, handoffs, local hosting metadata and dependencies are excluded. An existing package is left intact.
 
 ## License and affiliation
 

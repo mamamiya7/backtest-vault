@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.8.1 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
+Version 0.8.2 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
@@ -54,6 +54,16 @@ The localhost viewer can inspect archives and prepare/export saved-run plans. It
 Vault asks registered source tabs for their current readiness instead of treating a delayed timer as a missing tab. It checks again before Start and wakes the chosen runner. A disconnected selection stays visible, with Start disabled; Vault never silently switches it to another tab. Keep Chrome, RZone and the computer running. Source execution can slow or stop if Chrome suspends the page. These readiness checks do not renew an active trial's lease or authorize replay.
 
 Connecting shows reading progress in RZone's Vault bar. The dashboard bounds an unanswered connection request to 70 seconds while active, then displays an error beside Connect for a deliberate retry. Late replies do not replace newer drafts. Choice-refresh errors keep the form and your entries available. Connection attempts only read setup controls; they do not submit calculations.
+
+Each eligible checkbox setting has one state selector in Vault:
+
+| Choice | What the batch uses |
+|---|---|
+| **Off** | Skip that period or filter in every run. |
+| **On** | Include it in every run. |
+| **Test both** | Create separate runs with it On and Off. |
+
+For example, Period 3 at **90**, with **Test both**, compares including and excluding that 90-bar period. **Test values** changes the numbers themselves, such as `90,120`. Combining two numbers with Test both creates four planned combinations. Other active periods and exits must still make every planned combination valid.
 
 ## Setup choices and variations
 
@@ -142,7 +152,7 @@ Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the sa
 
 Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, a three-trial full Candle DOM flow, complete backup/import and demo isolation. These are simulated tests, not proof of the installed extension operating the live service.
 
-Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.1's new full-setup and dropdown-refresh flow.**
+Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.2's new full-setup and dropdown-refresh flow.**
 
 ## Remaining delivery plan
 

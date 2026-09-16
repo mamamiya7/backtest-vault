@@ -178,3 +178,45 @@ body:has(.has-workbench) main{max-width:none}
 .source-period-row .source-period-pair{display:grid;grid-template-columns:28px minmax(0,1fr);gap:4px}
 .source-weight-row .source-field{padding-left:32px}
 @media(max-width:560px){.source-workbench .source-field input[data-setup-field="momentum.group"]:not([type=checkbox]):not([type=radio]){width:100%}}
+
+/* One explicit state per setting; Test both is a batch choice, never two live states. */
+.source-main-grid{grid-template-columns:minmax(510px,34%) minmax(0,1fr)}
+.source-period-row .source-period-pair,.source-ema-row .source-period-pair{display:flex;flex-direction:column;align-items:stretch;gap:5px}
+.source-pair-heading{font-size:12px;font-weight:600;color:#c5d7e5;line-height:1.5}
+.source-workbench .source-period-row .source-field input[type=number],.source-workbench .source-weight-row .source-field input[type=number],.source-workbench .source-ema-row .source-period-pair input[type=number]{width:100%;max-width:none}
+.source-weight-row .source-field{padding-left:0}
+.source-workbench .source-field .source-state-select,.setup-backtest-dialog .source-field .source-state-select{width:98px;cursor:pointer;padding-left:8px;font-size:12px}
+.source-period-row .source-field .source-state-select{width:100%}
+.source-state-select[data-mode=true]{border-color:#3b675c!important;color:#a9ead4!important;background:#142824!important}
+.source-state-select[data-mode=false]{color:#a4b0bc!important}
+.source-state-select[data-mode=both]{border-color:#578eb2!important;color:#c7e7ff!important;background:#172e42!important}
+.source-state-label{display:flex;align-items:center;gap:8px;color:#ddd;font-size:12px;white-space:nowrap}
+.source-state-label select{flex-shrink:0}
+.source-ema-row .source-period-pair{width:98px}
+.source-ema-row .source-row-controls>.source-field{padding-top:22px}
+.source-quality{align-items:flex-start;flex-wrap:wrap}
+.source-strategy{flex-wrap:wrap}
+.source-strategy>.source-field:last-child{flex-shrink:0}
+.source-combination-count{flex-wrap:wrap}
+.source-both-note{flex-basis:100%;color:#b1cfe4;font-size:12px}
+.source-workbench .source-test-values,.setup-backtest-dialog .source-test-values{min-height:25px;font-size:11px;padding:4px 0}
+.source-period-pair .source-test-values{white-space:nowrap}
+.source-review-toggle-row .source-state-label,.source-review-exit-row .source-state-label{align-items:flex-start;flex-direction:column;gap:6px}
+.source-review-toggle-row{align-items:start;row-gap:6px}
+.source-review-toggle-label{grid-column:1/-1;font-size:12px;color:#b9ccde}
+@media(max-width:1100px){
+ .source-main-grid{grid-template-columns:1fr}
+ .source-main-left{max-width:620px}
+ .source-strategies{grid-template-columns:1fr;gap:14px}
+ .source-strategy{display:grid;grid-template-columns:44px 90px minmax(100px,1fr) 90px 98px;gap:8px}
+}
+@media(max-width:560px){
+ .source-pair-heading{font-size:11px}
+ .source-period-row .source-field .source-state-select{font-size:11px;padding:4px}
+ .source-strategy{grid-template-columns:42px 70px minmax(90px,1fr) 85px;gap:6px}
+ .source-strategy>.source-field:last-child{grid-column:2/4}
+ .source-strategy .source-row-label{padding-top:10px}
+ .source-workbench .source-test-values,.setup-backtest-dialog .source-test-values{min-height:32px;font-size:10px}
+ .source-review-exit-row{grid-template-columns:102px 65px minmax(0,1fr)}
+ .source-count-bar{align-items:center}
+}

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.8.2 preview - 2026-09-16
+
+- Replace editable setup checkboxes and separate On/Off variation popups with one **Off / On / Test both** selector. Test both creates separate enabled and disabled trials; choosing a fixed state removes that variation.
+- Label Period 1–4 and EMA 1–3 directly, align their values and weights, and use the same state controls for filters and exits. Keep values editable when a batch includes the enabled state.
+- Preserve reviewed values and Test both choices across source refreshes. Clearing a removed rule also clears its gate and rule variations. Fixed or unsupported settings retain their existing execution limits.
+- Verify desktop and phone layouts, exact trial combinations, the six-setting limit, draft preservation and no execution before Run. The source runner is unchanged.
+
 ## 0.8.1 preview - 2026-09-16
 
 - Bound the entire Connect RZone request, including waiting for the background queue. An unanswered request now shows an error beside the connection control and allows an explicit retry; a late response cannot overwrite a newer attempt or draft.
