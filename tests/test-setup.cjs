@@ -30,6 +30,9 @@ assert.deepEqual(b.parameters.strategy.main.fields.slice(7,11).map(f=>f.checked)
 assert.deepEqual(b.parameters.strategy.main.fields.slice(20,22).map(f=>f.checked),[false,true]);
 assert.equal(b.parameters.strategy.main.fields[36].value,'Demo second screen');assert.equal(b.parameters.strategy.main.fields[40].value,'Demo alternative trend');assert.equal(b.parameters.strategy.main.fields[41].value,'Weekly');
 assert.equal(b.parameters.strategy.execution.fields[9].value,'12.5');assert.equal(b.parameters.settings.fields[2].value,'250000');
+assert.deepEqual(b.parameters.strategy.execution.fields.slice(0,3).map(f=>f.value),['Sharpe Return','2024-02-29','2025-02-28'],'Rank and dates retain their exact native source positions');
+assert.deepEqual(b.parameters.settings.fields.map(f=>['checkbox','radio'].includes(f.type)?f.checked:f.value),[true,'Fixed','250000','7',true,'2'],'Portfolio settings stay in the observed six-field order');
+assert.equal(S.validDate('2024-02-29'),true);for(const value of ['2025-02-29','2024-02-30','2024-13-01','2024-1-01',' 2024-01-01','2024-01-01T00:00:00Z',null,20240101])assert.equal(S.validDate(value),false,'Date list and baseline validation share an exact ISO date check');
 assert.ok(!('quickStats'in b)&&!('statistics'in b)&&!('trades'in b)&&!('charts'in b)&&!('provenance'in b)&&!('savedAt'in b));
 assert.deepEqual(Object.keys(b.parameters),['strategy','settings']);assert.deepEqual(Object.keys(b.parameters.strategy),['main','execution']);
 for(const stage of ['momentum','execution','portfolio']){

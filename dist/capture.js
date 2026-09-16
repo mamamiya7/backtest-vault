@@ -34,7 +34,7 @@
   function snapshot(container) {return {at:now(), fields:fields(container)};}
   function status(message) {statusEl.textContent = message;}
   const host = document.createElement('div'); host.id = 'definedge-backtest-vault';
-  host.dataset.version = '0.8.9';
+  host.dataset.version = '0.9.0';
   host.style.cssText = 'position:fixed;right:16px;bottom:14px;z-index:2147483646;';
   const shadow = host.attachShadow({mode:'closed'});
   shadow.innerHTML = `<style>:host{font:14px system-ui;color:#f3f8fc}.bar{background:#112639;border:1px solid #34536e;border-radius:12px;padding:10px;box-shadow:0 6px 26px #0007;max-width:390px}button{font:600 14px system-ui;border:0;border-radius:7px;padding:9px 12px;cursor:pointer;background:#52d8ca;color:#072923;margin-right:6px}button.secondary{background:#2b455b;color:white}button:disabled{opacity:.5;cursor:wait}p{margin:8px 2px 0;line-height:1.35;font-size:13px}</style><div class="bar"><button id="save">Save backtest</button><button class="secondary" id="open">Open vault</button><p id="status" role="status">Recording settings when you run a backtest.</p></div>`;

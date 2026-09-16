@@ -270,6 +270,6 @@ function demoTemplate(){
  source.stages.momentum.options={1:[r.parameters.strategy.main.fields[1].value,'Demo universe 20','Demo universe 60'],3:['NSE'].map(value=>({value,label:value})),33:['Daily','Weekly'].map(value=>({value,label:value}))};
  return template(source);
 }
-const api={template,portfolioTemplate,fieldsForUI,defaults,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,demoTemplate};
+const api={template,portfolioTemplate,fieldsForUI,defaults,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,demoTemplate};
 if(typeof module!=='undefined')module.exports=api;root.VaultSetup=api;
 })(typeof window!=='undefined'?window:globalThis);

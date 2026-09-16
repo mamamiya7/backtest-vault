@@ -23,8 +23,11 @@ function catalogFromSetup(template,config={}){
  if(!S)throw Error('Reload Vault to load the test setup editor.');
  const strategy=/^momentum\.(?:period\.[1-4](?:\.enabled|\.weight)?|ema\.[1-3](?:\.enabled)?|tma|retracement(?:\.enabled|\.mode|\.reference)?|volume(?:\.reference)?|radar\.(?:enabled|rule)|trend-quality(?:\.enabled)?|strategy\.[1-3]\.(?:enabled|rule|timeframe))$/;
  const exits=/^execution\.(?:target(?:\.enabled)?|stop(?:\.enabled)?|exit\.(?:enabled|rule))$/;
- return S.fieldsForUI(template,config).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key))).map(f=>{
-  const d={key:f.key,label:(f.stage==='execution'?'Exit · ':'')+f.label,stage:f.stage,type:f.type==='select'?'enum':f.type,value:Object.hasOwn(config,f.key)?config[f.key]:f.value};
+ const context=/^(?:execution\.(?:rank|from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
+ return S.fieldsForUI(template,config).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key)||context.test(f.key))).map(f=>{
+  // Keep existing descriptor labels stable so older approved archives still validate.
+  const prefix=exits.test(f.key)?'Exit · ':f.stage==='execution'?'Backtest · ':f.stage==='portfolio'?'Portfolio · ':'';
+  const d={key:f.key,label:prefix+f.label,stage:f.stage,type:f.type==='select'?'enum':f.type,value:Object.hasOwn(config,f.key)?config[f.key]:f.value};
   if(f.index!==undefined)d.index=f.index;if(f.indices)d.indices=clone(f.indices);
   if(f.type==='number'){d.min=f.min;d.max=f.max;d.integer=f.integer===true;}
   if(f.type==='select')d.options=f.options.filter(o=>!o.disabled).map(o=>({value:o.value,label:o.label}));
@@ -54,6 +57,10 @@ function catalog(b){
  return out;
 }
 function values(text,field){
+ if(field.type==='date'){
+  if(!Array.isArray(text)||!text.length||text.length>100||text.some(value=>!S.validDate(value)))throw Error(field.label+': choose 1–100 valid dates in YYYY-MM-DD format.');
+  return [...new Set(text)];
+ }
  if(field.type==='enum'){
   if(!Array.isArray(text)||!text.length||text.length>100||text.some(v=>typeof v!=='string'||!field.options.some(o=>o.value===v)))throw Error(field.label+': choose 1–100 available source values.');
   return [...new Set(text)];
@@ -80,11 +87,12 @@ function shuffled(list,seed){let s=Number(seed)>>>0;const next=()=>{s=(s+0x6D2B7
 function combinationRules(b){return S.fieldsForUI(b.setup.template,b.setup.config).flatMap(g=>g.fields).filter(f=>f.rule).map(f=>({key:f.key,label:f.label,gate:f.enabledBy,available:new Set(f.options.filter(o=>!o.disabled).map(o=>o.value))}));}
 function checkSetupCombination(config,rules){
  // The unchanged baseline already passed S.validateBaseline. Dimension values
- // passed the exact source enum, boolean and numeric domains in dimensions().
+ // passed the exact source enum, boolean, date and numeric domains in dimensions().
  // Only these cross-field constraints can change inside the approved catalog;
  // evaluate every combination without repeatedly copying huge source menus.
  if(![1,2,3,4].some(i=>config['momentum.period.'+i+'.enabled']&&config['momentum.period.'+i+'.weight']>0))throw Error('Each combination needs a positive weight on an enabled period.');
  if(!['execution.target.enabled','execution.stop.enabled','execution.exit.enabled'].some(key=>config[key]))throw Error('Each combination needs an enabled target, stop loss or exit strategy.');
+ if(config['execution.from']>=config['execution.to'])throw Error('Every date combination must have From before To. Remove overlapping start/end choices.');
  for(const f of rules)if(config[f.gate]){const value=config[f.key];if(!f.available.has(value)||!value.trim()||/^\s*--|select.*(?:system|rule|radar)/i.test(value))throw Error('Each combination needs an available '+f.label.toLowerCase()+' before enabling it.');}
 }
 function setupExpected(b,patch,period){
@@ -134,18 +142,26 @@ function verifyEvidence(e,t,run){
  if(times.some(x=>typeof x!=='string'||!Number.isFinite(Date.parse(x))||new Date(x).toISOString()!==x)||times.some((x,i)=>i&&Date.parse(x)<Date.parse(times[i-1])))throw Error('Source execution order could not be verified.');
  return true;
 }
+function trialPeriod(e,t){return t.period||{from:t.patch?.['execution.from']??fields(e.baseline,'execution')[1].value,to:t.patch?.['execution.to']??fields(e.baseline,'execution')[2].value};}
+function researchEnd(e,phase='validation'){
+ const allowed=phase==='holdout'?['discovery','validation']:['discovery'];
+ // Include interrupted attempts whose outcomes may already have been seen, but
+ // not untouched, skipped alternatives or unsampled Cartesian combinations.
+ return e.trials.filter(t=>allowed.includes(t.phase)&&(t.status==='saved'||t.execution||t.events?.some(event=>active.includes(event.status)||event.status==='saved'||event.status==='uncertain'))).map(t=>trialPeriod(e,t).to).sort().at(-1)||null;
+}
 function validate(e){
  if(!e||e.schemaVersion!==1||!idOK(e.id)||!Array.isArray(e.trials)||e.trials.length>1000||!['draft','running','pausing','paused','complete','needs-review'].includes(e.status))throw Error('Invalid experiment archive.');
  const fresh=create({...e,dimensions:e.dimensions,now:e.createdAt});
  if(!same(fresh.dimensions,e.dimensions)||fresh.combinationCount!==e.combinationCount||fresh.demo!==e.demo)throw Error('Experiment settings were altered.');
  const discovery=e.trials.filter(t=>t.phase==='discovery');
  if(discovery.length!==fresh.trials.length||discovery.some((t,i)=>t.id!==fresh.trials[i].id||t.ordinal!==fresh.trials[i].ordinal||!same(t.patch,fresh.trials[i].patch)))throw Error('The planned discovery queue was altered.');
- if(discovery.some(t=>t.period!==undefined||t.parentTrialId!==undefined))throw Error('Discovery dates must remain fixed to the baseline.');
+ if(discovery.some(t=>t.period!==undefined||t.parentTrialId!==undefined))throw Error('Discovery dates must remain in the approved settings, not a separate period override.');
  if(e.trials.some((t,i)=>t.ordinal!==i+1||t.id!==e.id+'-t'+(i+1))||e.trials.slice(0,discovery.length).some(t=>t.phase!=='discovery')||e.trials.slice(discovery.length).some((t,i)=>t.phase!==(i?'holdout':'validation')))throw Error('The planned trial stage order was altered.');
  if(e.trials.filter(t=>t.phase==='validation').length>1||e.trials.filter(t=>t.phase==='holdout').length>1)throw Error('Validation stages must remain frozen.');
+ for(const phase of ['validation','holdout'])if(e.trials.some(t=>t.phase===phase)&&e.trials.some(t=>(t.phase==='discovery'||phase==='holdout'&&t.phase==='validation')&&!['saved','skipped'].includes(t.status)))throw Error('Finish all preceding trials before a frozen '+phase+' stage.');
  const ids=new Set(),validStates=['queued',...active,'saved','uncertain','skipped'];
  if(!Array.isArray(e.events)||e.events.length>10000)throw Error('Invalid experiment history.');
- for(const t of e.trials){if(!idOK(t.id)||!idOK(t.runId)||t.id!==t.runId||!t.id.startsWith(e.id+'-t')||ids.has(t.id)||!validStates.includes(t.status)||!['discovery','validation','holdout'].includes(t.phase)||!Array.isArray(t.events))throw Error('Invalid trial journal.');ids.add(t.id);if(Object.keys(t.patch||{}).length!==e.dimensions.length||e.dimensions.some(d=>!d.values.includes(t.patch[d.key])))throw Error('Trial is outside the approved ranges.');if(t.phase!=='discovery'){if(!t.period||I.date(t.period.from)!==t.period.from||I.date(t.period.to)!==t.period.to||t.period.from>=t.period.to)throw Error('Invalid validation dates.');const parent=e.trials.find(x=>x.id===t.parentTrialId&&x.phase===(t.phase==='validation'?'discovery':'validation'));if(!parent||!same(t.patch,parent.patch)||t.period.from<=(parent.period?.to||fields(e.baseline,'execution')[2].value))throw Error('Validation must preserve its candidate and use a later period.');}
+ for(const t of e.trials){if(!idOK(t.id)||!idOK(t.runId)||t.id!==t.runId||!t.id.startsWith(e.id+'-t')||ids.has(t.id)||!validStates.includes(t.status)||!['discovery','validation','holdout'].includes(t.phase)||!Array.isArray(t.events))throw Error('Invalid trial journal.');ids.add(t.id);if(Object.keys(t.patch||{}).length!==e.dimensions.length||e.dimensions.some(d=>!d.values.includes(t.patch[d.key])))throw Error('Trial is outside the approved ranges.');if(t.phase!=='discovery'){if(!t.period||I.date(t.period.from)!==t.period.from||I.date(t.period.to)!==t.period.to||t.period.from>=t.period.to)throw Error('Invalid validation dates.');const parent=e.trials.find(x=>x.id===t.parentTrialId&&x.phase===(t.phase==='validation'?'discovery':'validation')),end=researchEnd(e,t.phase);if(!parent||parent.status!=='saved'||!same(t.patch,parent.patch)||t.period.from<=trialPeriod(e,parent).to||end&&t.period.from<=end)throw Error('Validation must preserve its candidate and use a later period, strictly after all preceding tested dates.');}
   // fresh=create(...) already validated the setup, every approved combination,
   // and source option domains. Discovery patches above match that exact queue;
   // later stages preserve an approved patch and validate their dates here.
@@ -181,16 +197,26 @@ function validatedSetupFields(e,t){
  if(t.period){fields(b,'execution')[1].value=t.period.from;fields(b,'execution')[2].value=t.period.to;}
  return b;
 }
+function summarizeDecision(e,items,pending){
+ const eligible=items.filter(x=>x.eligible).sort((a,b)=>(e.objective==='drawdown'?a.value-b.value:b.value-a.value)||a.trial.ordinal-b.trial.ordinal),leaders=eligible.length?eligible.filter(x=>Math.abs(x.value-eligible[0].value)<1e-9):[],leader=leaders.length===1?leaders[0]:null;
+ const neighbors=leader?items.filter(x=>x!==leader&&e.dimensions.filter(d=>x.trial.patch[d.key]!==leader.trial.patch[d.key]).length===1&&e.dimensions.every(d=>d.type==='enum'?x.trial.patch[d.key]===leader.trial.patch[d.key]:Math.abs(d.values.indexOf(x.trial.patch[d.key])-d.values.indexOf(leader.trial.patch[d.key]))<=1)):[];
+ return {items,eligible,leaders,leader,neighbors,pending,headline:!items.length?'Ready to collect evidence':!eligible.length?'No trial meets your rules':leaders.length>1?'Tied leaders':(pending?'Leading so far':'Discovery leader')+' · Trial '+leader.trial.ordinal,next:pending?'Finish the planned trials before selecting a candidate.':!leader?'Review exclusions and ties before choosing a candidate.':neighbors.length<2?'Test nearby settings before moving to a fresh period.':'Freeze a candidate, then test a later validation period.',complete:pending===0};
+}
 function decisions(e,runs,phase='discovery'){
  const setup=e.baseline.origin==='vault-setup';if(setup)validate(e);
  const map=new Map(runs.map(r=>[r.id,r])),items=e.trials.filter(t=>t.phase===phase&&t.status==='saved').map(t=>setup?inspectResult(e,t,map.get(t.runId),()=>validatedSetupFields(e,t)):result(e,t,map.get(t.runId)));
- const results=items.filter(x=>x.eligible).sort((a,b)=>(e.objective==='drawdown'?a.value-b.value:b.value-a.value)||a.trial.ordinal-b.trial.ordinal);
  // Identical report evidence is not another independent result; keep it in the journal.
- const evidence=new Set();for(const x of results){const sig=signature([x.run.quickStats,x.run.statistics,x.run.trades]);if(evidence.has(sig)){x.eligible=false;x.reasons.push('Repeated report evidence.');}else evidence.add(sig);}
- const eligible=results.filter(x=>x.eligible),leaders=eligible.length?eligible.filter(x=>Math.abs(x.value-eligible[0].value)<1e-9):[],leader=leaders.length===1?leaders[0]:null;
- const neighbors=leader?items.filter(x=>x!==leader&&e.dimensions.filter(d=>x.trial.patch[d.key]!==leader.trial.patch[d.key]).length===1&&e.dimensions.every(d=>d.type==='enum'?x.trial.patch[d.key]===leader.trial.patch[d.key]:Math.abs(d.values.indexOf(x.trial.patch[d.key])-d.values.indexOf(leader.trial.patch[d.key]))<=1)):[];
- const pending=e.trials.filter(t=>t.phase===phase&&!['saved','skipped'].includes(t.status)).length;
- return {items,eligible,leaders,leader,neighbors,pending,headline:!items.length?'Ready to collect evidence':!eligible.length?'No trial meets your rules':leaders.length>1?'Tied leaders':(pending?'Leading so far':'Discovery leader')+' · Trial '+leader.trial.ordinal,next:pending?'Finish the planned trials before selecting a candidate.':!leader?'Review exclusions and ties before choosing a candidate.':neighbors.length<2?'Test nearby settings before moving to a fresh period.':'Freeze a candidate, then test a later validation period.',complete:pending===0};
+ const evidence=new Set();for(const x of items.filter(x=>x.eligible).sort((a,b)=>(e.objective==='drawdown'?a.value-b.value:b.value-a.value)||a.trial.ordinal-b.trial.ordinal)){const sig=signature([x.run.quickStats,x.run.statistics,x.run.trades]);if(evidence.has(sig)){x.eligible=false;x.reasons.push('Repeated report evidence.');}else evidence.add(sig);}
+ const pending=e.trials.filter(t=>t.phase===phase&&!['saved','skipped'].includes(t.status)).length,scopes=new Map();
+ for(const item of items){if(!item.item)continue;const controls=item.item.controls,key=signature(Object.fromEntries(Object.entries(controls).map(([name,value])=>[name,typeof value==='string'?V.clean(value).toLowerCase():value])));item.groupKey=key;if(!scopes.has(key))scopes.set(key,{key,controls,items:[]});scopes.get(key).items.push(item);}
+ const scopeDimension=/^(?:execution\.(?:from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
+ // A partly finished mixed-scope plan must not name a universal leader just
+ // because its first returned trials happen to share one set of controls.
+ const grouped=scopes.size>1||phase==='discovery'&&e.dimensions.some(d=>scopeDimension.test(d.key)&&d.values.length>1);
+ const groups=[...scopes.values()].map(group=>({...group,...summarizeDecision(e,group.items,pending)}));
+ if(!grouped)return {...summarizeDecision(e,items,pending),groups,grouped:false};
+ for(const group of groups)if(group.items.length===1){group.leader=null;group.leaders=[];group.neighbors=[];if(group.eligible.length)group.headline='One trial · no matched peer';group.next=pending?'Finish the planned trials before selecting a candidate.':'Test another strategy with these same dates and portfolio settings.';}
+ return {items,eligible:groups.flatMap(g=>g.eligible),leaders:[],leader:null,neighbors:[],pending,complete:pending===0,groups,grouped:true,headline:!items.length?'Ready to collect evidence':'Compare matched test conditions',next:pending?'Finish the planned trials; results are compared within matching dates and portfolio settings.':'Choose a matched group to review its candidates. Different test conditions have separate comparisons.'};
 }
 function nextTrial(e,runs){
  const queued=e.trials.filter(t=>t.status==='queued');if(e.mode!=='adaptive'||!queued.length||queued[0].phase!=='discovery')return queued[0];
@@ -204,12 +230,12 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
  if(I.date(period.from)!==period.from||I.date(period.to)!==period.to||period.from>=period.to)throw Error('Use a valid, positive validation period.');
  const t=e.trials.find(t=>t.id===trialId&&t.status==='saved'&&t.phase===(phase==='validation'?'discovery':'validation'));
  if(!t)throw Error('Select a saved candidate from the preceding stage.');
- const end=e.trials.filter(x=>x.phase!=='holdout').map(x=>x.period?.to||fields(e.baseline,'execution')[2].value).sort().at(-1);
+ const end=researchEnd(e,phase);
  if(period.from<=end)throw Error('Use dates strictly after the preceding research periods.');
  if(e.trials.some(x=>x.phase===phase))throw Error('This stage is already frozen. Create another experiment to change the research plan.');
  const n=e.trials.length+1;e.trials.push({id:e.id+'-t'+n,runId:e.id+'-t'+n,ordinal:n,patch:clone(t.patch),status:'queued',phase,period:clone(period),parentTrialId:t.id,events:[]});e.status='paused';journal(e,'Frozen '+phase+' candidate: trial '+t.ordinal,now);return e;
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
-const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dimensions,combos,create,expected,verify,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,active,clone};
+const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,active,clone};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);

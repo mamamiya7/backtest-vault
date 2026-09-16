@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.9.0 preview - 2026-09-16
+
+- Stack Momentum Trading BackTest above Portfolio Backtesting in the setup form.
+- Extend inline Test values to start/end dates, rank criteria, allocation, initial capital, maximum open trades and daily stock limits. Date choices use calendar inputs; every generated period must end after it starts.
+- Keep different dates and portfolio assumptions in separate comparison groups, and preserve each trial's actual settings through submission, saving and export.
+- Validate later research periods against the latest date actually tested. Existing chart, selection and required portfolio-report restrictions remain explicit.
+
 ## 0.8.9 preview - 2026-09-16
 
 - Extend native-menu discovery and My/Public keyword search to Candle/Price Exit Strategy, with the same source restoration and exact-selection checks as STR1–3.

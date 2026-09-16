@@ -1,6 +1,6 @@
 # Experiments and decision intelligence
 
-Version 0.8.9 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
+Version 0.9.0 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The new setup flow still needs its own live acceptance. The preceding v0.7.3 saved-baseline flow passed a real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
@@ -18,7 +18,7 @@ flowchart LR
 
 1. Open the **installed Vault** and choose **New test** or **Experiments → Start a new test**.
 2. **Load choices:** open RZone and sign in if needed. **New test** automatically reads choices when exactly one RZone tab is available. With several tabs, select one and choose **Connect RZone**. Close any existing RZone report/settings dialog first; preserve an unsaved report before leaving it. A failed read allows an explicit retry and is never retried in a loop. Connecting does not submit a backtest.
-3. **Set up everything on one page:** chart, market, four periods and weights, timeframe, retracement, volume, EMA/TMA, Radar, Trend Quality and Strategy 1–3 follow RZone's arrangement. Directly below, edit dates, rank criteria, execution chart/selection, exit strategy, target, stop loss and portfolio sizing. Portfolio defaults are labelled and checked against RZone before submission. **Group** is a searchable dropdown populated from RZone's empty-search list. Select with the mouse or use Arrow keys and Enter; execution still resolves the exact source autocomplete choice.
+3. **Set up everything on one page:** chart, market, four periods and weights, timeframe, retracement, volume, EMA/TMA, Radar, Trend Quality and Strategy 1–3 follow RZone's arrangement. Directly below, Momentum Trading BackTest contains dates, rank criteria, execution chart/selection, exit strategy, target and stop loss. Portfolio Backtesting sits underneath it. Portfolio defaults are labelled and checked against RZone before submission. **Group** is a searchable dropdown populated from RZone's empty-search list. Select with the mouse or use Arrow keys and Enter; execution still resolves the exact source autocomplete choice.
 4. **Add Test values beside eligible controls:** use explicit numbers such as `252,500`, a numeric From/To/Step range, On/Off choices, or multiple available menu choices. Leave them unused for one test. Up to six settings can vary together. Every combination must be valid, including enabled periods, weights, rules and exits. These values are examples, not recommendations.
 5. **Backtest:** review the compact setup summary and total combination count. Choose your comparison measure and limits. Source settings and their eligible Test values are edited on the main page, without opening this review first.
 6. Choose **Run 1 test** or **Run … tests**. Vault applies the full approved setup, runs momentum and portfolio calculations, saves the report, and advances only after verifying the save. Leave the RZone tab's settings alone while it works.
@@ -108,13 +108,35 @@ For example, Period 3 at **90**, with **Test both**, compares including and excl
 | Periods, weights, EMA, TMA | Values and enable checkboxes | Numeric values and On/Off choices |
 | Retracement, volume, Trend Quality | Values, references and applicable enable checkboxes | Numeric values, switches and offered references |
 | Radar, Strategy 1–3, exit rule | Enable controls, source menus and loaded rule choices | Switches and rules within the selected source catalogue; Strategy rule timeframe |
-| Group, market, timeframe, dates, rank criteria | Selected in Vault | Fixed within discovery |
+| Start and end dates | Calendar inputs | Lists of dates; every generated start/end pair must be valid |
+| Rank criteria | Offered RZone choices | Select one or more criteria |
+| Group, market, timeframe | Selected in Vault | Fixed within discovery |
 | Target and stop loss | Values and enable checkboxes | Numeric values and On/Off choices; every combination needs an exit |
-| Allocation, capital, open trades and daily limit | Selected in Vault | Fixed within that plan |
+| Allocation | Offered RZone choices | Select Fixed / Reinvestment when offered |
+| Capital and maximum open trades | Numeric inputs | Explicit values or From / To / Step ranges |
+| Daily stock limit | State and numeric input | Off / On / Test both, plus numeric values or a range |
 | Relative Strength and Market Trend Filter | Must remain off for this adapter | Unavailable |
 | P&F and Renko | Automatic setup/execution gated | Existing saved runs can still prepare plans; execution remains gated |
 
-The current new-test adapter is **Candle with Price selection**. Other source choices remain visibly unavailable where their dependent controls need a separate adapter. Shared context and source-menu parents stay fixed during a batch so comparisons use the same assumptions. Choose a strategy category from its loaded choices, then select the rules to test. In the saved-run route, inactive fields remain excluded from that baseline's sweep picker. Named rules are recorded as names; hidden rule definitions are never inferred.
+The current new-test adapter is **Candle with Price selection**. Other source choices remain visibly unavailable where their dependent controls need a separate adapter. Universe, market, timeframe, chart/selection and source-menu parents stay fixed during a batch. Dates and portfolio assumptions may vary; results with different comparison conditions remain in separate groups. Choose a strategy category from its loaded choices, then select the rules to test. In the saved-run route, inactive fields remain excluded from that baseline's sweep picker. Named rules are recorded as names; hidden rule definitions are never inferred.
+
+### Dates and portfolio variations
+
+Use **Test values** beside From date or To date, then add dates with the calendar inputs. Each selected start is combined with each selected end; every pair must have the end strictly after the start. Vault rejects an invalid plan before submission, including invalid combinations outside a budgeted sample. Keep a single start or end when only the other boundary should change.
+
+Allocation and rank criteria use the same menu-value picker as strategy rules. Capital, maximum open trades and stocks per day use numeric lists or ranges. **Test both** compares the daily-limit switch separately; its inactive number is retained in the source record. Portfolio testing itself stays on because the saved result requires the full portfolio report. Rule-source categories organize available rules: choose the category, then test its rule choices.
+
+```mermaid
+flowchart TD
+    A["2 start dates"] --> D["8 approved tests"]
+    B["2 allocation methods"] --> D
+    C["2 capital amounts"] --> D
+    D --> E["Apply and save each exact setup"]
+    E --> F["Group by matching dates and portfolio assumptions"]
+    F --> G["Inspect results and compare within a group"]
+```
+
+A different period or portfolio setup is useful research, but it does not establish a universal winning strategy. Decision Desk separates those conditions and never averages their return or drawdown into a combined result. Later validation and holdout dates must start after the latest actual end date already tested, including varied discovery dates.
 
 ## Search modes
 
@@ -123,6 +145,8 @@ The current new-test adapter is **Candle with Price selection**. Other source ch
 | All combinations | Every setting combination in the preview | Must fit the run budget |
 | Budgeted sample | Seeded shuffle without replacement | Same values/seed reproduce the same sample |
 | Adaptive | Seeded finite pool; chooses nearby queued settings around the eligible discovery leader, with every third completed step returning to exploration | Cannot add values or exceed the original pool/budget |
+
+When dates or portfolio conditions vary, Adaptive keeps the seeded pool order because there is no single comparable leader across those groups.
 
 Adaptive search is a deterministic heuristic. It is not Bayesian optimization, an LLM, or a forecast. Validation and holdout results never feed discovery selection. All modes limit plans to 100 values per setting, 10,000 candidate combinations and 500 discovery trials. A later validation and holdout trial are explicit additions, shown before starting those stages. The default timeout is 20 minutes per trial's source-calculation sequence; final full-report capture may take longer on large reports.
 
@@ -186,9 +210,9 @@ flowchart TD
 
 Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the same form and inline ranges using fictional choices. In the final review, **Generate … sample results** produces examples; the saved-run demo route retains **Generate sample results**. The sample workspace uses a distinct color and reports **Sample results ready** when finished. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary experiments and runs. Navigation pauses a simulation; reload resets it. The standalone viewer identifies itself separately and cannot execute RZone plans. An imported fictional experiment cannot enable real execution controls.
 
-Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, a three-trial full Candle DOM flow, complete backup/import and demo isolation. These are simulated tests, not proof of the installed extension operating the live service.
+Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, three-trial full Candle DOM flows including dates, ranking and portfolio variations, complete backup/import and demo isolation. Date checks cover every combination before sampling, and comparisons keep unlike test conditions separate. These are simulated tests, not proof of the installed extension operating the live service.
 
-Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.8.9's new full-setup and dropdown-refresh flow.**
+Live acceptance on 2026-09-16 separately verified three sequential Candle period trials through the **v0.7.3 saved-baseline flow** in the installed extension. The user initiated the batch and exported its records; source operation and capture proceeded automatically. Export verification covered the approved values and fixed settings, unique strategy/portfolio submission IDs, ordered source lifecycle timestamps, complete trade counts, six chart snapshots per run and acknowledged saves before the next trial. Source metrics matched live observations and two independent manual reference calculations. The installed dashboard itself was not directly inspected by automation. **This does not establish live acceptance for v0.9.0's new full-setup and dropdown-refresh flow.**
 
 ## Remaining delivery plan
 

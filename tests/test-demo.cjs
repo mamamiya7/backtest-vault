@@ -15,6 +15,25 @@ const categorical=Experiments.create({id:'sample-rule',name:'Sample rule',baseli
 const categoricalRun=Demo.createTrial(categorical,categorical.trials[0]);
 assert.ok(Number.isFinite(V.metrics(categoricalRun).returns),'Fictional menu-choice trials need finite synthetic returns');
 assert.deepEqual(Intelligence.inspect(categoricalRun).errors,[]);
+// Each fictional date/portfolio trial must keep its dates, money and CAGR
+// consistent with its own submitted configuration, rather than the baseline.
+const varied=Experiments.create({id:'sample-date-portfolio',name:'Date and portfolio samples',baseline:plan.baseline,objective:'returns',minTrades:0,dimensions:[
+ {key:'execution.from',values:['2024-01-01','2025-01-01']},
+ {key:'portfolio.capital',values:[100000,250000]},
+ {key:'portfolio.allocation',values:['Fixed','Reinvestment']}
+]});
+assert.equal(varied.trials.length,8);
+for(const trial of varied.trials){
+ const run=Demo.createTrial(varied,trial),expected=Experiments.expected(varied,trial),reading=Intelligence.inspect(run);
+ assert.deepEqual(reading.errors,[]);assert.equal(reading.from,trial.patch['execution.from']);
+ assert.equal(reading.metrics.capital,trial.patch['portfolio.capital']);
+ assert.equal(reading.controls.Allocation,trial.patch['portfolio.allocation']);
+ for(const stage of ['momentum','execution','portfolio'])Experiments.verify(Experiments.fields(expected,stage),Experiments.fields(run,stage));
+ assert.ok(run.trades.rows.every(row=>row[2]>=reading.from&&row[3]<=reading.to));
+ const expectedCagr=((1+reading.metrics.returns/100)**(365.25/reading.periodDays)-1)*100;
+ assert.ok(Math.abs(reading.cagr-expectedCagr)<0.011);
+ assert.equal(Experiments.result(varied,trial,run).eligible,true);
+}
 const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/?demo=1'}),w=dom.window,d=w.document;
 let durableCalls=0;const downloads=[];
 Object.defineProperty(w,'indexedDB',{get(){durableCalls++;throw Error('Demo opened IndexedDB');}});
