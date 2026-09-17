@@ -1,19 +1,18 @@
-# Backtest Vault 0.14.0 — installable preview
+# Backtest Vault 0.15.0 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
 
-- Follow one study through **Set up → Run tests → Review results**, with the current stage and next action visible. The stage indicator only shows progress; it cannot submit or restart a test.
-- Start at **My studies**, create work with **New test**, and use **Compare results** for comparisons across saved runs. An existing run offers **Test variations**.
-- Keep strategy, dates and portfolio on one page, with **More strategy settings** for secondary controls. **Review … tests** opens the final check; only **Run … tests** starts calculations.
-- Return to an unfinished form with **Continue setup** while the same Vault tab stays open. Refreshing or closing the tab clears that unsaved draft; saved studies stay in the archive.
-- Open completed evidence with **View results**, export with **Export study**, or prepare a separate validation test under **Test on another period**.
-- Existing date controls, Test values, saved-only progress, reduced motion, deletion protections and execution safeguards remain. Source automation support has not expanded.
+- Use one date-range control: click the displayed range to edit it. Typed From/To dates live inside its calendar, with Apply and Cancel.
+- **Test values** adds complete ranges in the same control. Two ranges mean two date cases; their start/end dates are never cross-combined. Each range can be edited or removed.
+- Keep numeric test values as the source of truth when returning to a single value or switching between equivalent Values and Range editors.
+- Use the same compact date control for validation and holdout, with existing unseen-period limits.
+- Preserve older studies, same-tab setup drafts, comparison groups, saved-only progress, reduced motion and execution safeguards. Source automation support has not expanded.
 
 ## Install
 
-Download **backtest-vault-0.14.0.zip**, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.15.0.zip**, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.

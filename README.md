@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.14.0 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.15.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -19,7 +19,14 @@ A local Chrome extension and research workspace for Definedge momentum and portf
 
 **Start with New test. One study carries your setup, tests and results together.** The journey at the top shows **Set up → Run tests → Review results**, with your current stage highlighted. RZone calculates the results; Vault applies your setup and saves each completed report. You do not need a saved backtest to begin.
 
-![Study setup with a progress indicator, strategy values, Test period and Portfolio sections; fictional sample setup](docs/images/11-test-setup.png)
+```mermaid
+flowchart LR
+    A[Set up your strategy] --> B[Choose a complete date range]
+    B --> C{More test values?}
+    C -->|Add values or ranges| B
+    C -->|Ready| D[Review the test count]
+    D --> E[Run and save every result]
+```
 
 ```mermaid
 flowchart LR
@@ -72,15 +79,17 @@ flowchart LR
     F --> G[Edit setup in Vault]
 ```
 
-**Example:** two start dates × two allocation methods × two capital amounts = **8 tests**. Add dates with calendar inputs, select offered menu values, or use numeric From / To / Step ranges. The review checks every date combination before any test starts.
+**Example:** two complete date ranges × two allocation methods × two capital amounts = **8 tests**. Each date range stays paired. The review checks the complete plan before any test starts.
 
-**Choose dates**, beside the **Test period** heading, opens a calendar with typed dates, month/year jumps and 1/3/5-year presets. Apply commits the range; Cancel leaves it unchanged. Existing **Test values** still controls date variations.
+**Test period** shows the date range itself. Click it to edit in the calendar or type dates there. **Test values** adds another complete range to the same control. Every displayed range will be tested; remove an unwanted range with ×. Apply saves an edit, while Cancel leaves the plan unchanged. Month/year jumps and 1/3/5-year presets remain available inside the calendar.
 
 ```mermaid
 flowchart LR
-    A[Choose dates] --> B[Select or type a range]
+    A[Click the displayed date range] --> B[Select or type a range]
     B --> C[Apply]
-    C --> D[Review and run]
+    C --> V{Test another period?}
+    V -->|Test values| B
+    V -->|Ready| D[Review and run]
     D --> E[Saved results update progress]
     E --> F[Open report or compare]
 ```
@@ -213,7 +222,7 @@ Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, not
 
 ## Install the extension
 
-**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.14.0.zip** asset; do not download a setup script by itself.
+**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.15.0.zip** asset; do not download a setup script by itself.
 
 ```mermaid
 flowchart LR

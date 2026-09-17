@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.15.0 preview - 2026-09-17
+
+- Replace duplicate date-entry routes with one control showing each complete test range. Click a range to edit it; Test values adds another, and × removes an unwanted range.
+- Treat new date variations as paired periods, with strict validation, deduplication and accurate combination counts. Preserve the meaning of previously saved independent-date studies.
+- Keep the first visible numeric alternative when returning to a single value, and preserve equivalent values when switching list/range editors.
+- Use the same date-range entry for validation and holdout; retain unseen-period boundaries, source readback, comparison groups and sample isolation.
+- Guard cancelled/disposed calendar callbacks and preserve range drafts through supported same-tab navigation and source choice refreshes.
+- Include the complete Windows/Linux installable package and updated graphical instructions.
+
 ## 0.14.0 preview - 2026-09-17
 
 - Keep each study in one visible journey: Set up → Run tests → Review results, with a current-stage indicator and a relevant next action. The indicator only shows progress; it cannot submit or restart a test.

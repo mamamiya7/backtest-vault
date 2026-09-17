@@ -11,6 +11,7 @@ const changedDates=clone(e);changedDates.trials[0].period={from:'2030-01-01',to:
 assert.throws(()=>E.create({...config,budget:3}),/exceed/);assert.throws(()=>E.create({...config,dimensions:[{key:'momentum.group',values:'something'}]}),/Unknown/);
 assert.throws(()=>E.create({...config,dimensions:[{key:'momentum.period.1',values:'0,1.2'}]}),/valid whole/);
 assert.throws(()=>E.create({...config,dimensions:[{key:'momentum.period.1',values:'1:20:0'}]}),/positive step/);
+for(const value of ['0::1',':10:1','0:10:','0: :1'])assert.throws(()=>E.values(value,{label:'Volume',type:'number',min:0,max:1000,integer:true}),/start:end:step/,'A missing numeric endpoint or step is not the number zero');
 const sampled=E.create({...config,mode:'sample',budget:3,seed:199});assert.deepEqual(sampled.trials,E.create({...config,mode:'sample',budget:3,seed:199}).trials);
 assert.equal(new Set(sampled.trials.map(t=>JSON.stringify(t.patch))).size,3);
 const actual=clone(E.fields(b,'momentum'));actual[1].value='Different universe';assert.throws(()=>E.verify(E.fields(b,'momentum'),actual),/read-back/);
@@ -343,6 +344,59 @@ function setupContextVariationTests(){
  for(const status of ['queued',...E.active,'uncertain']){const reopened=clone(research);reopened.trials.find(t=>t.phase==='validation').status=status;assert.throws(()=>E.validate(reopened),/preceding trials before a frozen holdout/,'An imported holdout stage cannot reopen its preceding validation trial');assert.throws(()=>E.restored(reopened),/preceding trials/);}
  const reopenedDiscovery=clone(research);reopenedDiscovery.trials[2].status='queued';assert.throws(()=>E.validate(reopenedDiscovery),/preceding trials/,'Holdout archives cannot reopen earlier discovery alternatives either');
 }
+function pairedPeriodTests(){
+ const S=require('../dist/setup.js'),template=S.demoTemplate(),baseline=S.configToBaseline(S.defaults(template),template,{id:'paired-base',name:'Paired test periods'}),original=clone(baseline);
+ const periods=['2023-01-01/2023-12-31','2024-01-01/2024-12-31','2025-01-01/2025-12-31'],field=E.catalog(baseline).find(f=>f.key==='execution.period');
+ assert.deepEqual(field,{key:'execution.period',label:'Test period',stage:'execution',type:'date-range',value:baseline.setup.config['execution.from']+'/'+baseline.setup.config['execution.to']});
+ assert.equal(E.catalog(b).some(f=>f.key==='execution.period'),false,'Legacy recorded-baseline scopes remain locked');
+ assert.deepEqual(E.dateRange('2024-02-29/2024-03-01'),{from:'2024-02-29',to:'2024-03-01'});
+ assert.deepEqual(E.values([periods[0],periods[1],periods[0],periods[2]],field),periods,'Keep paired alternatives in first-seen order without duplicate tests');
+ for(const value of [undefined,null,42,{},['2024-01-01','2025-01-01'],'2025-02-29/2025-03-01','2024-2-01/2024-03-01',' 2024-01-01/2025-01-01','2024-01-01/2025-01-01 ','2024-01-01','2024-01-01/2025-01-01/2026-01-01','2024-01-01T00:00:00Z/2025-01-01','2024-01-01/2024-01-01','2025-01-01/2024-01-01']){
+  assert.equal(E.dateRange(value),null,'Reject malformed, impossible, same-day or reversed ranges');
+  assert.throws(()=>E.values([value],field),/valid date ranges/);
+ }
+ for(const value of [periods[0],[],Array(101).fill(periods[0])])assert.throws(()=>E.values(value,field),/1–100 valid date ranges/);
+ const make=(values=periods,dimensions=[],options={})=>E.create({id:'paired-plan',name:'Paired dates',baseline,dimensions:[{key:'execution.period',values},...dimensions],budget:100,objective:'returns',minTrades:0,...options});
+ const paired=make([periods[0],periods[1],periods[0],periods[2]]);
+ assert.equal(paired.trials.length,3,'Three complete ranges mean three tests, never nine endpoint combinations');assert.equal(paired.combinationCount,3);E.validate(reordered(paired));
+ assert.equal(make([periods[0]]).trials.length,1,'One range means one test');
+ for(const trial of paired.trials){
+  const period=E.dateRange(trial.patch['execution.period']),expected=E.expected(paired,trial);
+  assert.deepEqual(E.trialPeriod(paired,trial),period);assert.equal(E.fields(expected,'execution')[1].value,period.from);assert.equal(E.fields(expected,'execution')[2].value,period.to);
+  assert.equal(expected.setup.config['execution.from'],period.from);assert.equal(expected.setup.config['execution.to'],period.to);assert.equal(Object.hasOwn(expected.setup.config,'execution.period'),false,'Only actual source settings reach execution');S.validateBaseline(expected);
+ }
+ assert.deepEqual(baseline,original,'Applying paired periods never changes the approved baseline');
+ assert.equal(make(periods,[{key:'momentum.period.1',values:[126,252]}]).trials.length,6,'Date pairs still combine with independent strategy settings');
+ assert.throws(()=>make(periods,[{key:'execution.from',values:['2020-01-01']}]),/complete test periods or separate date settings/);
+ assert.throws(()=>make(periods,[{key:'execution.to',values:['2030-01-01']}]),/complete test periods or separate date settings/);
+ for(const mode of ['sample','adaptive']){
+  const sampled=make(periods,[{key:'momentum.period.1',values:[126,252]}],{mode,budget:3,seed:109});
+  assert.deepEqual(sampled.trials,make(periods,[{key:'momentum.period.1',values:[126,252]}],{mode,budget:3,seed:109}).trials);assert.equal(sampled.combinationCount,6);assert.equal(sampled.trials.length,3);E.validate(reordered(sampled));
+  assert.throws(()=>make([periods[0],'2025-01-01/2024-01-01'],[],{mode,budget:1}),/valid date ranges/,'Sampling cannot hide an invalid period');
+ }
+ for(const change of [x=>x.dimensions[0].type='date',x=>x.dimensions[0].index=1,x=>x.dimensions[0].label='Dates',x=>x.dimensions[0].values.reverse(),x=>x.dimensions[0].values.push(periods[0]),x=>x.trials[0].patch['execution.period']=periods[1],x=>x.trials[0].patch['execution.period']='2025-01-01/2024-01-01',x=>x.trials[0].period={from:'2030-01-01',to:'2031-01-01'},x=>x.dimensions.push({...E.catalog(baseline).find(f=>f.key==='execution.from'),values:['2020-01-01']})]){
+  const altered=clone(paired);change(altered);assert.throws(()=>E.validate(altered),/altered|Discovery dates|complete test periods|valid date ranges/,'Imported paired periods cannot rewrite their immutable plan');
+ }
+ const outside=clone(paired.trials[0]);outside.patch['execution.period']='2030-01-01/2031-01-01';assert.throws(()=>E.expected(paired,outside),/approved ranges/);
+ // Different periods are separate matched-condition groups, even while other
+ // date pairs have not returned. The fast ranking path must expand them too.
+ const grouped=make(periods,[{key:'momentum.period.1',values:[126,252]}]),runs=grouped.trials.map(trial=>{trial.status='saved';return D.createTrial(grouped,trial);});grouped.status='complete';
+ const decision=E.decisions(grouped,runs);assert.equal(decision.grouped,true);assert.equal(decision.groups.length,3);assert.equal(decision.leader,null);assert.equal(decision.eligible.length,6,JSON.stringify(decision.items.map(i=>i.reasons)));
+ assert.equal(new Set(decision.groups.map(g=>g.controls.From+'/'+g.controls.To)).size,3);for(const group of decision.groups)assert.equal(group.items.length,2);
+ const partial=clone(grouped);partial.trials.slice(2).forEach(t=>t.status='queued');partial.status='running';const partialDecision=E.decisions(partial,runs.slice(0,2));assert.equal(partialDecision.grouped,true);assert.equal(partialDecision.groups.length,1);assert.equal(partialDecision.leader,null);
+ const adaptive=make(periods,[{key:'momentum.period.1',values:[126,252]}],{mode:'adaptive'}),adaptiveRuns=adaptive.trials.slice(0,2).map(t=>{t.status='saved';return D.createTrial(adaptive,t);});assert.equal(E.nextTrial(adaptive,adaptiveRuns).id,adaptive.trials[2].id,'Adaptive runs retain seeded order across unlike periods');
+ // Freeze later phases after every attempted discovery period, not merely the
+ // chosen candidate's period; untouched skipped alternatives reserve nothing.
+ const research=make([periods[0],periods[2],'2030-01-01/2030-12-31']);research.trials[0].status=research.trials[1].status='saved';research.trials[2].status='skipped';research.status='complete';
+ assert.equal(E.researchEnd(research),'2025-12-31');assert.throws(()=>E.validation(research,research.trials[0].id,{from:'2024-01-01',to:'2024-12-31'}),/strictly after/);
+ const attempted=clone(research);attempted.trials[2].execution={sourceSession:'interrupted',claimedAt:'2026-09-17T08:00:00.000Z'};assert.equal(E.researchEnd(attempted),'2030-12-31');
+ E.validation(research,research.trials[0].id,{from:'2026-01-01',to:'2026-12-31'});const validation=research.trials.at(-1);assert.equal(validation.patch['execution.period'],periods[0],'The original paired discovery choice stays frozen');assert.deepEqual(E.trialPeriod(research,validation),{from:'2026-01-01',to:'2026-12-31'});
+ assert.equal(E.fields(E.expected(research,validation),'execution')[1].value,'2026-01-01');assert.equal(E.fields(E.expected(research,validation),'execution')[2].value,'2026-12-31');E.validate(reordered(research));
+ const leaked=clone(research);leaked.trials.at(-1).period.from='2025-01-01';assert.throws(()=>E.validate(leaked),/strictly after all preceding tested dates/);
+ const reopened=clone(research);reopened.trials[2].status='queued';assert.throws(()=>E.validate(reopened),/preceding trials before a frozen validation/);
+ validation.status='saved';research.status='complete';assert.equal(E.researchEnd(research,'holdout'),'2026-12-31');assert.throws(()=>E.validation(research,validation.id,{from:'2026-06-01',to:'2027-12-31'},'holdout'),/strictly after/);
+ E.validation(research,validation.id,{from:'2027-01-01',to:'2027-12-31'},'holdout');E.validate(research);assert.deepEqual(E.trialPeriod(research,research.trials.at(-1)),{from:'2027-01-01',to:'2027-12-31'});assert.equal(E.fields(E.expected(research,research.trials.at(-1)),'execution')[1].value,'2027-01-01');assert.equal(E.restored(research).trials[2].status,'skipped');
+}
 function chartVariationTests(){
  const S=require('../dist/setup.js'),L=require('../dist/source-layouts.js');
  for(const momentumChart of L.charts)for(const executionChart of L.charts){
@@ -357,4 +411,4 @@ function chartVariationTests(){
  }
  for(const stage of ['momentum','execution']){const template=S.demoTemplate({momentumChart:'Renko',executionChart:'Renko',momentumBrickMode:'ATR',executionBrickMode:'ATR %'}),baseline=S.configToBaseline(S.defaults(template),template),descriptor=E.catalog(baseline).find(f=>f.key===stage+'.brick.size');assert.equal(descriptor.integer,true);assert.throws(()=>E.create({id:'fractional-atr',name:'ATR must be whole',baseline,dimensions:[{key:descriptor.key,values:[14,14.5]}]}),/whole numbers/);}
 }
-(async()=>{setupVariationTests();setupCachedCategoryTests();setupContextVariationTests();chartVariationTests();await coordinatorTests();await deletionTests();await decisionTests();await setupBridgeTests();await ruleSearchBridgeTests();console.log('PASS: independent chart contexts, exact variant trial settings, mode-specific ranges, bounded numeric/boolean/source-enum/date variations, matched decisions, frozen forward stages, immutable archives, authorized coordinator operations and guarded study deletion with preserved results.');})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{setupVariationTests();setupCachedCategoryTests();setupContextVariationTests();pairedPeriodTests();chartVariationTests();await coordinatorTests();await deletionTests();await decisionTests();await setupBridgeTests();await ruleSearchBridgeTests();console.log('PASS: independent chart contexts, exact variant trial settings, paired test periods and legacy date variations, matched decisions, frozen forward stages, immutable archives, authorized coordinator operations and guarded study deletion with preserved results.');})().catch(e=>{console.error(e);process.exitCode=1;});

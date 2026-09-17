@@ -11,16 +11,24 @@ const today=()=>{const d=new Date();return makeDate(d.getFullYear(),d.getMonth()
 const shiftMonth=(date,amount)=>{const first=makeDate(date.getUTCFullYear(),date.getUTCMonth()+amount,1),last=makeDate(first.getUTCFullYear(),first.getUTCMonth()+1,0);return makeDate(first.getUTCFullYear(),first.getUTCMonth(),Math.min(date.getUTCDate(),last.getUTCDate()));};
 const inBounds=d=>d.getUTCFullYear()>=1&&d.getUTCFullYear()<=9999;
 const fullDate=d=>new Intl.DateTimeFormat(undefined,{weekday:'long',day:'numeric',month:'long',year:'numeric',timeZone:'UTC'}).format(d);
+const shortDate=d=>new Intl.DateTimeFormat('en-GB',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(d);
 const monthTitle=d=>new Intl.DateTimeFormat(undefined,{month:'long',year:'numeric',timeZone:'UTC'}).format(d);
 
-function attach({container,fromInput,toInput}){
+function attach({container,fromInput,toInput,onApply,triggerLabel,triggerAriaLabel}){
  if(!container||!fromInput||!toInput)throw new TypeError('Date range requires a container and both date inputs.');
  const existing=instances.get(container);if(existing&&existing.fromInput===fromInput&&existing.toInput===toInput)return existing.api;if(existing)existing.api.destroy();
  const doc=container.ownerDocument,win=doc.defaultView||root,id='vault-date-range-'+(++sequence);
  const node=(tag,text,cls)=>{const n=doc.createElement(tag);if(text!==undefined)n.textContent=text;if(cls)n.className=cls;return n;};
  const button=(text,handler,cls)=>{const b=node('button',text,cls);b.type='button';b.addEventListener('click',handler);return b;};
- const trigger=button('Choose dates',open,'vault-date-range-trigger');trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-expanded','false');container.append(trigger);
+ const trigger=button('',open,'vault-date-range-trigger');trigger.setAttribute('aria-haspopup','dialog');trigger.setAttribute('aria-expanded','false');container.append(trigger);
  let dialog=null,draft=null,active='from',view=null,focusDate=null,calendarHost=null,status=null,error=null,apply=null,fromDraft=null,toDraft=null,monthSelect=null,yearSelect=null,previous=null,next=null,media=null,mediaListener=null,destroyed=false,previousFocus=null;
+ function refresh(){
+  if(destroyed)return;
+  const start=parse(fromInput.value),end=parse(toInput.value);
+  trigger.textContent=triggerLabel||(start||end?(start?shortDate(start):'Select start date')+' → '+(end?shortDate(end):'Select end date'):'Select date range');
+  trigger.setAttribute('aria-label',triggerAriaLabel||(start||end?'Edit date range: '+(start?fullDate(start):'start date not selected')+' to '+(end?fullDate(end):'end date not selected'):'Select date range'));
+  trigger.disabled=fromInput.disabled||toInput.disabled;
+ }
  const narrow=()=>Boolean(media&&media.matches);
  const available=(value,key=active)=>{const input=key==='from'?fromInput:toInput;return !(parse(input.min)&&value<input.min)&&!(parse(input.max)&&value>input.max);};
  const validation=()=>{
@@ -101,10 +109,12 @@ function attach({container,fromInput,toInput}){
   if(typeof current.close==='function'&&current.open)current.close();current.remove();trigger.setAttribute('aria-expanded','false');
   if(restoreFocus){const target=trigger.isConnected?trigger:previousFocus?.isConnected?previousFocus:null;if(target)target.focus();}
  }
- function commit(){
+ function commit(event){
+  if(destroyed||!dialog||event?.currentTarget!==apply)return;
   if(validation()){sync();return;}if(fromInput.disabled||toInput.disabled){error.hidden=false;error.textContent='These dates are currently unavailable.';apply.disabled=true;return;}
   const saved={...draft};fromInput.value=saved.from;toInput.value=saved.to;close();
   fromInput.dispatchEvent(new win.Event('change',{bubbles:true}));toInput.dispatchEvent(new win.Event('change',{bubbles:true}));
+  refresh();if(typeof onApply==='function')onApply(saved);
  }
  function open(){
   if(destroyed||dialog||fromInput.disabled||toInput.disabled)return;
@@ -131,7 +141,8 @@ function attach({container,fromInput,toInput}){
   doc.body.append(dialog);sync();renderCalendars();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');trigger.setAttribute('aria-expanded','true');trigger.setAttribute('aria-controls',id);focusDay();
   mediaListener=()=>{const focusedDay=doc.activeElement?.dataset?.date;renderCalendars();if(focusedDay)focusDay();};if(media){if(media.addEventListener)media.addEventListener('change',mediaListener);else if(media.addListener)media.addListener(mediaListener);}
  }
- const api={button:trigger,open,close:()=>close(),destroy:()=>{destroyed=true;close(false);trigger.remove();instances.delete(container);}};
+ for(const input of [fromInput,toInput]){input.addEventListener('input',refresh);input.addEventListener('change',refresh);}refresh();
+ const api={button:trigger,open,close:()=>close(),refresh,destroy:()=>{destroyed=true;close(false);for(const input of [fromInput,toInput]){input.removeEventListener('input',refresh);input.removeEventListener('change',refresh);}trigger.remove();instances.delete(container);}};
  instances.set(container,{api,fromInput,toInput});return api;
 }
 root.VaultDateRange={attach};

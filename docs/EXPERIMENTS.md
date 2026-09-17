@@ -14,7 +14,7 @@ The journey is a noninteractive progress indicator; it cannot submit or restart 
 
 ## Dates and progress
 
-Use **Choose dates**, beside the **Test period** heading, to open the calendar. Select a start and end, jump to a month/year, or choose 1/3/5 years ending on the current end date. Apply commits the pair; Cancel or Escape leaves the form unchanged. Typed dates still work. The independent **Test values** menus continue to vary From and To; every resulting pair must be valid. Validation and holdout calendars respect the unseen-period boundary.
+**Test period** has one control showing the complete date range. Click the range to edit it, or use **Test values** to add another complete range alongside it. The calendar supports typed dates, month/year jumps and 1/3/5-year presets. Apply commits the pair; Cancel or Escape leaves the plan unchanged. Remove an unwanted range with ×; one remaining range becomes the fixed test period. Validation and holdout use the same range control and respect the unseen-period boundary.
 
 The progress ring counts saved trials only. A complete stage can have fewer saved results than planned if trials were skipped. The latest-results list links to actual saved reports; old results do not replay arrival animations on each refresh. Reduced-motion preferences are respected, and return/CAGR/drawdown figures never count up.
 
@@ -139,7 +139,7 @@ For example, Period 3 at **90**, with **Test both**, compares including and excl
 | Periods, weights, EMA, TMA | Values and enable checkboxes | Numeric values and On/Off choices |
 | Retracement, volume, Trend Quality | Values, references and applicable enable checkboxes | Numeric values, switches and offered references |
 | Radar, Strategy 1–3, exit rule | Enable controls, source menus and loaded rule choices | Switches and rules within the selected source catalogue; Strategy rule timeframe |
-| Start and end dates | Calendar inputs | Lists of dates; every generated start/end pair must be valid |
+| Test period | One complete date-range control | Additional complete ranges; each start stays paired with its end |
 | Rank criteria | Offered RZone choices | Select one or more criteria |
 | Group, market, timeframe | Selected in Vault | Fixed within discovery |
 | Target and stop loss | Values and enable checkboxes | Numeric values and On/Off choices; every combination needs an exit |
@@ -153,13 +153,13 @@ The current new-test adapter is **Candle with Price selection**. Other source ch
 
 ### Dates and portfolio variations
 
-Use **Test values** beside From date or To date, then add dates with the calendar inputs. Each selected start is combined with each selected end; every pair must have the end strictly after the start. Vault rejects an invalid plan before submission, including invalid combinations outside a budgeted sample. Keep a single start or end when only the other boundary should change.
+Use **Test values** in the date-range control to add another complete period. Two displayed ranges produce two date cases; start and end dates are never mixed across ranges. Every range requires its end strictly after its start. Duplicate ranges are included once. Date ranges combine with the other selected settings, and the review shows the resulting test count before submission. Previously saved studies retain their original independent-date combinations and can still be imported and reviewed.
 
 Allocation and rank criteria use the same menu-value picker as strategy rules. Capital, maximum open trades and stocks per day use numeric lists or ranges. **Test both** compares the daily-limit switch separately; its inactive number is retained in the source record. Portfolio testing itself stays on because the saved result requires the full portfolio report. Rule-source categories organize available rules: choose the category, then test its rule choices.
 
 ```mermaid
 flowchart TD
-    A["2 start dates"] --> D["8 approved tests"]
+    A["2 complete date ranges"] --> D["8 approved tests"]
     B["2 allocation methods"] --> D
     C["2 capital amounts"] --> D
     D --> E["Apply and save each exact setup"]

@@ -20,8 +20,9 @@ const disclosure=(title,body)=>{const d=el('details');d.append(el('summary',titl
 
 const metricName=x=>({calmar:'Calmar',returns:'Return',drawdown:'Drawdown'}[x]||x);
 const fmt=(n,percent=false,signed=false)=>P.cell(typeof n==='number'&&Number.isFinite(n)?n.toFixed(2):n,{kind:percent?'percent':'number',signed}).text;
-const settingDisplay=(field,value)=>typeof value==='boolean'?(value?'On':'Off'):field?.type==='number'?P.cell(value,{kind:field.integer?'count':/%/.test(field.label||'')?'percent':'number'}).text:field?.options?.find(o=>o.value===value)?.label??String(value??'—');
-const trialSettingDisplay=(experiment,trial,field)=>settingDisplay(field,field.key==='execution.from'||field.key==='execution.to'?E.trialPeriod(experiment,trial)[field.key.slice(10)]:trial.patch[field.key]);
+const dateRangeText=value=>{const range=E.dateRange?.(value);if(!range)return 'Select date range';const format=date=>new Intl.DateTimeFormat('en-IN',{day:'numeric',month:'short',year:'numeric',timeZone:'UTC'}).format(new Date(date+'T00:00:00Z'));return format(range.from)+' → '+format(range.to);};
+const settingDisplay=(field,value)=>field?.type==='date-range'?dateRangeText(value):typeof value==='boolean'?(value?'On':'Off'):field?.type==='number'?P.cell(value,{kind:field.integer?'count':/%/.test(field.label||'')?'percent':'number'}).text:field?.options?.find(o=>o.value===value)?.label??String(value??'—');
+const trialSettingDisplay=(experiment,trial,field)=>{const period=E.trialPeriod(experiment,trial);return settingDisplay(field,field.key==='execution.period'?period.from+'/'+period.to:field.key==='execution.from'||field.key==='execution.to'?period[field.key.slice(10)]:trial.patch[field.key]);};
 const stateName=x=>({draft:'Ready to start',running:'Running',pausing:'Stopping after current trial',paused:'Paused',complete:'Complete','needs-review':'Needs review',queued:'Queued',applying:'Checking and applying settings','strategy-submitting':'Waiting for strategy results','strategy-complete':'Strategy completed','portfolio-submitting':'Waiting for portfolio report',capturing:'Saving report',saved:'Saved',uncertain:'Needs review',skipped:'Skipped'}[x]||x);
 const elapsed=(from,to)=>{const start=Date.parse(from),end=Date.parse(to);if(!Number.isFinite(start)||!Number.isFinite(end)||end<start)return null;const seconds=(end-start)/1000,whole=Math.round(seconds);return seconds<60?seconds.toFixed(1)+' s':Math.floor(whole/60)+' min '+whole%60+' s';};
 
@@ -54,7 +55,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  const motion=root.VaultWorkspaceMotion?.create(panel),calendars=[];
  const clearCalendars=()=>{for(const calendar of calendars.splice(0))calendar.destroy();};
  const calendarOpen=()=>calendars.some(calendar=>calendar.button.getAttribute('aria-expanded')==='true');
- const attachCalendar=(container,fromInput,toInput)=>{if(root.VaultDateRange)calendars.push(root.VaultDateRange.attach({container,fromInput,toInput}));};
+ const attachCalendar=(container,fromInput,toInput,options={})=>{if(!root.VaultDateRange)return null;const calendar=root.VaultDateRange.attach({container,fromInput,toInput,...options});calendars.push(calendar);return calendar;};
  const keepSetup=()=>{if(!wizard||wizard.submitting)return;const {controls,countUpdates,fields,catalog,...draft}=wizard;setupDrafts.set(store,structuredClone({...draft,connecting:false,warmingChart:null,ruleLookup:null,reviewOpen:false,editorOpen:null,generation:draft.generation+1}));};
 
  const dispose=()=>{if(disposed)return;keepSetup();disposed=true;clearInterval(timer);clearCalendars();motion?.destroy();deletionDialog?.remove();deletionDialog=null;document.body.classList.remove('experiments-mode');};cleanup=dispose;
@@ -314,10 +315,14 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   content.querySelector('[data-setup-field="'+field.key+'"]')?.focus();return true;
  }
  function workbenchChanged(state){
+  // A field's visible alternatives are its source of truth. Returning to one
+  // value must keep an included value, never revive an unseen old baseline.
+  for(const dimension of state.dimensions){const field=state.catalog?.find(f=>f.key===dimension.key);if(!field||field.type==='boolean'||field.type==='date-range')continue;try{state.config[field.key]=E.values(dimension.values,field)[0];}catch{}}
   for(const item of state.controls||[]){
    if(!item.control.isConnected)continue;
    const f=item.field,inspect=f.key.endsWith('.chart')&&f.options?.length>1;
    item.control.disabled=state.connecting||!!(f.disabled&&!inspect)||!setupEnabled(state,f.enabledBy);
+   if(state.dimensions.some(d=>d.key===f.key)&&f.type!=='boolean'){const value=String(state.config[f.key]??'');if(item.control.type==='radio')item.control.checked=item.control.value===value;else item.control.value=value;}
   }
   for(const update of state.countUpdates||[])update();
  }
@@ -341,13 +346,23 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
     const missing=Array.isArray(d.values)?d.values.filter(value=>!choices.some(o=>o.value===value)).map(value=>({value,label:value+' · unavailable'})):[];
     for(const option of [...choices,...missing]){const checkbox=input('','checkbox');checkbox.checked=Array.isArray(d.values)&&d.values.includes(option.value);checkbox.onchange=()=>{const values=Array.isArray(d.values)?d.values:[];d.values=checkbox.checked?[...values,option.value]:values.filter(v=>v!==option.value);workbenchChanged(state);};list.append(label(option.label,checkbox));}editor.append(list);
    }else{
-    const modes=el('div',undefined,'source-value-modes');for(const mode of ['Values','Range']){const b=button(mode,()=>{d.editorMode=mode.toLowerCase();draw();},'quiet');b.setAttribute('aria-pressed',String((d.editorMode||'values')===mode.toLowerCase()));modes.append(b);}editor.append(modes);
+    const seedRange=()=>{
+     const parts=typeof d.values==='string'?d.values.split(':'):[];
+     if(parts.length===3){d.range={from:parts[0],to:parts[1],step:parts[2]};d.rangePreservesValues=false;return;}
+     try{
+      const values=E.values(d.values,candidate),step=values.length>1?Number((values[1]-values[0]).toFixed(8)):1,range={from:String(values[0]),to:String(values.at(-1)),step:String(step)};
+      if(step>0&&JSON.stringify(E.values(range.from+':'+range.to+':'+range.step,candidate))===JSON.stringify(values)){d.range=range;d.rangePreservesValues=false;return;}
+     }catch{}
+     // A non-arithmetic list cannot be represented by one positive-step range.
+     // Opening its range editor must not replace the already planned values.
+     d.range={from:'',to:'',step:'1'};d.rangePreservesValues=true;
+    };
+    const modes=el('div',undefined,'source-value-modes');for(const mode of ['Values','Range']){const b=button(mode,()=>{const next=mode.toLowerCase();if(next===(d.editorMode||'values'))return;if(next==='range')seedRange();else{try{d.values=E.values(d.values,candidate).join(', ');}catch{if(Array.isArray(d.values))d.values=d.values.join(', ');}}d.editorMode=next;draw();workbenchChanged(state);},'quiet');b.setAttribute('aria-pressed',String((d.editorMode||'values')===mode.toLowerCase()));modes.append(b);}editor.append(modes);
     if(d.editorMode==='range'){
-     const fields=el('div',undefined,'source-range-inputs');d.range||={from:String(current),to:String(current),step:'1'};
-     for(const [key,title] of [['from','From'],['to','To'],['step','Step']]){const n=input(d.range[key],'number');n.step=candidate.integer?'1':'any';n.setAttribute('aria-label',field.label+' range '+title.toLowerCase());n.oninput=()=>{d.range[key]=n.value;d.values=d.range.from+':'+d.range.to+':'+d.range.step;workbenchChanged(state);};fields.append(label(title,n));}d.values=d.range.from+':'+d.range.to+':'+d.range.step;editor.append(fields);workbenchChanged(state);
+     const fields=el('div',undefined,'source-range-inputs'),kept=el('p','Current values stay until you edit this range.','mini');if(!d.range)seedRange();kept.hidden=!d.rangePreservesValues;
+     for(const [key,title] of [['from','From'],['to','To'],['step','Step']]){const n=input(d.range[key],'number');n.step=candidate.integer?'1':'any';n.setAttribute('aria-label',field.label+' range '+title.toLowerCase());n.oninput=()=>{d.range[key]=n.value;d.rangePreservesValues=false;kept.hidden=true;d.values=d.range.from+':'+d.range.to+':'+d.range.step;workbenchChanged(state);};fields.append(label(title,n));}editor.append(fields,kept);
     }else{
-     if(typeof d.values!=='string'||d.values.includes(':'))d.values=String(current);
-     const n=input(d.values);n.placeholder='Enter values, separated by commas';n.setAttribute('aria-label',field.label+' test values');n.oninput=()=>{d.values=n.value;workbenchChanged(state);};editor.append(label('Values, separated by commas',n));
+     const n=input(Array.isArray(d.values)?d.values.join(', '):String(d.values??''));n.placeholder='Enter values, separated by commas';n.setAttribute('aria-label',field.label+' test values');n.oninput=()=>{d.values=n.value;delete d.range;delete d.rangePreservesValues;workbenchChanged(state);};editor.append(label('Values, separated by commas',n));
     }
    }
    const actions=el('div',undefined,'source-value-actions');actions.append(button('Use current value',()=>{state.dimensions=state.dimensions.filter(d=>d.key!==field.key);state.editorOpen=null;editor.hidden=true;summary();workbenchChanged(state);},'quiet'),button('Done',()=>{state.editorOpen=null;editor.hidden=true;summary();workbenchChanged(state);},'secondary'));editor.append(actions);summary();
@@ -462,12 +477,44 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   const field=(key,opts={})=>sourceField(state,key,{showLabel:true,variation:true,...opts});
   const pair=(keys,className='')=>{const grid=el('div',undefined,'source-review-fields '+className);grid.append(...keys.map(key=>field(key)));return grid;};
   const toggleRow=(key,value,title)=>{const row=el('div',undefined,'source-review-toggle-row');row.append(el('span',title,'source-review-toggle-label'),field(key,{showLabel:false}),field(value,{showLabel:false}));return row;};
-  const dates=pair(['execution.from','execution.to'],'source-date-pair');execution.append(dates);attachCalendar(dates,dates.querySelector('[data-setup-field="execution.from"]'),dates.querySelector('[data-setup-field="execution.to"]'));const executionBody=el('div'),executionMore=disclosure('Execution settings',executionBody);executionMore.classList.add('source-more-settings');executionMore.open=!!state.executionOpen;executionMore.addEventListener('toggle',()=>{state.executionOpen=executionMore.open;});execution.append(executionMore);executionBody.append(pair(['execution.rank','execution.chart','execution.selection'],'source-execution-options'));const chartSettings=chartSettingsFields(state,'execution');if(chartSettings)executionBody.append(chartSettings);
+  execution.append(dateRangeField(state));const executionBody=el('div'),executionMore=disclosure('Execution settings',executionBody);executionMore.classList.add('source-more-settings');executionMore.open=!!state.executionOpen;executionMore.addEventListener('toggle',()=>{state.executionOpen=executionMore.open;});execution.append(executionMore);executionBody.append(pair(['execution.rank','execution.chart','execution.selection'],'source-execution-options'));const chartSettings=chartSettingsFields(state,'execution');if(chartSettings)executionBody.append(chartSettings);
   const exit=el('div',undefined,'source-review-exit-row'),exitSource=field('execution.exit.source',{variation:false});exitSource.title='Choose a source, then use Test values on its rules.';exitSource.querySelector('select')?.setAttribute('title',exitSource.title);exit.append(field('execution.exit.enabled',{showLabel:false,text:'Exit strategy'}),exitSource,field('execution.exit.rule'));executionBody.append(exit);
   const limits=el('div',undefined,'source-exit-limits');limits.append(toggleRow('execution.target.enabled','execution.target','Profit target (%)'),toggleRow('execution.stop.enabled','execution.stop','Stop loss (%)'));executionBody.append(limits);
   portfolio.append(pair(['portfolio.capital','portfolio.max-open','portfolio.allocation'],'source-portfolio-primary'));
   const portfolioBody=el('div'),portfolioMore=disclosure('Portfolio limits',portfolioBody);portfolioMore.classList.add('source-more-settings');portfolioMore.open=!!state.portfolioOpen;portfolioMore.addEventListener('toggle',()=>{state.portfolioOpen=portfolioMore.open;});portfolioBody.append(field('portfolio.enabled',{showLabel:false,text:'Portfolio testing',variation:false}),el('p','Required to save the full report.','source-availability'),toggleRow('portfolio.daily-limit.enabled','portfolio.daily-limit','Limit new stocks per day'));portfolio.append(portfolioMore);
   for(const group of S.fieldsForUI(state.template).filter(g=>g.stage==='portfolio'))if(group.note)portfolioBody.append(el('p',group.note,'mini source-portfolio-note'));
+ }
+
+ function dateRangeField(state){
+  const key='execution.period',holder=el('div',undefined,'source-date-control');holder.dataset.variationFor=key;holder.setAttribute('role','group');holder.setAttribute('aria-label','Date ranges to test');
+  const list=el('div',undefined,'source-date-ranges');holder.append(list);let owned=[],adding=null;
+  const dimension=()=>state.dimensions.find(d=>d.key===key),ranges=()=>dimension()?.values||[state.config['execution.from']+'/'+state.config['execution.to']];
+  const forget=()=>{for(const api of owned){api.destroy();const index=calendars.indexOf(api);if(index>=0)calendars.splice(index,1);}owned=[];};
+  const sync=()=>{for(const n of holder.querySelectorAll('input'))n.disabled=state.connecting||!!state.ruleLookup||!!state.fields.get('execution.'+n.dataset.datePart)?.disabled;for(const api of owned)api.refresh();if(adding){const full=ranges().length>=100||!dimension()&&state.dimensions.length>=6;adding.button.disabled=state.connecting||!!state.ruleLookup||full;adding.button.title=full?'Use at most six changing settings and 100 date ranges.':'';}for(const n of list.querySelectorAll('.source-date-remove'))n.disabled=state.connecting||!!state.ruleLookup;};
+  function save(next,focusIndex=0){
+   next=[...new Set(next)];if(!next.length||next.some(value=>!E.dateRange(value)))return;
+   if(next.length>1&&!dimension()&&state.dimensions.length>=6){notice.textContent='Use at most six changing settings in one test batch.';return;}
+   const first=E.dateRange(next[0]);state.config['execution.from']=first.from;state.config['execution.to']=first.to;
+   state.dimensions=state.dimensions.filter(d=>![key,'execution.from','execution.to'].includes(d.key));if(next.length>1)state.dimensions.push({key,values:next});
+   draw();workbenchChanged(state);list.querySelectorAll('.source-date-entry .vault-date-range-trigger')[Math.min(focusIndex,next.length-1)]?.focus();
+  }
+  function backing(container,range,index){
+   const pair=el('div',undefined,'source-date-pair');pair.hidden=true;container.append(pair);const controls=[];
+   for(const part of ['from','to']){const n=input(range?.[part]||'','date');n.setAttribute('aria-label',part==='from'?'From date':'To date');n.dataset.datePart=part;if(index===0)n.dataset.setupField='execution.'+part;const field=state.fields.get('execution.'+part);if(field?.min!==undefined)n.min=field.min;if(field?.max!==undefined)n.max=field.max;n.disabled=state.connecting;state.controls.push({field:field||{key:'execution.'+part},control:n});pair.append(n);controls.push(n);}
+   return controls;
+  }
+  function draw(){
+   forget();list.replaceChildren();holder.querySelector('.source-date-add')?.remove();const current=[...ranges()];
+   current.forEach((value,index)=>{const row=el('div',undefined,'source-date-entry'),range=E.dateRange(value),[from,to]=backing(row,range,index);list.append(row);
+    // Backing controls keep the same source keys; the only visible editor is
+    // the range picker, which commits both endpoints as one value.
+    if(index===0)for(const n of [from,to])n.addEventListener('change',()=>{state.config['execution.from']=from.value;state.config['execution.to']=to.value;});
+    const api=attachCalendar(row,from,to,{onApply:period=>{const next=[...current];next[index]=period.from+'/'+period.to;save(next,index);}});if(api)owned.push(api);
+    if(current.length>1){const remove=button('×',()=>save(current.filter((_,i)=>i!==index),Math.max(0,index-1)),'quiet source-date-remove');remove.setAttribute('aria-label','Remove date range '+(index+1));row.append(remove);}
+   });
+   const add=el('div',undefined,'source-date-add'),[from,to]=backing(add,null,-1);holder.append(add);adding=attachCalendar(add,from,to,{triggerLabel:'Test values',triggerAriaLabel:'Test values for date range',onApply:period=>save([...ranges(),period.from+'/'+period.to],ranges().length)});if(adding)owned.push(adding);sync();
+  }
+  state.countUpdates.push(sync);draw();return holder;
  }
 
  function openBacktest(state){
@@ -479,7 +526,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});dialog.addEventListener('close',()=>{state.reviewOpen=false;});
   const body=el('div',undefined,'source-dialog-body'),scope=el('dl',undefined,'source-review-scope');form.append(body);body.append(scope);
   const varying=key=>state.dimensions.some(d=>d.key===key);
-  for(const [title,value] of [['Group',state.config['momentum.group']],['Test period',varying('execution.from')||varying('execution.to')?'Multiple periods · see test values below':state.config['execution.from']+' — '+state.config['execution.to']],['Initial capital',varying('portfolio.capital')?'Multiple amounts · see test values below':fmt(Number(state.config['portfolio.capital']))]]){const item=el('div');item.append(el('dt',title),el('dd',String(value??'')));scope.append(item);}
+  for(const [title,value] of [['Group',state.config['momentum.group']],['Test period',varying('execution.period')?state.dimensions.find(d=>d.key==='execution.period').values.length+' date ranges':varying('execution.from')||varying('execution.to')?'Multiple periods · see test values below':dateRangeText(state.config['execution.from']+'/'+state.config['execution.to'])],['Initial capital',varying('portfolio.capital')?'Multiple amounts · see test values below':fmt(Number(state.config['portfolio.capital']))]]){const item=el('div');item.append(el('dt',title),el('dd',String(value??'')));scope.append(item);}
   if(state.dimensions.length){const variations=el('dl',undefined,'source-review-variations');variations.setAttribute('aria-label','Test values');for(const dimension of state.dimensions){const field=state.catalog.find(f=>f.key===dimension.key),row=el('div');let values;try{values=E.values(dimension.values,field).map(value=>settingDisplay(field,value)).join(' · ');}catch{values='Review test values';}row.append(el('dt',field?.label||dimension.key),el('dd',values));variations.append(row);}body.append(variations);}
   const name=input(state.name);name.required=true;name.maxLength=120;name.oninput=()=>{state.name=name.value;workbenchChanged(state);};body.append(label('Test name',name));
   const rules=el('div',undefined,'experiment-form-grid');for(const [key,title,choices] of [['objective','Rank by',[['returns','Return · higher is better'],['calmar','Calmar · higher is better'],['drawdown','Drawdown · lower is better']]],['mode','Search',[['grid','All combinations'],['sample','Budgeted sample'],['adaptive','Adaptive · bounded neighborhood']]]]){const n=select(choices);n.value=state[key];n.onchange=()=>{state[key]=n.value;workbenchChanged(state);};rules.append(label(title,n));}
@@ -670,7 +717,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
   if(e.trials.every(t=>['saved','skipped'].includes(t.status))){const phase=e.trials.some(t=>t.phase==='validation')?'holdout':'validation';if(!e.trials.some(t=>t.phase===phase)){const sourcePhase=phase==='validation'?'discovery':'validation',sourceDecision=sourcePhase==='discovery'?d:E.decisions(e,runs,sourcePhase),available=sourceDecision.grouped?(sourceDecision.groups?.[0]?.eligible||[]):sourceDecision.eligible;const section=el('section',undefined,'experiment-validation');section.append(el('h3',phase==='validation'?'Test on another period':'Final holdout'));
 
-   if(available.length){const candidate=select(available.map(x=>[x.trial.id,'Trial '+x.trial.ordinal])),from=input('','date'),to=input('','date'),grid=el('div',undefined,'experiment-form-grid');const nextDay=value=>I.date(value)?new Date(Date.parse(value+'T00:00:00Z')+86400000).toISOString().slice(0,10):'';from.min=nextDay(E.researchEnd?.(e,phase)||'');to.min=from.min;from.required=true;to.required=true;grid.append(label('Candidate',candidate),label('From',from),label('To',to));attachCalendar(grid,from,to);section.append(grid,button('Prepare '+phase+' test',()=>action(async()=>{const period={from:from.value,to:to.value};if(store.demo||!extension){E.validation(e,candidate.value,period,phase);await store.putExperiment(e);}else await command('validate',{id,trialId:candidate.value,period,phase});await load();detail(id);}),'primary'),el('p','Keep the chosen settings fixed and test a later, unseen period. Review the plan before running.','mini'));}
+   if(available.length){const candidate=select(available.map(x=>[x.trial.id,'Trial '+x.trial.ordinal])),from=input('','date'),to=input('','date'),grid=el('div',undefined,'experiment-form-grid');const nextDay=value=>I.date(value)?new Date(Date.parse(value+'T00:00:00Z')+86400000).toISOString().slice(0,10):'';from.min=nextDay(E.researchEnd?.(e,phase)||'');to.min=from.min;from.required=true;to.required=true;const dateControl=el('div',undefined,'validation-date-control'),backing=el('div');backing.hidden=true;backing.append(label('From',from),label('To',to));dateControl.append(backing);grid.append(label('Candidate',candidate),dateControl);attachCalendar(dateControl,from,to);section.append(grid,button('Prepare '+phase+' test',()=>action(async()=>{const period={from:from.value,to:to.value};if(store.demo||!extension){E.validation(e,candidate.value,period,phase);await store.putExperiment(e);}else await command('validate',{id,trialId:candidate.value,period,phase});await load();detail(id);}),'primary'),el('p','Keep the chosen settings fixed and test a later, unseen period. Review the plan before running.','mini'));}
 
    else section.append(el('p','No candidate meets the frozen rules. Review the evidence before planning another stage.'));content.append(section);}}
 

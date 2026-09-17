@@ -349,7 +349,6 @@ body:has(.has-workbench) main{max-width:1580px;padding:24px 40px}
 .source-workbench .source-count-bar{position:sticky;bottom:0;z-index:10;margin:16px -8px 0;padding:15px 8px;background:#101e2c;border-top:1px solid #33485b;box-shadow:0 -6px 18px #050b141a}
 .source-workbench .source-combination-count{display:flex;flex-direction:column;align-items:flex-start;gap:3px;line-height:1.5}.source-combination-count strong{font-size:16px;color:#eef6ff}.source-combination-count span{font-size:13px;color:#b3c7dd}
 .source-workbench .source-count-bar .primary{background:#94e8d1;color:#08261e;border-color:#94e8d1;border-radius:6px;min-height:44px;min-width:195px;font-size:14px}.source-workbench .source-count-bar .primary:hover{background:#b6f5e4}.source-workbench .source-count-bar .primary:disabled{background:#203e45;color:#9baeba}
-.source-workbench .source-date-pair .date-range-trigger{font-size:12px;min-height:30px}
 body:has(.has-workbench) #new-test{display:none}.header-right #mode-label:not(.demo){display:none}.header-right #experiments,.header-right #analyze{background:transparent;border-color:transparent;font-weight:500}.header-right button[aria-current=page]{color:#94e8d1;text-decoration:underline;text-underline-offset:7px}
 @media(max-width:850px){body:has(.has-workbench) main{padding:22px}.source-overview-grid,.source-period-grid,.source-indicator-grid{gap:18px;grid-template-columns:repeat(2,minmax(0,1fr))}.source-more-body .source-strategy{grid-template-columns:85px minmax(0,1fr) 90px}.source-more-body .source-strategy>.source-field:nth-child(3){grid-column:2/-1;grid-row:2}.source-more-body .source-strategy>.source-field:last-child{grid-column:3;grid-row:1}.source-more-body .source-strategy>.source-field:nth-child(4){grid-column:2;grid-row:3}.source-more-body .source-row{grid-template-columns:1fr;gap:8px}}
 @media(max-width:560px){body:has(.has-workbench) main{padding:18px 14px}.journey-heading h2,.has-workbench .journey-heading h2{font-size:25px}.study-journey{margin:20px 0}.study-journey li{font-size:12px;gap:4px}.journey-number{width:34px;height:34px;font-size:15px}.study-journey li::after{top:16px;left:calc(50% + 23px);right:calc(-50% + 23px)}.journey-state{font-size:11px}.source-overview-grid,.source-period-grid,.source-indicator-grid{gap:16px 12px}.source-workbench .source-pair-heading{font-size:13px}.source-workbench .source-period-pair{grid-template-columns:1fr;gap:5px}.source-period-pair>[data-source-field$='.enabled']{grid-column:1;grid-row:2}.source-workbench .source-period-pair>[data-source-field$='.enabled'] select{width:100%}.source-workbench .source-field input:not([type=checkbox]):not([type=radio]),.source-workbench .source-field select{min-height:40px;height:40px;font-size:14px}.source-workbench .source-control-label{font-size:13px}.source-workbench .source-portfolio-primary{grid-template-columns:1fr}.source-workbench .source-values-editor{width:calc(100vw - 28px);max-height:65vh;overflow:auto;z-index:50}.source-workbench .source-count-bar{align-items:stretch;flex-direction:column;gap:10px;padding:12px 8px}.source-workbench .source-count-bar .primary{width:100%}.source-combination-count strong{font-size:14px}.source-combination-count span{font-size:12px}.source-workbench .source-backtest-settings .source-review-fields{gap:12px}.source-workbench .source-count-bar .source-both-note{display:none}.source-more-body .source-weight-row .source-row-controls{grid-template-columns:repeat(2,minmax(0,1fr))}}
@@ -357,11 +356,21 @@ body:has(.has-workbench) #new-test{display:none}.header-right #mode-label:not(.d
 .source-workbench .source-period-pair{align-content:start;align-self:start}
 .source-workbench .source-field input[data-setup-field="momentum.group"]:not([type=checkbox]):not([type=radio]){width:100%}
 .source-execution-settings{position:relative}
-.source-workbench .vault-date-range-trigger{position:absolute;right:0;top:-4px;min-height:32px;padding:4px 10px!important;font-size:12px!important}
+.source-workbench .source-date-control{max-width:780px;margin-bottom:14px}
+.source-date-ranges{display:flex;flex-wrap:wrap;gap:8px}
+.source-date-entry{display:flex;align-items:stretch;flex:1 1 310px;max-width:100%;min-width:0}
+.source-workbench .source-date-entry .vault-date-range-trigger{position:static;min-height:42px;flex:1;justify-content:flex-start;font-size:14px!important;padding:10px 14px!important;background:#0f1c2b!important;border-color:#3d546e!important;color:#e6eff9!important}
+.source-workbench .source-date-entry:has(.source-date-remove) .vault-date-range-trigger{border-radius:6px 0 0 6px!important}
+.source-workbench .source-date-remove{min-width:40px;min-height:42px;margin:0;border:1px solid #3d546e;border-left:0;border-radius:0 6px 6px 0;background:#0f1c2b;color:#c8d9e7;font-size:20px;padding:4px 10px}
+.source-workbench .source-date-add .vault-date-range-trigger{position:static;width:auto;min-height:32px;padding:5px 0!important;border:0!important;background:transparent!important;color:#a9c5de!important;font-size:12px!important}
+.source-date-add{margin-top:2px}
+.source-date-control [hidden],.experiment-validation [hidden]{display:none!important}
+.source-date-entry .vault-date-range-trigger:hover{border-color:#94e8d1!important}
+.experiment-validation .validation-date-control{grid-column:1/-1}
 .source-workbench .source-date-pair{position:static}
 .source-workbench .source-backtest-settings .source-review-fields{row-gap:12px}
 .source-workbench .source-count-bar{isolation:isolate}
-@media(max-width:560px){.source-workbench .vault-date-range-trigger{min-height:34px}.source-workbench .source-period-pair{align-self:stretch}}
+@media(max-width:560px){.source-date-entry{flex-basis:100%}.source-workbench .source-period-pair{align-self:stretch}}
 /* Keep the focused setup compact without reducing control readability. */
 .has-workbench .study-journey{margin-top:20px;margin-bottom:18px}
 .source-workbench .source-overview-grid,.source-workbench .source-period-grid{margin-bottom:18px}

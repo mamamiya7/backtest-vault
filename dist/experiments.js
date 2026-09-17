@@ -31,7 +31,7 @@ function catalogFromSetup(template,config={}){
  const exits=/^execution\.(?:target(?:\.enabled)?|stop(?:\.enabled)?|exit\.(?:enabled|rule))$/;
  const context=/^(?:execution\.(?:rank|from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
  const chartValues=/^(?:momentum|execution)\.(?:box\.(?:size|reversal)|brick\.size|price\.(?:close-only|high-low))$/;
- return S.fieldsForUI(template,config).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key)||context.test(f.key)||chartValues.test(f.key))).map(f=>{
+ const out=S.fieldsForUI(template,config).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key)||context.test(f.key)||chartValues.test(f.key))).map(f=>{
   // Keep existing descriptor labels stable so older approved archives still validate.
   const prefix=exits.test(f.key)?'Exit · ':f.stage==='execution'?'Backtest · ':f.stage==='portfolio'?'Portfolio · ':'';
   const d={key:f.key,label:prefix+f.label,stage:f.stage,type:f.type==='select'?'enum':f.type,value:Object.hasOwn(config,f.key)?config[f.key]:f.value};
@@ -40,6 +40,9 @@ function catalogFromSetup(template,config={}){
   if(f.type==='select')d.options=f.options.filter(o=>!o.disabled).map(o=>({value:o.value,label:o.label}));
   return d;
  });
+ const from=out.find(f=>f.key==='execution.from'),to=out.find(f=>f.key==='execution.to');
+ if(from&&to)out.push({key:'execution.period',label:'Test period',stage:'execution',type:'date-range',value:from.value+'/'+to.value});
+ return out;
 }
 function catalog(b){
  if(b?.origin==='vault-setup'){S.validateBaseline(b);return catalogFromSetup(b.setup.template,b.setup.config);}
@@ -63,7 +66,17 @@ function catalog(b){
  }
  return out;
 }
+function dateRange(value){
+ if(typeof value!=='string')return null;
+ const parts=value.split('/');
+ if(parts.length!==2||!parts.every(S.validDate)||parts[0]>=parts[1])return null;
+ return {from:parts[0],to:parts[1]};
+}
 function values(text,field){
+ if(field.type==='date-range'){
+  if(!Array.isArray(text)||!text.length||text.length>100||text.some(value=>!dateRange(value)))throw Error(field.label+': choose 1–100 valid date ranges with From before To, in YYYY-MM-DD/YYYY-MM-DD format.');
+  return [...new Set(text)];
+ }
  if(field.type==='date'){
   if(!Array.isArray(text)||!text.length||text.length>100||text.some(value=>!S.validDate(value)))throw Error(field.label+': choose 1–100 valid dates in YYYY-MM-DD format.');
   return [...new Set(text)];
@@ -78,7 +91,7 @@ function values(text,field){
   return [...new Set(raw.map(v=>{if(typeof v==='boolean')return v;if(typeof v!=='string')throw Error(field.label+': use On, Off.');v=v.trim().toLowerCase();if(!['on','off','true','false'].includes(v))throw Error(field.label+': use On, Off.');return v==='on'||v==='true';}))];
  }
  const s=Array.isArray(text)?null:String(text).trim();let raw;
- if(s?.includes(':')){const a=s.split(':').map(Number);if(a.length!==3||a.some(x=>!Number.isFinite(x))||a[2]<=0||a[1]<a[0])throw Error('Use start:end:step, with a positive step.');const n=Math.floor((a[1]-a[0])/a[2]+1e-8)+1;if(n>100)throw Error('Use at most 100 values per setting.');raw=Array.from({length:n},(_,i)=>Number((a[0]+i*a[2]).toFixed(8)));}
+ if(s?.includes(':')){const parts=s.split(':'),a=parts.map(Number);if(a.length!==3||parts.some(x=>!x.trim())||a.some(x=>!Number.isFinite(x))||a[2]<=0||a[1]<a[0])throw Error('Use start:end:step, with a positive step.');const n=Math.floor((a[1]-a[0])/a[2]+1e-8)+1;if(n>100)throw Error('Use at most 100 values per setting.');raw=Array.from({length:n},(_,i)=>Number((a[0]+i*a[2]).toFixed(8)));}
  else raw=(Array.isArray(text)?text:s.split(',')).map(v=>typeof v==='number'?v:typeof v==='string'&&v.trim()!==''?Number(v.trim()):NaN);
  if(!raw.length||raw.length>100||raw.some(v=>!Number.isFinite(v)||v<field.min||v>field.max||(field.integer&&!Number.isInteger(v))))throw Error(field.label+': enter valid '+(field.integer?'whole ':'')+'numbers between '+field.min+' and '+field.max+'.');
  return [...new Set(raw)];
@@ -87,6 +100,7 @@ function dimensions(b,input){
  const available=catalog(b),seen=new Set();
  if(b.origin==='vault-setup'&&Array.isArray(input)&&input.length===0)return [];
  if(!Array.isArray(input)||!input.length||input.length>6)throw Error('Choose between one and six settings.');
+ if(input.some(d=>d?.key==='execution.period')&&input.some(d=>['execution.from','execution.to'].includes(d?.key)))throw Error('Choose complete test periods or separate date settings, not both.');
  return input.map(d=>{const f=available.find(f=>f.key===d?.key);if(!f||seen.has(d.key))throw Error('Unknown or repeated experiment setting.');seen.add(d.key);const v=values(d.values,f);if(v.length<1)throw Error('Each setting needs values.');return {...f,values:v};});
 }
 function combos(dims){let out=[{}];for(const d of dims){if(out.length*d.values.length>10000)throw Error('This plan exceeds 10,000 combinations. Narrow the ranges.');out=out.flatMap(c=>d.values.map(v=>({...c,[d.key]:v})));}return out;}
@@ -103,8 +117,16 @@ function checkSetupCombination(config,rules){
  for(const stage of ['momentum','execution'])if(Object.hasOwn(config,stage+'.price.close-only')&&Number(config[stage+'.price.close-only'])+Number(config[stage+'.price.high-low'])!==1)throw Error('Every combination must choose exactly one '+stage+' price mode.');
  for(const f of rules)if(config[f.gate]){const value=config[f.key];if(!f.available.has(value)||!value.trim()||/^\s*--|select.*(?:system|rule|radar)/i.test(value))throw Error('Each combination needs an available '+f.label.toLowerCase()+' before enabling it.');}
 }
+function setupPatch(patch){
+ const config={...patch};
+ if(Object.hasOwn(config,'execution.period')){
+  const period=dateRange(config['execution.period']);if(!period)throw Error('Invalid test period.');
+  delete config['execution.period'];config['execution.from']=period.from;config['execution.to']=period.to;
+ }
+ return config;
+}
 function setupExpected(b,patch,period){
- const config={...b.setup.config,...patch};
+ const config={...b.setup.config,...setupPatch(patch)};
  if(period){config['execution.from']=period.from;config['execution.to']=period.to;}
  const next=S.configToBaseline(config,b.setup.template,{id:b.id,name:b.name,demo:b.demo});
  checkSetupCombination(next.setup.config,combinationRules(b));
@@ -122,7 +144,7 @@ function create({id,name,baseline:b,dimensions:input,mode='grid',budget=30,seed=
  const dims=dimensions(b,input),all=combos(dims),main=fields(b,'momentum');
  if(mode==='grid'&&all.length>budget)throw Error(all.length+' combinations exceed the '+budget+' run budget. Increase the budget or use a sample.');
  const rules=b.origin==='vault-setup'?combinationRules(b):null;
- for(const patch of all){if(rules){checkSetupCombination({...b.setup.config,...patch},rules);continue;}const weight=Array.from({length:4},(_,i)=>main[11+i*2].checked?(patch['momentum.period.'+(i+1)+'.weight']??V.number(main[22+i].value)):0);if(!weight.some(x=>x>0))throw Error('Each combination needs a positive weight on an enabled period.');}
+ for(const patch of all){if(rules){checkSetupCombination({...b.setup.config,...setupPatch(patch)},rules);continue;}const weight=Array.from({length:4},(_,i)=>main[11+i*2].checked?(patch['momentum.period.'+(i+1)+'.weight']??V.number(main[22+i].value)):0);if(!weight.some(x=>x>0))throw Error('Each combination needs a positive weight on an enabled period.');}
  const candidates=mode==='grid'?all:shuffled(all,seed).slice(0,+budget);
  const make=(patch,i)=>({id:id+'-t'+(i+1),runId:id+'-t'+(i+1),ordinal:i+1,patch,status:'queued',phase:'discovery',events:[]});
  return {schemaVersion:1,id,name:name.trim(),createdAt:now,status:'draft',revision:0,baseline:clone(b),dimensions:dims,mode,budget:+budget,seed:+seed,objective,ceiling:+ceiling,minTrades:+minTrades,timeoutMinutes:+timeoutMinutes,combinationCount:all.length,trials:candidates.map(make),events:[{at:now,action:'planned'}],demo:b.demo===true};
@@ -150,7 +172,7 @@ function verifyEvidence(e,t,run){
  if(times.some(x=>typeof x!=='string'||!Number.isFinite(Date.parse(x))||new Date(x).toISOString()!==x)||times.some((x,i)=>i&&Date.parse(x)<Date.parse(times[i-1])))throw Error('Source execution order could not be verified.');
  return true;
 }
-function trialPeriod(e,t){return t.period||{from:t.patch?.['execution.from']??fields(e.baseline,'execution')[1].value,to:t.patch?.['execution.to']??fields(e.baseline,'execution')[2].value};}
+function trialPeriod(e,t){return t.period||dateRange(t.patch?.['execution.period'])||{from:t.patch?.['execution.from']??fields(e.baseline,'execution')[1].value,to:t.patch?.['execution.to']??fields(e.baseline,'execution')[2].value};}
 function researchEnd(e,phase='validation'){
  const allowed=phase==='holdout'?['discovery','validation']:['discovery'];
  // Include interrupted attempts whose outcomes may already have been seen, but
@@ -201,7 +223,7 @@ function validatedSetupFields(e,t){
  // verify() compares values/checkboxes and labels; UI disabled flags are not
  // evidence. Actual execution still calls expected() and the full setup model.
  const b={parameters:clone(e.baseline.parameters)};
- for(const d of e.dimensions){const f=fields(b,d.stage),value=t.patch[d.key];if(d.indices){for(const i of d.indices)f[i].checked=String(i)===value;}else if(d.type==='boolean')f[d.index].checked=value;else f[d.index].value=String(value);}
+ for(const d of e.dimensions){const f=fields(b,d.stage),value=t.patch[d.key];if(d.key==='execution.period'){const period=dateRange(value);f[1].value=period.from;f[2].value=period.to;}else if(d.indices){for(const i of d.indices)f[i].checked=String(i)===value;}else if(d.type==='boolean')f[d.index].checked=value;else f[d.index].value=String(value);}
  if(t.period){fields(b,'execution')[1].value=t.period.from;fields(b,'execution')[2].value=t.period.to;}
  return b;
 }
@@ -217,7 +239,7 @@ function decisions(e,runs,phase='discovery'){
  const evidence=new Set();for(const x of items.filter(x=>x.eligible).sort((a,b)=>(e.objective==='drawdown'?a.value-b.value:b.value-a.value)||a.trial.ordinal-b.trial.ordinal)){const sig=signature([x.run.quickStats,x.run.statistics,x.run.trades]);if(evidence.has(sig)){x.eligible=false;x.reasons.push('Repeated report evidence.');}else evidence.add(sig);}
  const pending=e.trials.filter(t=>t.phase===phase&&!['saved','skipped'].includes(t.status)).length,scopes=new Map();
  for(const item of items){if(!item.item)continue;const controls=item.item.controls,key=signature(Object.fromEntries(Object.entries(controls).map(([name,value])=>[name,typeof value==='string'?V.clean(value).toLowerCase():value])));item.groupKey=key;if(!scopes.has(key))scopes.set(key,{key,controls,items:[]});scopes.get(key).items.push(item);}
- const scopeDimension=/^(?:execution\.(?:from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
+ const scopeDimension=/^(?:execution\.(?:period|from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
  // A partly finished mixed-scope plan must not name a universal leader just
  // because its first returned trials happen to share one set of controls.
  const grouped=scopes.size>1||phase==='discovery'&&e.dimensions.some(d=>scopeDimension.test(d.key)&&d.values.length>1);
@@ -244,6 +266,6 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
  const n=e.trials.length+1;e.trials.push({id:e.id+'-t'+n,runId:e.id+'-t'+n,ordinal:n,patch:clone(t.patch),status:'queued',phase,period:clone(period),parentTrialId:t.id,events:[]});e.status='paused';journal(e,'Frozen '+phase+' candidate: trial '+t.ordinal,now);return e;
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
-const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,clone};
+const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,clone};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);
