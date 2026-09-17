@@ -2,6 +2,7 @@
 
 ## 0.17.1 preview - 2026-09-17
 
+- Close RZone symbol lists through their native clear-search behavior; preserve existing input text and stop safely on failed or ambiguous selections.
 - Clear stale filter-loading state when leaving and returning to setup; preserve editable inputs and allow an explicit retry.
 - Display terminal source-read errors in RZone instead of leaving a permanent Reading status; add symbol-search timeouts.
 - Cover failed/late replies, navigation during discovery and retry recovery. Includes all 0.17.0 changes below; 0.17.0 download publication was held after the live loading-state report.

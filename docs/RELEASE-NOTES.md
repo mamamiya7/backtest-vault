@@ -4,6 +4,7 @@ One complete package for Windows and Linux. No Node.js, Python, Git, npm, admini
 
 ## Changes
 
+- Close native RZone symbol lists correctly after reading their choices.
 - Clear interrupted filter-loading states when returning to setup, show failed source reads, and bound symbol-search waits.
 
 - Radar's enable control is beside its rule dropdown.

@@ -686,15 +686,16 @@ function symbolOptions(template,stage,layout,index){
  return key?d.options?.[source[key]]||[]:[];
 }
 async function searchSymbols(p,index,query,{choose=false,sourceValue,market,expectedExchange,until=Infinity,restore=true}={}){
+ if(Date.now()+1000>=until)throw Error('RZone symbol search timed out before it could start. Refresh choices and try again.');
  const node=inputs(p)[index],marketNode=inputs(p)[index-1];
  if(node?.tagName!=='INPUT'||node.type!=='text'||node.placeholder!=='Search Symbol'||node.disabled||marketNode?.tagName!=='SELECT')throw Error('The benchmark symbol search is unavailable.');
  const selectedMarket=V.clean(marketNode.selectedOptions[0]?.textContent);if(market!==selectedMarket)throw Error('The benchmark market changed. Search again.');
  if(popups().some(menu=>menu!==p))throw Error('Close the open RZone menu before searching symbols.');
- const original=node.value,owned=new Set(),old=new Set(document.querySelectorAll('.popupContent'));let last='',stableAt=Date.now(),fresh=false;
+ const original=node.value,owned=new Set(),old=new Set(document.querySelectorAll('.popupContent'));let last='',stableAt=Date.now(),fresh=false,committed=false;
  const observer=new MutationObserver(records=>{for(const menu of popups())if(menu!==p&&menu.querySelector('.ind-list')&&records.some(r=>r.target===menu||menu.contains(r.target))){owned.add(menu);fresh=true;stableAt=Date.now();}});
  observer.observe(document.body,{childList:true,subtree:true,characterData:true});
  try{
-  node.focus();ownClick(node);ruleQuery(node,query);let choices,menu;const deadline=Math.min(Date.now()+10000,until);
+  node.focus();ownClick(node);ruleQuery(node,query);let choices,menu;const deadline=Math.min(Date.now()+10000,until-1000);
   while(Date.now()<deadline){
    check();if(inputs(p)[index]!==node||node.value!==query||V.clean(marketNode.selectedOptions[0]?.textContent)!==market)throw Error('The benchmark search changed while reading.');
    const menus=popups().filter(m=>m!==p);if(menus.some(m=>!m.querySelector('.ind-list'))||menus.length>1)throw Error('RZone opened an unexpected symbol dialog.');
@@ -711,13 +712,23 @@ async function searchSymbols(p,index,query,{choose=false,sourceValue,market,expe
    if(matches.length!==1)throw Error('The benchmark symbol is unavailable or ambiguous. Search for it again.');
    const target=matches[0].querySelector('.symbol-search-list');if(!target)throw Error('Cannot identify the symbol selection.');ownClick(target);await delay(150);
    if(node.value!==query)throw Error('RZone selected a different benchmark.');
+   committed=true;
   }
   return choices;
  }finally{
-  observer.disconnect();if(!interrupted&&node.isConnected){
-   if([...owned].some(m=>m.isConnected&&C.visible(m))){const outside=ruleOutside(p);outside.dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));outside.dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));ownClick(outside);await wait(()=>[...owned].every(m=>!m.isConnected||!C.visible(m)),Math.min(Date.now()+5000,until),'The symbol menu did not close.');}
-   if(!choose&&restore)Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,original);
+  observer.disconnect();if(!interrupted&&node.isConnected){try{
+   if([...owned].some(m=>m.isConnected&&C.visible(m))){
+    // The native symbol list does not dismiss on outside clicks. Clear only
+    // its transient query, then restore the displayed value without issuing
+    // another search. Escape can close the parent dialog and orphan the list.
+    if(!committed)ruleQuery(node,'');
+    const cleanupDeadline=Math.min(Date.now()+5000,until);
+    for(;;){check();if([...owned].every(m=>!m.isConnected||!C.visible(m)))break;if(Date.now()>=cleanupDeadline)throw Error('The symbol menu did not close.');await delay(100);}
+   }
+  }finally{if(!interrupted&&node.isConnected){
+   if(!committed&&restore)Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,original);
    node.blur();
+  }}
   }
  }
 }
