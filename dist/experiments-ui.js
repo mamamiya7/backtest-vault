@@ -56,7 +56,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  const clearCalendars=()=>{for(const calendar of calendars.splice(0))calendar.destroy();};
  const calendarOpen=()=>calendars.some(calendar=>calendar.button.getAttribute('aria-expanded')==='true');
  const attachCalendar=(container,fromInput,toInput,options={})=>{if(!root.VaultDateRange)return null;const calendar=root.VaultDateRange.attach({container,fromInput,toInput,...options});calendars.push(calendar);return calendar;};
- const keepSetup=()=>{if(!wizard||wizard.submitting)return;const {controls,countUpdates,fields,catalog,...draft}=wizard;setupDrafts.set(store,structuredClone({...draft,connecting:false,warmingChart:null,ruleLookup:null,reviewOpen:false,editorOpen:null,generation:draft.generation+1}));};
+ const keepSetup=()=>{if(!wizard||wizard.submitting)return;const {controls,countUpdates,fields,catalog,...draft}=wizard;if(wizard.connecting||wizard.ruleLookup)notice.textContent='';setupDrafts.set(store,structuredClone({...draft,connecting:false,warmingChart:null,loadingFilter:null,ruleLookup:null,reviewOpen:false,editorOpen:null,generation:draft.generation+1}));};
 
  const dispose=()=>{if(disposed)return;keepSetup();disposed=true;clearInterval(timer);clearCalendars();motion?.destroy();deletionDialog?.remove();deletionDialog=null;document.body.classList.remove('experiments-mode');};cleanup=dispose;
 
@@ -71,7 +71,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    const request=chrome.runtime.sendMessage({type:'vault-experiment',action,...data});
    // Bound the whole connection request, including time spent waiting for the
    // background queue. A late reply must not replace a newer setup or retry.
-   const r=['configure','lookup-rule'].includes(action)?await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error(action==='lookup-rule'?'RZone did not finish searching. Check its tab, then search again. No backtest was started.':'RZone did not finish connecting. Check its tab, close any open dialog, then retry the connection here. No backtest was started.')),70000);})]):await request;
+   const r=['configure','lookup-rule','lookup-symbol'].includes(action)?await Promise.race([request,new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error(action.startsWith('lookup-')?'RZone did not finish searching. Check its tab, then search again. No backtest was started.':'RZone did not finish connecting. Check its tab, close any open dialog, then retry the connection here. No backtest was started.')),70000);})]):await request;
    if(!r?.ok)throw Error(r?.error||'Extension disconnected.');return r;
   }finally{clearTimeout(timeout);}
 

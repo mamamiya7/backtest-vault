@@ -24,7 +24,7 @@ chrome.runtime.onMessage.addListener((message,sender,reply)=>{
  if(sender.id!==chrome.runtime.id)return;
  if(message?.type==='vault-runner-status')reply(sourceStatus());
  if(message?.type==='vault-runner-wake'){reply({ok:true});void tick();}
- if(message?.type==='vault-runner-config'){void configuration(message.changes,message).then(result=>reply({ok:true,session,...result}),error=>reply({ok:false,error:error.message}));return true;}
+ if(message?.type==='vault-runner-config'){void configuration(message.changes,message).then(result=>reply({ok:true,session,...result}),error=>{if(!active&&!configuring)C.status('Could not load settings: '+error.message);reply({ok:false,error:error.message});});return true;}
  if(message?.type==='vault-runner-rule-search'){void ruleLookup(message).then(result=>reply({ok:true,session,result}),error=>reply({ok:false,error:error.message}));return true;}
  if(message?.type==='vault-runner-symbol-search'){void symbolLookup(message).then(result=>reply({ok:true,session,result}),error=>reply({ok:false,error:error.message}));return true;}
 });
