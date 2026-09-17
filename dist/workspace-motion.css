@@ -1,0 +1,23 @@
+/* Quiet interaction feedback, using Vault's established colour and spacing tokens. */
+.experiment-hero.has-progress{display:grid;grid-template-columns:minmax(0,1fr) 132px;gap:24px;align-items:center}
+.experiment-hero-copy{min-width:0}
+.study-progress{text-align:center;color:#b5cddf;font-variant-numeric:tabular-nums}
+.study-progress-ring{position:relative;width:120px;height:120px;margin:auto}
+.study-progress-ring svg{width:100%;height:100%;transform:rotate(-90deg)}
+.study-progress-track{stroke:#38525d}.study-progress-value{stroke:#99ecd5;stroke-linecap:round}
+.study-progress[data-state="paused"] .study-progress-value,.study-progress[data-state="pausing"] .study-progress-value{stroke:#e8c47d}
+.study-progress[data-state="needs-review"] .study-progress-value{stroke:#f4b38a}
+.study-progress-count{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px}
+.study-progress-count strong{font-size:1.35rem;color:#ecf6ff}.study-progress-count span{font-size:.75rem}
+.study-progress>small{display:block;margin-top:8px}
+.study-recent-results{margin:24px 0;padding:20px;border:1px solid #354f67;border-radius:12px;background:#112030}
+.study-recent-results h3{font-size:.9rem;margin:0 0 12px}.study-recent-results ol{list-style:none;padding:0;margin:0;display:grid;gap:8px}
+.study-result-link{display:flex;align-items:center;justify-content:space-between;gap:18px;width:100%;text-align:left;white-space:normal;background:#162c3b;border:1px solid #2e4c5d;padding:12px 16px;border-radius:8px}
+.study-result-link>span:first-child{display:flex;align-items:baseline;gap:14px;min-width:0}.study-result-link strong{flex-shrink:0;font-size:.85rem;color:#a5eedb}
+.study-result-link span span{font-weight:400;color:#c4d5e3;overflow-wrap:anywhere}.study-result-action{flex-shrink:0;font-size:.75rem;color:#afc9df}
+.study-card{isolation:isolate;transition:border-color .18s ease,box-shadow .18s ease}
+.study-card:before{content:"";position:absolute;inset:0;z-index:-1;background:radial-gradient(260px circle at var(--spot-x,50%) var(--spot-y,50%),#69d8bc20,transparent 80%);opacity:0;transition:opacity .18s ease;pointer-events:none}
+.study-card:hover,.study-card:focus-within{border-color:#6ba99f;box-shadow:0 6px 20px #0002}.study-card:hover:before,.study-card:focus-within:before{opacity:1}
+.study-card .experiment-card:hover{background:transparent}
+@media(max-width:640px){.experiment-hero.has-progress{grid-template-columns:minmax(0,1fr) 92px;gap:12px}.study-progress-ring{width:88px;height:88px}.study-progress-count strong{font-size:1.05rem}.study-progress-count span{font-size:.7rem}.study-result-link{padding:12px;gap:8px}.study-result-link>span:first-child{display:grid;gap:4px}.study-result-action{font-size:.7rem}.study-recent-results{padding:16px}}
+@media(prefers-reduced-motion:reduce){.study-card,.study-card:before{transition:none}.study-card:before{background:#69d8bc0c}}

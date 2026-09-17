@@ -2,7 +2,7 @@
 
 ## New installation
 
-Download the complete **backtest-vault-0.12.0.zip** asset from [Releases](https://github.com/mamamiya7/backtest-vault/releases/latest), extract everything, and open the **BacktestVault** folder. Do not download only a setup script. Windows and Linux use the same ZIP.
+Download the complete **backtest-vault-0.13.0.zip** asset from [Releases](https://github.com/mamamiya7/backtest-vault/releases/latest), extract everything, and open the **BacktestVault** folder. Do not download only a setup script. Windows and Linux use the same ZIP.
 
 | System | Run | Default permanent extension folder |
 | --- | --- | --- |
@@ -66,7 +66,7 @@ The standalone viewer cannot directly read Chrome extension storage or connect t
 | Connect stays on Reading available settings | Version 0.8.1 bounds the request to 70 seconds while the page is active and displays a retry error beside Connect. RZone's Vault bar shows the reading stage or source error. After updating, reload the same extension and refresh both pages; preserve any pending report first. Retry only when the source is ready. Connecting never submits a backtest. |
 | Source dialog did not close | Version 0.8.3 brings RZone forward during connection and checks the actual dialog state after delayed timer callbacks. If the error remains, open RZone and let its settings dialog finish closing; close it manually if needed, then retry Connect in Vault. Preserve any existing report before closing it. |
 | A dropdown is missing a recently added rule | Use **Recheck all choices**, then choose the intended category. For strategy/exit **My / Public**, enter a keyword and click **Search**. No matches refers to that query; unavailable old selections need review. |
-| Dependent choices never finish loading in an older version | Update to v0.12.0, reload the existing extension and refresh RZone/Vault. My and Public use searchable fields, which older readers incorrectly expected to be dropdowns. |
+| Dependent choices never finish loading in an older version | Update to v0.13.0, reload the existing extension and refresh RZone/Vault. My and Public use searchable fields, which older readers incorrectly expected to be dropdowns. |
 | Group could not be confirmed | Recheck all choices and select a Group from the searchable dropdown. Execution still requires the same exact choice to exist in RZone. |
 | Group list did not load | Let RZone finish loading its Group search, close that menu, then retry Connect or Recheck all choices. Vault preserves your entries and does not run a test after a failed read. |
 | RZone settings changed while reading Group | Let the named control finish loading and retry Connect or Recheck all choices. Vault waits for initial controls to settle and stops if settings change during discovery. |

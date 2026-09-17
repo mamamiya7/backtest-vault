@@ -13,7 +13,7 @@ set "BV_OWNS_STAGE="
 set "BV_LOCKED="
 set "BV_KEEP_STAGE="
 set "BV_RESULT=1"
-set "BV_FILES=background.js capture.js core.js dashboard.js demo.js experiment-coordinator.js experiments-ui.js experiments.css experiments.js index.html intelligence-ui.js intelligence.js presentation.js runner.js setup.js source-layouts.js storage.js vault.css manifest.json"
+set "BV_FILES=background.js capture.js core.js dashboard.js date-range.js date-range.css workspace-motion.js workspace-motion.css demo.js experiment-coordinator.js experiments-ui.js experiments.css experiments.js index.html intelligence-ui.js intelligence.js presentation.js runner.js setup.js source-layouts.js storage.js vault.css manifest.json"
 
 :arguments
 if "%~1"=="" goto arguments_done

@@ -4,8 +4,9 @@ const root=path.resolve(__dirname,'..'),version=require('../package.json').versi
 const files=[
  'README.md','CONTRIBUTING.md','PRIVACY.md','SECURITY.md','CHANGELOG.md','LICENSE','.gitignore','package.json','package-lock.json',
  'dist/index.html','dist/vault.css','dist/dashboard.js','dist/core.js','dist/storage.js','dist/presentation.js','dist/demo.js','dist/intelligence.js','dist/intelligence-ui.js','dist/capture.js','dist/background.js','dist/manifest.json',
+ 'dist/date-range.js','dist/date-range.css','dist/workspace-motion.js','dist/workspace-motion.css','tests/test-date-range.cjs','tests/test-workspace-motion.cjs',
  'dist/source-layouts.js','dist/setup.js','dist/experiments.js','dist/experiment-coordinator.js','dist/runner.js','dist/experiments-ui.js','dist/experiments.css',
- 'tests/test-setup.cjs','tests/test-experiments.cjs','tests/test-experiments-ui.cjs','tests/test-runner.cjs','tests/test-choice-cache.cjs','docs/EXPERIMENTS.md','docs/images/10-experiments.png','docs/images/11-test-setup.png',
+ 'tests/test-setup.cjs','tests/test-experiments.cjs','tests/test-experiments-ui.cjs','tests/test-runner.cjs','tests/test-choice-cache.cjs','docs/EXPERIMENTS.md','docs/images/10-experiments.png','docs/images/11-test-setup.png','docs/images/12-date-range.png','docs/images/13-study-progress.png',
  'tests/test-vault.cjs','tests/test-dashboard.cjs','tests/test-presentation.cjs','tests/test-demo.cjs','tests/test-intelligence.cjs','tests/test-intelligence-ui.cjs',
  'scripts/serve.cjs','scripts/check.cjs','scripts/package-public.cjs','scripts/build-release.cjs','tests/test-install.cjs',
  'installer/Setup.cmd','installer/Update.cmd','installer/setup.sh','installer/update.sh','installer/START-HERE.html',

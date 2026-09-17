@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.13.0 preview - 2026-09-17
+
+- Add a functional date-range calendar with typed dates, month/year navigation, 1/3/5-year presets and Apply/Cancel. Separate From/To test values and all-combination checks remain.
+- Add circular progress driven only by saved trials; skipped and interrupted trials never count as saved.
+- Show the latest saved reports with one-time arrival motion and direct report links.
+- Add brief panel transitions and subtle study-card hover/focus feedback. Respect reduced-motion preferences; financial figures remain steady.
+- Include the controls in the complete Windows/Linux package, without additional runtimes or services.
+
 ## 0.12.0 preview - 2026-09-17
 
 - Add Delete study from the experiment list and study detail, with a named confirmation and Cancel focused by default.

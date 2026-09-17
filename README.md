@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.12.0 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.13.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -58,6 +58,23 @@ flowchart LR
 ```
 
 **Example:** two start dates × two allocation methods × two capital amounts = **8 tests**. Add dates with calendar inputs, select offered menu values, or use numeric From / To / Step ranges. The review checks every date combination before any test starts.
+
+**Choose dates** opens a calendar with typed dates, month/year jumps and 1/3/5-year presets. Apply commits the range; Cancel leaves it unchanged. Existing **Test values** still controls date variations.
+
+```mermaid
+flowchart LR
+    A[Choose dates] --> B[Select or type a range]
+    B --> C[Apply]
+    C --> D[Review and run]
+    D --> E[Saved results update progress]
+    E --> F[Open report or compare]
+```
+
+The study page shows a circular saved-trial count and the latest saved reports. Brief transitions and subtle card feedback respect reduced-motion preferences; financial numbers stay steady.
+
+![Date range selection with typed dates and calendar highlights](docs/images/12-date-range.png)
+
+![Completed fictional study with saved-result progress and report links](docs/images/13-study-progress.png)
 
 Keep RZone open during execution and leave its settings alone until the batch finishes. **Use a saved run** remains available in Experiments for an existing research baseline.
 
@@ -181,7 +198,7 @@ Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, not
 
 ## Install the extension
 
-**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.12.0.zip** asset; do not download a setup script by itself.
+**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.13.0.zip** asset; do not download a setup script by itself.
 
 ```mermaid
 flowchart LR

@@ -1,5 +1,11 @@
 # Experiments and decision intelligence
 
+## Dates and progress
+
+Use **Choose dates** beneath From/To to open the calendar. Select a start and end, jump to a month/year, or choose 1/3/5 years ending on the current end date. Apply commits the pair; Cancel or Escape leaves the form unchanged. Typed dates still work. The independent **Test values** menus continue to vary From and To; every resulting pair must be valid. Validation and holdout calendars respect the unseen-period boundary.
+
+The progress ring counts saved trials only. A complete stage can have fewer saved results than planned if trials were skipped. The latest-results list links to actual saved reports; old results do not replay arrival animations on each refresh. Reduced-motion preferences are respected, and return/CAGR/drawdown figures never count up.
+
 ## Remove an old study
 
 In **Experiments**, choose **Delete** beside a study, or open it and choose **Delete study**. The confirmation names the study. Cancel leaves it unchanged; Delete removes the study and its trial plan/history while keeping every saved run in the library. Export the study first to keep a copy of its plan. Deletion has no undo.

@@ -1,0 +1,18 @@
+const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{JSDOM}=require('jsdom');
+const dom=new JSDOM('<main></main>',{runScripts:'outside-only'}),w=dom.window,d=w.document,animations=[];let mediaChange;
+const media={matches:false,addEventListener:(name,fn)=>mediaChange=fn,removeEventListener:()=>{}};w.matchMedia=()=>media;
+w.Element.prototype.animate=function(frames,options){const a={element:this,frames,options,cancel(){this.cancelled=true;this.oncancel?.();}};animations.push(a);return a;};
+w.eval(fs.readFileSync(path.join(__dirname,'../dist/workspace-motion.js'),'utf8'));
+const scope=d.querySelector('main'),ui=w.VaultWorkspaceMotion.create(scope),e={id:'one',status:'running',trials:[{id:'a',ordinal:1,status:'saved',runId:'r1'},{id:'b',ordinal:2,status:'capturing'},{id:'c',ordinal:3,status:'queued'}]},runs=[{id:'r1',name:'First result'}];
+ui.observe([e]);let opened;
+scope.append(ui.progress(e,false),ui.results(e,runs,r=>opened=r));
+assert.equal(scope.querySelector('[role=progressbar]').getAttribute('aria-valuenow'),'1');assert.equal(animations.length,0,'Existing results do not replay on load');
+scope.querySelector('.study-result-link').click();assert.equal(opened,runs[0]);
+e.trials[1].status='uncertain';e.status='needs-review';const interrupted=ui.progress(e,false);assert.equal(interrupted.dataset.state,'needs-review');assert.equal(interrupted.querySelector('[role=progressbar]').getAttribute('aria-valuenow'),'1','Interrupted work is not saved progress');assert.equal(animations.length,0);
+e.trials[1].status='saved';e.trials[1].runId='r2';runs.push({id:'r2',name:'<img src=x>'});ui.observe([e]);ui.progress(e,false);const feed=ui.results(e,runs,()=>{});assert.equal(animations.length,2,'Only actual count change and new saved row animate');assert.equal(feed.querySelector('img'),null);assert.equal(feed.querySelector('li').dataset.trialId,'b');
+ui.observe([e]);ui.progress(e,false);ui.results(e,runs,()=>{});assert.equal(animations.length,2,'Unchanged polling does not replay animations');
+e.trials[0].events=[{status:'saved',at:'2026-09-17T10:02:00Z'}];e.trials[1].events=[{status:'saved',at:'2026-09-17T10:01:00Z'}];assert.equal(ui.results(e,runs,()=>{}).querySelector('li').dataset.trialId,'a','Adaptive runs use completion order, not trial number');
+e.trials[2].status='skipped';e.status='complete';const complete=ui.progress(e,false);assert.match(complete.textContent,/2 \/ 3/);assert.match(complete.textContent,/1 skipped/);assert.equal(complete.querySelector('[role=progressbar]').getAttribute('aria-valuenow'),'2','Completion does not round skipped trials up to saved');
+ui.enter(scope,'detail');ui.enter(scope,'detail');assert.equal(animations.length,3,'Only navigation animates panels');
+media.matches=true;mediaChange();assert.ok(animations.every(a=>a.cancelled),'Live reduced-motion preference cancels active motion');ui.enter(scope,'list');e.trials[2].status='saved';e.trials[2].runId='r3';runs.push({id:'r3'});ui.observe([e]);ui.progress(e,false);ui.results(e,runs,()=>{});assert.equal(animations.length,3,'Reduced motion updates immediately');
+ui.destroy();dom.window.close();console.log('PASS: durable progress, interrupted/skipped states, saved-result deduplication, safe report links, route-only motion and reduced motion.');
