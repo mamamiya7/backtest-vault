@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.12.0 preview - 2026-09-17
+
+- Add Delete study from the experiment list and study detail, with a named confirmation and Cancel focused by default.
+- Retain saved runs when deleting a study. Recheck current execution state and serialize deletion with the runner to protect active work.
+- Remove demo shortcuts from the everyday header and empty state. Keep the explicit fictional preview route isolated for development and documentation.
+- Preserve the complete Windows/Linux install and update package; execution adapters and chart acceptance scope are unchanged.
+
 ## 0.11.0 preview - 2026-09-17
 
 - Complete Windows/Linux ZIP with dependency-free setup/update helpers and an offline start guide.

@@ -57,9 +57,27 @@ const tick=()=>new Promise(r=>setTimeout(r,20)),clickText=text=>[...d.querySelec
  await d.getElementById('import').onchange({target:{files:[{text:async()=>{throw Error('Demo import was read');}}],value:'test'}});assert.equal(durableCalls,0);
  d.getElementById('search').value='nothing';d.getElementById('search').dispatchEvent(new w.Event('input'));assert.equal(d.getElementById('summary').disabled,true);
  d.getElementById('reset-demo').click();await tick();assert.equal((await w.VaultStore.all())[0].name,'Momentum core');assert.equal(d.getElementById('compare').disabled,true);assert.equal(d.getElementById('search').value,'');assert.equal(d.querySelectorAll('.run').length,6);
+ // Removing sample studies stays isolated, preserves saved samples, and checks
+ // the latest stored state rather than a previously opened confirmation.
+ w.VaultExperiments=Experiments;
+ await w.VaultStore.putExperiment(plan);await w.VaultStore.putExperiment(varied);await w.VaultStore.put(sample);
+ await w.VaultStore.putTablePreferences({columns:['rank','returns']});
+ const savedSamples=JSON.stringify(await w.VaultStore.all()),savedBenchmarks=JSON.stringify(await w.VaultStore.allBenchmarks()),savedPreferences=JSON.stringify(await w.VaultStore.getTablePreferences());
+ assert.equal(await w.VaultStore.removeExperiment(plan.id),true);assert.deepEqual(JSON.parse(JSON.stringify(await w.VaultStore.allExperiments())).map(e=>e.id),[varied.id]);
+ assert.equal(JSON.stringify(await w.VaultStore.all()),savedSamples);assert.equal(JSON.stringify(await w.VaultStore.allBenchmarks()),savedBenchmarks);assert.equal(JSON.stringify(await w.VaultStore.getTablePreferences()),savedPreferences);
+ assert.equal(await w.VaultStore.removeExperiment(plan.id),false);
+ const stale=(await w.VaultStore.allExperiments())[0],running=JSON.parse(JSON.stringify(stale));running.status='running';await w.VaultStore.putExperiment(running);
+ await assert.rejects(w.VaultStore.removeExperiment(stale.id),/Stop this study/);assert.equal((await w.VaultStore.allExperiments())[0].status,'running');assert.equal(durableCalls,0);
+ await w.VaultStore.reset();assert.equal((await w.VaultStore.allExperiments()).length,0);
  // The same page at a normal URL must still select durable Chrome storage.
  const local=new JSDOM('',{runScripts:'outside-only',url:'http://localhost/'});let reads=0;
  local.window.chrome={storage:{local:{get:async()=>{reads++;return {'run:private':{id:'private'}};},set:async()=>{}}}};
- local.window.eval(fs.readFileSync(path.join(base,'storage.js'),'utf8'));assert.equal((await local.window.VaultStore.all())[0].id,'private');assert.equal(reads,1);local.window.close();
- console.log('PASS: fictional demo schemas, complete settings, storage isolation, selected exports, hidden selection feedback, keyboard tabs, temporary notes, import guard, and demo reset.');
+ local.window.eval(fs.readFileSync(path.join(base,'storage.js'),'utf8'));assert.equal((await local.window.VaultStore.all())[0].id,'private');assert.equal(reads,1);
+ await assert.rejects(local.window.VaultStore.removeExperiment(plan.id),/Reopen the installed Vault/);
+ const commands=[];let deletionReply={ok:true,deleted:true};
+ local.window.chrome.runtime={sendMessage:async message=>{commands.push(JSON.parse(JSON.stringify(message)));return deletionReply;}};
+ assert.equal(await local.window.VaultStore.removeExperiment(plan.id),true);assert.deepEqual(commands,[{type:'vault-experiment',action:'delete',id:plan.id}]);assert.equal(reads,1,'Extension deletion must use the serialized coordinator, not a storage read/remove race');
+ deletionReply={ok:false,error:'Stop this study first.'};await assert.rejects(local.window.VaultStore.removeExperiment(plan.id),/Stop this study first/);
+ deletionReply=null;await assert.rejects(local.window.VaultStore.removeExperiment(plan.id),/could not be deleted/);await assert.rejects(local.window.VaultStore.removeExperiment('../bad'),/Invalid study/);local.window.close();
+ console.log('PASS: fictional demo schemas, complete settings, storage isolation, selected exports, hidden selection feedback, keyboard tabs, temporary notes, import guard, demo reset and study deletion preserving sample results.');
  }finally{w.close();}})().catch(e=>{console.error(e);process.exitCode=1;});

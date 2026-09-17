@@ -13,6 +13,12 @@ const fields=(b,s)=>s==='portfolio'?b.parameters?.settings?.fields:b.parameters?
 const stageSnapshot=(b,s)=>({fields:fields(b,s)});
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const active=['applying','strategy-submitting','strategy-complete','portfolio-submitting','capturing'];
+function deletionReason(e){
+ if(!e)return 'Study not found.';
+ if(['running','pausing'].includes(e.status)||e.trials?.some(t=>active.includes(t.status)))return 'Stop this study and wait for its current test to finish before deleting it.';
+ if(e.owner&&(e.status==='needs-review'||e.trials?.some(t=>t.status==='uncertain')))return 'Review this study\'s interrupted test before deleting it.';
+ return '';
+}
 function baseline(run){
  V.validate(run);
  if(run.provenance!=='recorded-at-submit')throw Error('Choose a run with both submissions recorded.');
@@ -238,6 +244,6 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
  const n=e.trials.length+1;e.trials.push({id:e.id+'-t'+n,runId:e.id+'-t'+n,ordinal:n,patch:clone(t.patch),status:'queued',phase,period:clone(period),parentTrialId:t.id,events:[]});e.status='paused';journal(e,'Frozen '+phase+' candidate: trial '+t.ordinal,now);return e;
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
-const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,active,clone};
+const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,clone};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);

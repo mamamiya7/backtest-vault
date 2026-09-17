@@ -7,6 +7,78 @@ function app(demo=true){const dom=new JSDOM(fs.readFileSync(path.join(base,'inde
  const click=text=>{const b=[...d.querySelectorAll('button')].find(b=>b.textContent===text);assert.ok(b,'Button '+text);b.click();};return {dom,w,d,memory,downloads,click,durable:()=>durable};
 }
 const tick=(n=40)=>new Promise(r=>setTimeout(r,n));
+async function studyDeletionTests(){
+ const a=app(),{w,d}=a;await tick();const E=w.VaultExperiments,store=w.VaultStore;
+ const make=(id,name)=>E.create({id,name,baseline:E.baseline(w.VaultDemo.create()[0]),dimensions:[{key:'momentum.period.1',values:'180'}]});
+ try{
+  const first=make('delete-first','Old study <img src=x>'),other=make('delete-other','Keep this study');await store.putExperiment(first);await store.putExperiment(other);
+  const before=JSON.stringify(await store.all());a.click('Experiments');await tick();
+  const trigger=d.querySelector('[data-delete-study="delete-first"]');trigger.click();let dialog=d.querySelector('.study-delete-dialog');assert.ok(dialog.hasAttribute('open'));assert.match(dialog.textContent,/Saved backtest runs stay in your library/);assert.equal(dialog.querySelector('img'),null,'Study names are rendered as text');assert.equal(d.activeElement.textContent,'Cancel','Cancel gets initial focus');
+  a.click('Cancel');assert.equal(d.querySelector('.study-delete-dialog'),null);assert.equal(d.activeElement,trigger);assert.equal((await store.allExperiments()).length,2);
+  trigger.click();dialog=d.querySelector('.study-delete-dialog');dialog.dispatchEvent(new w.Event('cancel',{cancelable:true}));assert.equal(d.querySelector('.study-delete-dialog'),null);assert.equal(d.activeElement,trigger,'Escape restores the invoking control');
+  trigger.click();const original=store.removeExperiment;store.removeExperiment=async()=>{throw Error('Storage is unavailable');};a.click('Delete study');await tick();assert.match(d.querySelector('.study-delete-dialog [role=alert]').textContent,/Storage is unavailable/);assert.equal((await store.allExperiments()).length,2);assert.equal(d.activeElement.textContent,'Cancel');a.click('Cancel');store.removeExperiment=original;
+  trigger.click();first.status='running';await store.putExperiment(first);a.click('Delete study');await tick();assert.ok(d.querySelector('.study-delete-dialog'),'A study started in another view cannot be deleted');assert.equal((await store.allExperiments()).length,2);a.click('Cancel');
+  a.click('Experiments');await tick();d.querySelector('[data-delete-study="delete-first"]').click();assert.equal(d.querySelector('.study-delete-confirm').disabled,true,'Active plans explain why deletion is unavailable');assert.match(d.querySelector('.study-delete-dialog [role=alert]').textContent,/stop|running/i);a.click('Cancel');first.status='draft';await store.putExperiment(first);
+  a.click('Experiments');await tick();d.querySelector('[data-delete-study="delete-first"]').click();a.click('Delete study');await tick();assert.equal(d.querySelector('.study-delete-dialog'),null);assert.equal((await store.allExperiments()).length,1);assert.equal((await store.allExperiments())[0].id,other.id);assert.equal(JSON.stringify(await store.all()),before);assert.match(d.querySelector('.experiment-workspace>.notice').textContent,/Study deleted/);assert.equal(d.activeElement.tagName,'H2');
+  d.querySelector('.experiment-card').click();assert.ok(d.querySelector('.experiment-actions [data-delete-study]'),'Detail view also exposes Delete study');d.querySelector('.experiment-actions [data-delete-study]').click();d.querySelector('.study-delete-confirm').click();await tick();assert.equal((await store.allExperiments()).length,0);assert.ok(d.querySelector('.experiment-empty'));assert.equal(JSON.stringify(await store.all()),before);assert.equal(a.durable(),0);
+ }finally{w.VaultExperimentsUI.dispose();a.dom.window.close();}
+ // The installed UI sends only a guarded coordinator command, never a direct delete.
+ const dom=new JSDOM('<main></main>',{runScripts:'outside-only',url:'chrome-extension://test-extension/index.html'}),x=dom.window,doc=x.document;x.structuredClone=structuredClone;
+ for(const file of ['core.js','presentation.js','intelligence.js','demo.js','source-layouts.js','setup.js','experiments.js','experiments-ui.js'])x.eval(fs.readFileSync(path.join(base,file),'utf8'));
+ let plans=[x.VaultExperiments.create({id:'real-study',name:'Study',baseline:x.VaultExperiments.baseline(x.VaultDemo.create()[0]),dimensions:[{key:'momentum.period.1',values:'180'}]})],commands=[];
+ x.chrome={runtime:{sendMessage:async message=>{commands.push(message);if(message.action==='list')return {ok:true,experiments:structuredClone(plans),tabs:[]};assert.equal(message.action,'delete');assert.equal(message.id,'real-study');plans=[];return {ok:true};}}};
+ try{await x.VaultExperimentsUI.render({target:doc.querySelector('main'),store:{demo:false,all:async()=>[],allBenchmarks:async()=>[],removeExperiment:()=>{throw Error('Bypassed coordinator');}},runs:[],onOpen:()=>{},onExit:()=>{},table:()=>doc.createElement('table'),download:()=>{}});doc.querySelector('[data-delete-study]').click();doc.querySelector('.study-delete-confirm').click();await tick();assert.deepEqual(commands.map(c=>c.action),['list','delete']);assert.ok(doc.querySelector('.experiment-empty'));}finally{x.VaultExperimentsUI.dispose();dom.window.close();}
+}
+async function studyRefreshTests(){
+ const dom=new JSDOM('<main></main><button id="outside">Outside the study</button>',{runScripts:'outside-only',url:'chrome-extension://test-extension/index.html'}),w=dom.window,d=w.document;let poll,listReads=0;
+ w.structuredClone=structuredClone;w.setInterval=fn=>{poll=fn;return 1;};w.clearInterval=()=>{};
+ for(const file of ['core.js','presentation.js','intelligence.js','demo.js','source-layouts.js','setup.js','experiments.js','experiments-ui.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
+ const E=w.VaultExperiments,baseline=E.baseline(w.VaultDemo.create()[0]);baseline.demo=false;
+ const plan=E.create({id:'refresh-study',name:'Study with fresh state',baseline,dimensions:[{key:'momentum.period.1',values:'180'}]});plan.status='running';let plans=[plan];
+ w.chrome={runtime:{sendMessage:async message=>{assert.equal(message.action,'list','State refresh and confirmation never delete automatically');listReads++;return {ok:true,experiments:structuredClone(plans),tabs:[]};}}};
+ const outside=d.querySelector('#outside'),cancel=()=>[...d.querySelectorAll('.study-delete-dialog button')].find(b=>b.textContent==='Cancel').click();
+ const finish=()=>{plan.status='complete';plan.trials[0].status='skipped';E.journal(plan,'Stage complete');};
+ try{
+  await w.VaultExperimentsUI.render({target:d.querySelector('main'),store:{demo:false,all:async()=>[],allBenchmarks:async()=>[]},runs:[],onOpen:()=>{},onExit:()=>{},table:()=>d.createElement('table'),download:()=>{}});
+  const firstCard=d.querySelector('.experiment-card'),firstTrigger=d.querySelector('[data-delete-study]');firstTrigger.focus();finish();await poll();
+  assert.equal(d.activeElement,firstTrigger);assert.equal(d.querySelector('.experiment-card'),firstCard,'Polling preserves a focused list control');assert.match(firstCard.querySelector('small').textContent,/Running/);
+  firstTrigger.click();assert.equal(d.querySelector('.study-delete-confirm').disabled,false,'An old list control confirms the latest completed study rather than its captured running state');
+  const readsBeforeDialog=listReads;await poll();assert.equal(listReads,readsBeforeDialog,'Polling does not disturb an open confirmation');cancel();assert.equal(d.activeElement,firstTrigger);
+  outside.focus();await poll();assert.equal(d.activeElement,outside);assert.notEqual(d.querySelector('.experiment-card'),firstCard);assert.match(d.querySelector('.experiment-card small').textContent,/Complete/,'A deferred list update is painted after focus leaves, even without another revision');
+  const freshCard=d.querySelector('.experiment-card');await poll();assert.equal(d.querySelector('.experiment-card'),freshCard,'Unchanged state does not rebuild the list');
+  plan.status='running';plan.trials[0].status='queued';E.journal(plan,'Started');await poll();d.querySelector('.experiment-card').click();
+  const firstHero=d.querySelector('.experiment-hero'),detailTrigger=d.querySelector('.experiment-actions [data-delete-study]');detailTrigger.focus();finish();await poll();
+  assert.equal(d.activeElement,detailTrigger);assert.equal(d.querySelector('.experiment-hero'),firstHero,'Polling preserves a focused detail control');assert.match(firstHero.querySelector('.eyebrow').textContent,/RUNNING/);
+  detailTrigger.click();assert.equal(d.querySelector('.study-delete-confirm').disabled,false,'An old detail control also reads the latest completed study');cancel();assert.equal(d.activeElement,detailTrigger);
+  outside.focus();await poll();assert.equal(d.activeElement,outside);assert.notEqual(d.querySelector('.experiment-hero'),firstHero);assert.match(d.querySelector('.experiment-hero .eyebrow').textContent,/COMPLETE/,'A deferred detail update survives further unchanged polls');
+  const freshHero=d.querySelector('.experiment-hero');await poll();assert.equal(d.querySelector('.experiment-hero'),freshHero,'Unchanged detail state is not repainted');
+  const deletedTrigger=d.querySelector('.experiment-actions [data-delete-study]');deletedTrigger.focus();plans=[];await poll();assert.equal(d.activeElement,deletedTrigger);assert.ok(d.querySelector('.experiment-hero'));
+  outside.focus();await poll();assert.equal(d.querySelector('.experiment-hero'),null);assert.ok(d.querySelector('.experiment-empty'),'Deletion in another view is applied after focus leaves the old detail');assert.equal(d.activeElement,outside);
+ }finally{w.VaultExperimentsUI.dispose();dom.window.close();}
+}
+async function studyDeletePendingPollTests(){
+ for(const delayedRead of ['list','runs']){
+  const dom=new JSDOM('<main></main><button id="outside">Outside the study</button>',{runScripts:'outside-only',url:'chrome-extension://test-extension/index.html'}),w=dom.window,d=w.document;let poll,hold=false,release,deletes=0;
+  w.structuredClone=structuredClone;w.setInterval=fn=>{poll=fn;return 1;};w.clearInterval=()=>{};
+  for(const file of ['core.js','presentation.js','intelligence.js','demo.js','source-layouts.js','setup.js','experiments.js','experiments-ui.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
+  const baseline=w.VaultExperiments.baseline(w.VaultDemo.create()[0]);baseline.demo=false;
+  const plan=w.VaultExperiments.create({id:'pending-poll',name:'Study deleted during a poll',baseline,dimensions:[{key:'momentum.period.1',values:'180'}]});let plans=[plan];
+  const defer=value=>new Promise(resolve=>{release=()=>{hold=false;resolve(value);};});
+  w.chrome={runtime:{sendMessage:async message=>{
+   if(message.action==='list'){const snapshot={ok:true,experiments:structuredClone(plans),tabs:[]};return hold&&delayedRead==='list'?defer(snapshot):snapshot;}
+   assert.equal(message.action,'delete');assert.equal(message.id,plan.id);deletes++;plans=[];return {ok:true,deleted:true};
+  }}};
+  const store={demo:false,all:async()=>hold&&delayedRead==='runs'?defer([]):[],allBenchmarks:async()=>[]};
+  try{
+   await w.VaultExperimentsUI.render({target:d.querySelector('main'),store,runs:[],onOpen:()=>{},onExit:()=>{},table:()=>d.createElement('table'),download:()=>{}});
+   hold=true;const pendingPoll=poll();await tick();assert.equal(typeof release,'function','The '+delayedRead+' response is still in flight before confirmation');
+   d.querySelector('[data-delete-study]').click();await d.querySelector('.study-delete-confirm').onclick();assert.equal(deletes,1);assert.equal(plans.length,0);assert.ok(d.querySelector('.experiment-empty'));
+   d.querySelector('#outside').focus();release();await pendingPoll;
+   assert.equal(d.querySelector('[data-delete-study]'),null,'A '+delayedRead+' response begun before confirmation cannot bring a deleted study back');assert.ok(d.querySelector('.experiment-empty'));assert.match(d.querySelector('.experiment-workspace>.notice').textContent,/Study deleted/);
+   await poll();assert.equal(d.querySelector('[data-delete-study]'),null);assert.equal(deletes,1,'Discarding a late response cannot retry deletion');
+  }finally{w.VaultExperimentsUI.dispose();dom.window.close();}
+ }
+}
 async function sourceWorkbenchTests(){
  const dom=new JSDOM('<main></main>',{runScripts:'outside-only',url:'chrome-extension://test-extension/index.html'}),w=dom.window,d=w.document;w.structuredClone=structuredClone;let poll;
  w.setInterval=fn=>{poll=fn;return 1;};w.clearInterval=()=>{};
@@ -326,7 +398,7 @@ async function viewerClarityTests(){
  }
  finally{w.VaultExperimentsUI.dispose();dom.window.close();}
 }
-(async()=>{await sourceWorkbenchTests();await chartChoicesTests();await demoChartChoicesTests();await chartSharedDraftTests();await booleanSelectorTests();await connectionDeadlineTests();await sourcePickerTests();await groupCatalogueTests();await strategyCatalogueTests();await searchRuleTests();await searchRuleTests('execution');await inlineExecutionAndRadarTests();await lowerSettingsVariationTests();await conditionGroupTests();await settingsOnlyResultTests();await viewerClarityTests();const a=app();let real;try{await tick();assert.match(a.d.querySelector('#detail').textContent,/Plan → Run → Decide/);assert.match(a.d.querySelector('.experiment-environment').textContent,/Sample workspace.*no RZone backtests run/);a.click('Use a saved run');
+(async()=>{await studyDeletionTests();await studyRefreshTests();await studyDeletePendingPollTests();await sourceWorkbenchTests();await chartChoicesTests();await demoChartChoicesTests();await chartSharedDraftTests();await booleanSelectorTests();await connectionDeadlineTests();await sourcePickerTests();await groupCatalogueTests();await strategyCatalogueTests();await searchRuleTests();await searchRuleTests('execution');await inlineExecutionAndRadarTests();await lowerSettingsVariationTests();await conditionGroupTests();await settingsOnlyResultTests();await viewerClarityTests();const a=app();let real;try{await tick();assert.match(a.d.querySelector('#detail').textContent,/Plan → Run → Decide/);assert.match(a.d.querySelector('.experiment-environment').textContent,/Sample workspace.*no RZone backtests run/);a.click('Use a saved run');
  const values=a.d.querySelector('.experiment-dimension input');values.value='126,180,252';values.dispatchEvent(new a.w.Event('input'));assert.match(a.d.querySelector('.experiment-preview').textContent,/3 planned runs/);
  a.d.querySelector('form').dispatchEvent(new a.w.Event('submit',{bubbles:true,cancelable:true}));await tick();assert.equal((await a.w.VaultStore.allExperiments()).length,1);assert.match(a.d.querySelector('.experiment-hero').textContent,/SAMPLE DATA.*No RZone backtests were submitted/);assert.ok(![...a.d.querySelectorAll('button')].some(b=>b.textContent==='Start experiment'));a.click('Generate sample results');await tick(650);a.click('Stop sample generation');await tick(1000);
  let e=(await a.w.VaultStore.allExperiments())[0];assert.equal(e.status,'paused');assert.ok(e.trials.some(t=>t.status==='saved'));a.click('Generate sample results');await tick(1600);e=(await a.w.VaultStore.allExperiments())[0];assert.equal(e.status,'complete');assert.equal(e.trials.filter(t=>t.status==='saved').length,3);assert.match(a.d.querySelector('.experiment-evidence').textContent,/Trial/);assert.equal(a.d.querySelector('.experiment-hero h3').textContent,'Sample results ready');assert.equal(a.d.querySelector('.experiment-evidence h3').textContent,'Sample ranking');assert.match(a.d.querySelector('.experiment-hero').textContent,/3 \/ 3 sample results/);assert.equal(a.durable(),0);

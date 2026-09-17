@@ -106,6 +106,57 @@ async function coordinatorTests(){
  memory['runner:lease']=null;c=make();assert.equal((await call('claim',{id:live.id,session:'session-1'},source)).trial,null);assert.equal(memory['experiment:'+live.id].status,'needs-review');assert.equal(memory['experiment:'+live.id].trials.find(t=>t.id===orphan.trial.id).status,'uncertain');assert.equal(memory['experiment:'+live.id].trials.filter(t=>E.active.includes(t.status)).length,0);
 }
 
+async function deletionTests(){
+ const memory={},runtime={id:'delete-extension',getURL:p=>'chrome-extension://delete-extension/'+p};let time=100000,ids=0;
+ const storage={get:async key=>clone(key?{[key]:memory[key]??null}:memory),set:async data=>Object.assign(memory,clone(data)),remove:async key=>{delete memory[key];}};
+ const c=createCoordinator({storage,runtime,clock:()=>time,uuid:()=> 'delete-study-'+(++ids)});
+ const dashboard={id:runtime.id,url:runtime.getURL('index.html')},source={id:runtime.id,url:'https://zone.definedgesecurities.com/index.html#research',tab:{id:7}};
+ const real=clone(b);real.demo=false;
+ const call=(action,data={},sender=dashboard)=>c.handle({action,...data},sender),create=async()=> (await call('create',{plan:{...config,baseline:real}})).experiment;
+ const draft=await create(),other=await create();
+ memory['run:'+draft.trials[0].runId]={id:draft.trials[0].runId,experiment:{id:draft.id},note:'Saved research stays in the library'};
+ memory['benchmark:reference']={id:'reference',values:[100,110]};memory['ui:strategy-table:v1']={order:['rank','returns']};
+ const retained=clone(memory);delete retained['experiment:'+draft.id];
+ await assert.rejects(call('delete',{id:draft.id},source),/Only Vault/);
+ await assert.rejects(call('delete',{id:draft.id},{...dashboard,id:'another-extension'}),/cannot control/);
+ await assert.rejects(call('delete',{id:'../bad'}),/Invalid study/);
+ assert.equal((await call('delete',{id:draft.id})).deleted,true);assert.deepEqual(memory,retained,'Delete only the requested study, never its saved runs or other records');
+ assert.equal((await call('delete',{id:draft.id})).deleted,false,'A repeated confirmed deletion is harmless');
+ assert.equal(E.deletionReason(undefined),'Study not found.');
+ for(const status of ['draft','complete','paused','needs-review']){const safe=clone(other);safe.status=status;safe.trials[0].status='uncertain';assert.equal(E.deletionReason(safe),'','An unowned interrupted archive may be deleted');}
+ for(const status of ['running','pausing'])assert.match(E.deletionReason({...other,status}),/Stop this study/);
+ for(const status of E.active){const active=clone(other);active.status='paused';active.trials[0].status=status;assert.match(E.deletionReason(active),/Stop this study/);memory['experiment:'+other.id]=active;await assert.rejects(call('delete',{id:other.id}),/Stop this study/);}
+ memory['experiment:'+other.id]=clone(other);
+ await call('hello',{session:'session-1',ready:true,chart:'Candle'},source);
+ // Both orders use the same serialized queue; deletion cannot overtake start.
+ const first=await create(),deleteFirst=await Promise.allSettled([call('delete',{id:first.id}),call('start',{id:first.id,tabId:7})]);
+ assert.equal(deleteFirst[0].status,'fulfilled');assert.equal(deleteFirst[1].status,'rejected');assert.match(deleteFirst[1].reason.message,/not found/);assert.equal(memory['experiment:'+first.id],undefined);
+ const second=await create(),startFirst=await Promise.allSettled([call('start',{id:second.id,tabId:7}),call('delete',{id:second.id})]);
+ assert.equal(startFirst[0].status,'fulfilled');assert.equal(startFirst[1].status,'rejected');assert.match(startFirst[1].reason.message,/Stop this study/);
+ await call('pause',{id:second.id});assert.equal(memory['experiment:'+second.id].owner,undefined,'An immediate pause releases source ownership');await call('delete',{id:second.id});
+ const oldPaused=await create();Object.assign(memory['experiment:'+oldPaused.id],{status:'paused',owner:{tabId:7,session:'session-1'}});await call('delete',{id:oldPaused.id});assert.equal(memory['experiment:'+oldPaused.id],undefined,'Legacy immediate pauses may retain harmless metadata without an active trial or lease');
+ const live=await create();await call('start',{id:live.id,tabId:7});
+ const claimed=await call('claim',{id:live.id,session:'session-1'},source),args={id:live.id,session:'session-1',token:claimed.token,trialId:claimed.trial.id};
+ await assert.rejects(call('delete',{id:live.id}),/Stop this study/);
+ // Other inactive studies can be removed without disturbing the running lease.
+ const lease=clone(memory['runner:lease']);await call('delete',{id:other.id});assert.deepEqual(memory['runner:lease'],lease);
+ time+=90001;await assert.rejects(call('delete',{id:live.id}),/Review this study/);
+ assert.equal(memory['experiment:'+live.id].status,'needs-review');assert.equal(memory['experiment:'+live.id].trials[0].status,'uncertain');assert.deepEqual(memory['runner:lease'],lease,'Expiry cannot silently release an unreviewed submission');
+ await assert.rejects(call('checkpoint',{...args,stage:'strategy-submitting'},source),/expired/);
+ await call('skip',{id:live.id,trialId:claimed.trial.id});await call('delete',{id:live.id});
+ await assert.rejects(call('checkpoint',{...args,stage:'strategy-submitting'},source),/not found/);
+ await assert.rejects(call('claim',{id:live.id,session:'session-1'},source),/not found/);
+ assert.equal((await call('hello',{session:'session-1',ready:true},source)).id,null);assert.equal(memory['experiment:'+live.id],undefined,'Late runner messages never recreate a deleted study');
+ // A lease still protects an inconsistent archive even if its owner was lost.
+ const orphan=await create();memory['runner:lease']={experimentId:orphan.id,trialId:orphan.trials[0].id,seenAt:time-100000};
+ await assert.rejects(call('delete',{id:orphan.id}),/Review this study/);assert.ok(memory['experiment:'+orphan.id]);memory['runner:lease']=null;
+ const unsettled=await create();Object.assign(memory['experiment:'+unsettled.id],{status:'needs-review',owner:{tabId:7,session:'session-1'}});memory['experiment:'+unsettled.id].trials[0].status='uncertain';
+ await assert.rejects(call('delete',{id:unsettled.id}),/Review this study/);await call('skip',{id:unsettled.id,trialId:unsettled.trials[0].id});await call('delete',{id:unsettled.id});
+ const blocked=createCoordinator({storage:{...storage,remove:async()=>{throw Error('Storage unavailable');}},runtime});
+ await assert.rejects(blocked.handle({action:'delete',id:orphan.id},dashboard),/Storage unavailable/);assert.ok(memory['experiment:'+orphan.id],'Failed storage removal must not report success');
+ memory['experiment:wrong-key']=clone(memory['experiment:'+orphan.id]);await assert.rejects(call('delete',{id:'wrong-key'}),/identity does not match/);assert.ok(memory['experiment:'+orphan.id],'A malformed storage entry cannot redirect deletion to a different study');
+}
+
 async function decisionTests(){
  const {JSDOM}=require('jsdom'),fs=require('node:fs'),path=require('node:path');const dom=new JSDOM('',{runScripts:'outside-only'});const w=dom.window;w.structuredClone=structuredClone;
  for(const file of ['core.js','presentation.js','intelligence.js','experiments.js','demo.js'])w.eval(fs.readFileSync(path.resolve(__dirname,'../dist',file),'utf8'));
@@ -306,4 +357,4 @@ function chartVariationTests(){
  }
  for(const stage of ['momentum','execution']){const template=S.demoTemplate({momentumChart:'Renko',executionChart:'Renko',momentumBrickMode:'ATR',executionBrickMode:'ATR %'}),baseline=S.configToBaseline(S.defaults(template),template),descriptor=E.catalog(baseline).find(f=>f.key===stage+'.brick.size');assert.equal(descriptor.integer,true);assert.throws(()=>E.create({id:'fractional-atr',name:'ATR must be whole',baseline,dimensions:[{key:descriptor.key,values:[14,14.5]}]}),/whole numbers/);}
 }
-(async()=>{setupVariationTests();setupCachedCategoryTests();setupContextVariationTests();chartVariationTests();await coordinatorTests();await decisionTests();await setupBridgeTests();await ruleSearchBridgeTests();console.log('PASS: independent chart contexts, exact variant trial settings, mode-specific ranges, bounded numeric/boolean/source-enum/date variations, matched decisions, frozen forward stages, immutable archives and authorized coordinator operations.');})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{setupVariationTests();setupCachedCategoryTests();setupContextVariationTests();chartVariationTests();await coordinatorTests();await deletionTests();await decisionTests();await setupBridgeTests();await ruleSearchBridgeTests();console.log('PASS: independent chart contexts, exact variant trial settings, mode-specific ranges, bounded numeric/boolean/source-enum/date variations, matched decisions, frozen forward stages, immutable archives, authorized coordinator operations and guarded study deletion with preserved results.');})().catch(e=>{console.error(e);process.exitCode=1;});

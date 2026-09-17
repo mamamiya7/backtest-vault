@@ -1,5 +1,11 @@
 # Experiments and decision intelligence
 
+## Remove an old study
+
+In **Experiments**, choose **Delete** beside a study, or open it and choose **Delete study**. The confirmation names the study. Cancel leaves it unchanged; Delete removes the study and its trial plan/history while keeping every saved run in the library. Export the study first to keep a copy of its plan. Deletion has no undo.
+
+Running work cannot be deleted. Choose **Stop after current**, wait for it to settle, then delete. The background worker checks current state again so an action in another tab cannot erase an active study. Interrupted work may need review before deletion is available.
+
 Version 0.10.0 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The user reports normal Candle tests working; the new chart-choice/cache flow still needs installed acceptance. The preceding v0.7.3 saved-baseline flow passed an independently checked real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow

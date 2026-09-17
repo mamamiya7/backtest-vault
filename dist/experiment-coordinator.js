@@ -120,6 +120,21 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    const choiceCache=await retainChoices(tab,cache,r);
    return {ok:true,source:{...r.config,choiceCache}};
   }
+  if(m.action==='delete'){
+   if(!dashboard)throw Error('Only Vault can delete a study.');
+   if(typeof m.id!=='string'||!/^[a-zA-Z0-9_-]{1,120}$/.test(m.id))throw Error('Invalid study.');
+   // Expiry keeps its lease until the interrupted submission is reviewed. A
+   // stale deadline is not permission to discard source ownership.
+   const lease=await reviewLease(),current=await get('experiment:'+m.id);
+   if(!current){if(lease?.experimentId===m.id)throw Error('Review this study\'s interrupted test before deleting it.');return {ok:true,deleted:false};}
+   if(current.id!==m.id)throw Error('The saved study identity does not match.');
+   E.validate(current);
+   const reason=E.deletionReason(current);if(reason)throw Error(reason);
+   if(lease?.experimentId===current.id)throw Error('Review this study\'s interrupted test before deleting it.');
+   // This command shares the start/claim/checkpoint queue. It removes only
+   // the plan; saved result records remain independently available in Vault.
+   await storage.remove('experiment:'+current.id);return {ok:true,deleted:true};
+  }
   const e=await get('experiment:'+m.id);if(!e)throw Error('Experiment not found.');E.validate(e);
   if(dashboard){
    if(m.action==='start'){
@@ -131,7 +146,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
     if(E.fields(e.baseline,'momentum')[0].value!=='Candle'||E.fields(e.baseline,'execution')[3].value!=='Candle')throw Error('P&F and Renko plans can be saved; live execution is waiting for separate adapter acceptance tests.');
     e.owner={tabId:tab.id,session:tab.session};e.status='running';E.journal(e,'Started on selected RZone tab');await put(e);return {ok:true};
    }
-   if(m.action==='pause'){if(['running','pausing'].includes(e.status)){e.status=(await get('runner:lease'))?.experimentId===e.id?'pausing':'paused';E.journal(e,'Stop after current trial requested');await put(e);}return {ok:true};}
+   if(m.action==='pause'){if(['running','pausing'].includes(e.status)){e.status=(await get('runner:lease'))?.experimentId===e.id?'pausing':'paused';if(e.status==='paused')delete e.owner;E.journal(e,'Stop after current trial requested');await put(e);}return {ok:true};}
    if(m.action==='skip'){
     const t=e.trials.find(t=>t.id===m.trialId);if(!t||t.status!=='uncertain')throw Error('Only an interrupted trial can be skipped.');
     const l=await get('runner:lease');if(l?.experimentId===e.id&&clock()-l.seenAt<90000)throw Error('Wait for the interrupted source session to disconnect before skipping.');

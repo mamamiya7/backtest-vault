@@ -212,6 +212,25 @@ body:has(.has-workbench) main{max-width:none}
 .source-workbench .source-period-row .source-field input[type=number],.source-workbench .source-weight-row .source-field input[type=number],.source-workbench .source-ema-row .source-period-pair input[type=number]{width:100%;max-width:none}
 .source-weight-row .source-field{padding-left:0}
 .source-workbench .source-field .source-state-select,.setup-backtest-dialog .source-field .source-state-select{width:98px;cursor:pointer;padding-left:8px;font-size:12px}
+
+/* Study management keeps opening a study and removing its plan distinct. */
+.study-card{position:relative;min-width:0;border:1px solid #36516a;border-radius:12px;background:#142739;overflow:hidden}
+.study-card .experiment-card{width:100%;height:100%;min-height:150px;border:0;border-radius:0;background:transparent;align-items:flex-start;justify-content:flex-start;padding-right:88px;white-space:normal}
+.study-card .experiment-card:hover{background:#1c344b}
+.study-card .experiment-card strong,.study-card .experiment-card span{overflow-wrap:anywhere;text-align:left}
+.study-card .experiment-card:focus-visible{outline-offset:-4px}
+.study-card>.study-delete{position:absolute;right:10px;top:12px;font-size:.8125rem;padding:8px 10px}
+.study-delete{color:#ebafb2}
+.experiment-actions>.study-delete{margin-left:auto}
+.study-delete-dialog{width:min(480px,calc(100vw - 32px));max-height:90vh;overflow:auto;background:#142438;color:#e5edf7;border:1px solid #526578;border-radius:14px;padding:26px}
+.study-delete-dialog::backdrop{background:#02070bc7}
+.study-delete-dialog h3{margin:0 0 16px}
+.study-delete-dialog p{line-height:1.6;overflow-wrap:anywhere}
+.study-delete-dialog .mini{color:#b7cce0}
+.study-delete-actions{display:flex;justify-content:flex-end;gap:12px;margin-top:26px}
+.study-delete-confirm{background:#f0aeb5;color:#35121b;border-color:#f0aeb5}
+.study-delete-confirm:hover:not(:disabled){background:#ffd0d5}
+@media(max-width:640px){.study-delete-dialog{padding:20px}.study-card .experiment-card{padding:20px 80px 20px 20px}.study-delete-actions{flex-wrap:wrap}.study-delete-actions button{flex:1}.experiment-actions>.study-delete{margin-left:0}}
 .source-period-row .source-field .source-state-select{width:100%}
 .source-state-select[data-mode=true]{border-color:#3b675c!important;color:#a9ead4!important;background:#142824!important}
 .source-state-select[data-mode=false]{color:#a4b0bc!important}

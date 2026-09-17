@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.11.0 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.12.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -13,7 +13,7 @@ A local Chrome extension and research workspace for Definedge momentum and portf
 
 **All screenshots and demo records are fictional.** They illustrate the product, not investment performance.
 
-[Try it](#try-the-demo) · [Install](#install-the-extension) · [Compare strategies](#how-the-ranking-works) · [Understand the numbers](#cagr-or-annualized-return) · [Backups](#where-your-data-lives) · [Develop](#development)
+[Install](#install-the-extension) · [Manage studies](#manage-your-studies) · [Compare strategies](#how-the-ranking-works) · [Understand the numbers](#cagr-or-annualized-return) · [Backups](#where-your-data-lives) · [Develop](#development)
 
 ## Start in Vault
 
@@ -142,9 +142,24 @@ Definedge calculates the backtest. Vault records the completed report and the se
 | Chart snapshots | Sanitized SVG graphics; underlying price series and hover data are not included |
 | Research context | Capture warnings, submission linkage, editable run name and notes |
 
-## Try the demo
+## Manage your studies
 
-After installing the extension, click **Explore demo** for fictional sample runs—no RZone login required.
+Open **Experiments** to see your studies. Choose **Delete** on a study card, or **Delete study** inside it, then confirm the named study.
+
+```mermaid
+flowchart LR
+    A[Experiments] --> B[Delete study]
+    B --> C{Confirm}
+    C -->|Cancel| A
+    C -->|Delete| D[Study and trial plan removed]
+    D --> E[Saved backtest runs stay in library]
+```
+
+Deletion removes the study's plan and trial history. Its saved runs, metrics, charts and notes remain available for analysis. Export the study first if you may want its plan again; deletion has no undo. A running study must stop before it can be deleted. Vault checks this again at confirmation, including work started in another tab.
+
+## Developer sample preview
+
+The everyday workspace opens your own archive, with no demo shortcuts. Fictional fixtures remain available through the explicit `?demo=1` route for development checks and documentation. They were originally added to show the interface before any real runs had been saved.
 
 For developers who prefer a standalone localhost preview, **Node.js 24 or newer** is required:
 
@@ -166,7 +181,7 @@ Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, not
 
 ## Install the extension
 
-**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.11.0.zip** asset; do not download a setup script by itself.
+**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.12.0.zip** asset; do not download a setup script by itself.
 
 ```mermaid
 flowchart LR

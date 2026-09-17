@@ -30,7 +30,9 @@ let cleanup=()=>{};
 async function render({target,store,runs,onOpen,onExit,onNotice,table,download,baselineRun,startNew=false}){
 
  cleanup();document.body.classList.add('experiments-mode');let timer,selected=null,experiments=[],tabs=[],disposed=false,simulation=false,refreshing=false;
- let refreshSource=()=>{},wizard=null;const sourceChoices=new Map(),decisionGroups=new Map();
+ let refreshSource=()=>{},wizard=null,deletionDialog=null,renderedList='',renderedDetail='',loadGeneration=0;const sourceChoices=new Map(),decisionGroups=new Map();
+ const stamp=e=>e?JSON.stringify([e.id,e.revision,e.status,e.owner,e.trials.map(t=>[t.status,t.error])]):'';
+ const listStamp=()=>experiments.map(stamp).join('|');
 
  const extension=!store.demo&&location.protocol==='chrome-extension:'&&typeof chrome!=='undefined'&&!!chrome.runtime?.sendMessage;
 
@@ -46,7 +48,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  const content=el('div');panel.append(content);
 
- cleanup=()=>{disposed=true;clearInterval(timer);document.body.classList.remove('experiments-mode');};
+ cleanup=()=>{disposed=true;clearInterval(timer);deletionDialog?.remove();deletionDialog=null;document.body.classList.remove('experiments-mode');};
 
  async function command(action,data={}){
 
@@ -65,9 +67,40 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  }
 
- async function load(){if(extension){const r=await command('list');experiments=r.experiments;tabs=r.tabs;}else experiments=await store.allExperiments();runs=await store.all();}
+ async function load(){const generation=++loadGeneration,data=extension?await command('list'):{experiments:await store.allExperiments(),tabs:[]},nextRuns=await store.all();if(generation!==loadGeneration||disposed)return;experiments=data.experiments;tabs=data.tabs;runs=nextRuns;}
 
  async function action(fn){try{notice.textContent='';notice.className='notice';await fn();}catch(e){notice.textContent=e.message;notice.className='notice error';}}
+
+ function deleteControl(e,compact=false){
+  const b=button(compact?'Delete':'Delete study',()=>confirmDeletion(e,b),'quiet study-delete');
+  b.setAttribute('aria-label','Delete study: '+e.name);b.dataset.deleteStudy=e.id;return b;
+ }
+
+ function confirmDeletion(e,trigger){
+  if(deletionDialog)return;
+  // An older poll must not repaint the removed study after confirmation.
+  loadGeneration++;
+  e=experiments.find(x=>x.id===e.id)||e;
+  const dialog=el('dialog',undefined,'study-delete-dialog'),reason=E.deletionReason(e),title=el('h3','Delete study?'),description=el('p'),name=el('strong',e.name),error=el('p',reason,'notice error'),actions=el('div',undefined,'study-delete-actions');let busy=false;
+  deletionDialog=dialog;title.id='study-delete-title';description.id='study-delete-description';error.setAttribute('role','alert');
+  dialog.setAttribute('aria-labelledby',title.id);dialog.setAttribute('aria-describedby',description.id);
+  description.append('This removes ',name,' and its trial plan. Saved backtest runs stay in your library.');
+  const close=()=>{if(busy)return;dialog.remove();deletionDialog=null;if(trigger.isConnected)trigger.focus();};
+  const cancel=button('Cancel',close,'secondary'),remove=button('Delete study',async()=>{
+   if(busy)return;busy=true;remove.disabled=true;cancel.disabled=true;remove.textContent='Deleting…';error.textContent='';
+   try{
+    if(extension)await command('delete',{id:e.id});else await store.removeExperiment(e.id);
+   }catch(err){error.textContent=err.message;busy=false;cancel.disabled=false;remove.disabled=false;remove.textContent='Delete study';cancel.focus();return;}
+   busy=false;dialog.remove();deletionDialog=null;if(!alive())return;
+   // Reflect successful removal even if a later refresh cannot reach storage.
+   experiments=experiments.filter(x=>x.id!==e.id);sourceChoices.delete(e.id);decisionGroups.delete(e.id);list();
+   notice.textContent='Study deleted. Saved runs remain in your library.';notice.className='notice';
+   const heading=content.querySelector('h2');heading.tabIndex=-1;heading.focus();
+  },'study-delete-confirm');
+  remove.disabled=!!reason;cancel.autofocus=true;actions.append(cancel,remove);dialog.append(title,description,el('p','This cannot be undone. Export the study first if you want a copy.','mini'),error,actions);panel.append(dialog);
+  dialog.addEventListener('cancel',event=>{event.preventDefault();close();});
+  if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');cancel.focus();
+ }
 
  function sourceControls(id,state){
   const picker=select([['','Select RZone tab']]),help=el('p','','mini');
@@ -98,11 +131,11 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  function heading(title,back){const h=el('div',undefined,'comparison-intro');const text=el('div');text.append(el('p','EXPERIMENTS','eyebrow'),el('h2',title));h.append(text,button(back?'All experiments':'Run library',back?()=>list():onExit,'quiet'));return h;}
 
- function list(){selected=null;wizard=null;environment.hidden=false;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('From an idea to evidence.'));const intro=el('div',undefined,'experiment-intro');intro.append(el('p','Set up a strategy, run a test, then explore what changes.','muted'),button('Start a new test',()=>newTest(),'primary'),button('Use a saved run',()=>builder(),'quiet'));content.append(intro);
+ function list(){selected=null;wizard=null;renderedList=listStamp();environment.hidden=false;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('From an idea to evidence.'));const intro=el('div',undefined,'experiment-intro');intro.append(el('p','Set up a strategy, run a test, then explore what changes.','muted'),button('Start a new test',()=>newTest(),'primary'),button('Use a saved run',()=>builder(),'quiet'));content.append(intro);
 
   if(!experiments.length){const empty=el('div',undefined,'experiment-empty');empty.append(el('span','01 → 02 → 03','experiment-flow'),el('h3','Plan → Run → Decide'),el('p','Your ranges become a finite queue. Each result keeps its settings, charts and trades.'));content.append(empty);}
 
-  else{const cards=el('div',undefined,'experiment-cards');for(const e of [...experiments].reverse()){const b=button('',()=>detail(e.id),'experiment-card');b.append(el('small',(e.demo?'Sample · ':'')+stateName(e.status)),el('strong',e.name),el('span',e.trials.filter(t=>t.status==='saved').length+' / '+e.trials.length+(e.demo?' sample results':' saved')+' · '+e.baseline.name));cards.append(b);}content.append(cards);}
+  else{const cards=el('div',undefined,'experiment-cards');for(const e of [...experiments].reverse()){const card=el('article',undefined,'study-card'),b=button('',()=>detail(e.id),'experiment-card');b.append(el('small',(e.demo?'Sample · ':'')+stateName(e.status)),el('strong',e.name),el('span',e.trials.filter(t=>t.status==='saved').length+' / '+e.trials.length+(e.demo?' sample results':' saved')+' · '+e.baseline.name));card.append(b,deleteControl(e,true));cards.append(card);}content.append(cards);}
 
  }
 
@@ -558,7 +591,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
   selected=id;wizard=null;environment.hidden=false;panel.classList.remove('is-setup','has-workbench');const e=experiments.find(e=>e.id===id);if(!e){list();return;}const saved=e.trials.filter(t=>t.status==='saved').length,allDecisions=E.decisions(e,runs),groups=allDecisions.groups||[],group=allDecisions.grouped?(groups.find(g=>g.key===decisionGroups.get(id))||groups[0]):null,d=allDecisions.grouped?(group||{...allDecisions,eligible:[],leader:null,leaders:[],neighbors:[]}):allDecisions,hero=el('section',undefined,'experiment-hero');if(group)decisionGroups.set(id,group.key);
 
-  const sample=store.demo||e.demo===true,active=e.trials.find(t=>E.active.includes(t.status));
+  renderedDetail=stamp(e);const sample=store.demo||e.demo===true,active=e.trials.find(t=>E.active.includes(t.status));
   const headline=sample?(e.status==='complete'?'Sample results ready':e.status==='running'?'Generating sample results':e.status==='pausing'?'Finishing current sample':e.status==='paused'?'Sample generation paused':'Preview the experiment workflow'):active?'Trial '+active.ordinal+' · '+stateName(active.status):e.status==='running'?'Starting next trial':e.status==='needs-review'?'Review interrupted trial':allDecisions.headline;
   content.replaceChildren(heading(e.name,true));hero.classList.toggle('is-sample',sample);hero.append(el('p',(sample?'SAMPLE DATA · ':'')+stateName(e.status).toUpperCase(),'eyebrow'),el('h3',headline));
   if(sample)hero.append(el('p','Illustrative returns generated here in seconds. No RZone backtests were submitted.','experiment-sample-note'));
@@ -581,7 +614,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
   if(['running','pausing'].includes(e.status)&&(store.demo||extension&&!sample))actions.append(button(e.status==='pausing'?'Stopping after current…':sample?'Stop sample generation':'Stop after current',()=>action(async()=>{if(store.demo){const latest=(await store.allExperiments()).find(x=>x.id===id);latest.status='pausing';await store.putExperiment(latest);}else await command('pause',{id});await load();detail(id);}),'secondary'));
 
-  actions.append(button('Export experiment',()=>download('experiment-'+id+'.json',JSON.stringify({format:'definedge-backtest-vault',version:2,exportedAt:new Date().toISOString(),experiments:[e],runs:runs.filter(r=>r.id===e.baseline.id||e.trials.some(t=>t.runId===r.id))},null,2))));content.append(actions);
+  actions.append(button('Export experiment',()=>download('experiment-'+id+'.json',JSON.stringify({format:'definedge-backtest-vault',version:2,exportedAt:new Date().toISOString(),experiments:[e],runs:runs.filter(r=>r.id===e.baseline.id||e.trials.some(t=>t.runId===r.id))},null,2))),deleteControl(e));content.append(actions);
 
   const uncertainty=e.trials.filter(t=>t.status==='uncertain');for(const t of uncertainty){const n=el('div',undefined,'experiment-review');n.append(el('strong','Trial '+t.ordinal+' needs review'),el('p',t.error));if(extension&&!sample)n.append(button('Check saved result',()=>action(async()=>{await command('reconcile',{id,trialId:t.id});await load();detail(id);})),button('Skip this trial',()=>action(async()=>{await command('skip',{id,trialId:t.id});await load();detail(id);}), 'quiet'));content.append(n);}
 
@@ -625,7 +658,7 @@ async function render({target,store,runs,onOpen,onExit,onNotice,table,download,b
 
  await load();if(startNew)newTest();else if(baselineRun)builder(baselineRun);else list();
 
- timer=setInterval(async()=>{if(!alive()){cleanup();return;}if(refreshing)return;refreshing=true;try{const before=selected&&experiments.find(e=>e.id===selected)?.revision;await load();if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();const after=selected&&experiments.find(e=>e.id===selected)?.revision;if(selected&&before!==after&&!content.contains(document.activeElement))detail(selected);}catch(error){notice.textContent=error.message;}finally{refreshing=false;}},3000);
+ timer=setInterval(async()=>{if(!alive()){cleanup();return;}if(refreshing||deletionDialog)return;refreshing=true;try{await load();if(!alive()||deletionDialog)return;if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();if(!content.contains(document.activeElement)){if(selected&&renderedDetail!==stamp(experiments.find(e=>e.id===selected)))detail(selected);else if(!selected&&!wizard&&renderedList!==listStamp())list();}}catch(error){notice.textContent=error.message;}finally{refreshing=false;}},3000);
 
 }
 

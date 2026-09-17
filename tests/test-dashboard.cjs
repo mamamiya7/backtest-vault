@@ -13,6 +13,7 @@ w.chrome={storage:{local:{get:async()=>saved,set:async data=>Object.assign(saved
 for(const file of ['core.js','storage.js','presentation.js','dashboard.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
 const tick=()=>new Promise(r=>setTimeout(r,20));
 (async()=>{await tick();assert.equal(d.querySelectorAll('.run').length,2);
+  assert.equal(d.getElementById('demo-link').hidden,true,'The everyday header has no demo shortcut');assert.equal(d.querySelector('a[href="?demo=1"]'),null,'Empty-state onboarding does not direct users into fictional data');
   d.querySelectorAll('.run input').forEach(x=>{x.checked=true;x.dispatchEvent(new w.Event('change'));});d.getElementById('compare').click();assert.match(d.getElementById('detail').textContent,/Different settings/);assert.match(d.getElementById('detail').textContent,/252/);assert.match(d.getElementById('detail').textContent,/120/);
   d.getElementById('risk').value='10';d.getElementById('risk').dispatchEvent(new w.Event('input'));assert.equal(d.querySelectorAll('.run').length,1);
   d.querySelector('.open').click();[...d.querySelectorAll('.tabs button')].find(b=>b.textContent==='Trades').click();assert.match(d.getElementById('detail').textContent,/1 trades have quantity zero/);

@@ -1,10 +1,16 @@
-# Backtest Vault 0.11.0 — installable preview
+# Backtest Vault 0.12.0 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
+## Changes
+
+- Delete old studies from **Experiments** or the study page, with a clear confirmation. Saved backtest runs stay in the library.
+- Active work is protected: stop the study first. Vault rechecks its state before deletion, including when it started from another tab.
+- The everyday workspace no longer offers demo shortcuts. The explicit fictional preview route remains available for development testing.
+
 ## Install
 
-Download **backtest-vault-0.11.0.zip**, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.12.0.zip**, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.
