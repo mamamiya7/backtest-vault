@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.14.0 preview - 2026-09-17
+
+- Keep each study in one visible journey: Set up → Run tests → Review results, with a current-stage indicator and a relevant next action. The indicator only shows progress; it cannot submit or restart a test.
+- Open the installed workspace on My studies. Rename Analyze strategies to Compare results, and the saved-run action to Test variations; new tests automatically belong to a study.
+- Keep the source form, inline Test values, dates and portfolio on one setup page, with secondary strategy controls under More strategy settings. Review … tests opens the final review; Run … tests starts execution.
+- Retain an unfinished setup while navigating within the same open Vault tab, with Continue setup in My studies. Refreshing or closing the tab clears the unsaved draft.
+- Show completed work at Review results; View results focuses saved evidence without running anything. Rename study export and make the separate Test on another period validation action clearer.
+- Preserve saved-run evidence, comparison groups, sample isolation, deletion protections, execution limits and the complete Windows/Linux installable package.
+
 ## 0.13.0 preview - 2026-09-17
 
 - Add a functional date-range calendar with typed dates, month/year navigation, 1/3/5-year presets and Apply/Cancel. Separate From/To test values and all-combination checks remain.

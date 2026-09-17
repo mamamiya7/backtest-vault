@@ -2,16 +2,16 @@ const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('n
 const base=path.resolve(__dirname,'../dist'),tick=()=>new Promise(r=>setTimeout(r,25));
 const files=['core.js','demo.js','storage.js','presentation.js','intelligence.js','intelligence-ui.js','dashboard.js'];
 function app(saved={},demo=false,analysis=false){
- const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/?'+new URLSearchParams({...demo&&{demo:1},...analysis&&{view:'analysis'}})}),w=dom.window,d=w.document,downloads=[];
+ const dom=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScripts:'outside-only',url:'http://localhost/?'+new URLSearchParams({...demo&&{demo:1},view:analysis?'analysis':'library'})}),w=dom.window,d=w.document,downloads=[];
  let durable=0;
  w.chrome={storage:{local:{get:async()=>{durable++;return structuredClone(saved);},set:async data=>{durable++;Object.assign(saved,structuredClone(data));}}}};
- w.Blob=Blob;w.URL.createObjectURL=blob=>{downloads.push(blob);return 'blob:test';};w.URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){};w.HTMLElement.prototype.scrollIntoView=function(){};
+ w.Blob=Blob;w.URL.createObjectURL=blob=>{downloads.push(blob);return 'blob:test';};w.URL.revokeObjectURL=()=>{};w.HTMLAnchorElement.prototype.click=function(){};w.HTMLElement.prototype.scrollIntoView=function(){};w.scrollTo=()=>{};
  for(const f of files)w.eval(fs.readFileSync(path.join(base,f),'utf8'));
  return {w,d,saved,downloads,close:()=>w.close(),durable:()=>durable,click:text=>{const b=[...d.querySelectorAll('button')].find(b=>b.textContent===text||b.getAttribute('aria-label')===text);assert.ok(b,'Missing button: '+text);b.click();}};
 }
 const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:[{size:1,text:async()=>JSON.stringify(data)}],value:'test'}});
 (async()=>{const demos=app({},true);let real,restored;try{
- await tick();demos.click('Analyze strategies');await tick();assert.match(demos.d.querySelector('#detail').textContent,/4 comparison groups · 1 blocked/);assert.match(demos.d.querySelector('#detail').textContent,/FICTIONAL REFERENCE/);
+ await tick();demos.click('Compare results');await tick();assert.match(demos.d.querySelector('#detail').textContent,/4 comparison groups · 1 blocked/);assert.match(demos.d.querySelector('#detail').textContent,/FICTIONAL REFERENCE/);
  assert.equal([...demos.d.querySelectorAll('button')].find(b=>b.textContent==='Import benchmark CSV').disabled,true);
  assert.equal(demos.durable(),0);demos.click('Export analysis CSV');const csv=await demos.downloads.at(-1).text();assert.match(csv,/Source CAGR/);assert.match(csv,/Synthetic calendar-day series/);assert.doesNotMatch(csv,/\d\.\d{7}/);
  assert.ok(demos.d.body.classList.contains('analysis-mode'));assert.equal(demos.d.querySelectorAll('.rank-table').length,1);assert.equal(demos.d.querySelectorAll('.risk-map svg').length,1);
@@ -52,13 +52,13 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  demos.d.getElementById('analysis-risk').value='';demos.click('Apply ceiling');demos.click('Group 1 · compare matched runs');assert.equal(demos.d.getElementById('ranking-group').value,firstGroup);assert.equal(demos.d.querySelector('.all-runs-table'),null);
  demos.d.getElementById('analysis-options').open=true;demos.click('Return');assert.equal(demos.d.activeElement.id,'ranking-picker-toggle');assert.equal(demos.d.getElementById('analysis-options').open,true);assert.equal(demos.d.getElementById('rank-returns').getAttribute('aria-pressed'),'true');
  demos.click('Drawdown');assert.equal(demos.d.querySelector('.hero-score strong').textContent,'2.50%');assert.equal(demos.d.querySelector('.rank-table').dataset.basis,'drawdown');
- demos.click('Inspect this run');assert.equal(demos.d.body.classList.contains('analysis-mode'),false);demos.click('Analyze strategies');await tick();
+ demos.click('Inspect this run');assert.equal(demos.d.body.classList.contains('analysis-mode'),false);demos.click('Compare results');await tick();
  const ceiling=demos.d.querySelector('.intelligence-controls input');ceiling.value='0';demos.click('Apply ceiling');assert.match(demos.d.querySelector('#detail').textContent,/No run meets your drawdown ceiling/);
  demos.d.getElementById('analysis-risk').value='';demos.click('Apply ceiling');assert.equal(demos.d.querySelector('.hero-message h3').textContent,'Momentum core');
  await demos.d.getElementById('backup').onclick();const demoBackup=JSON.parse(await demos.downloads.at(-1).text());assert.equal(demoBackup.benchmarks.length,1);assert.ok(demoBackup.benchmarks[0].demo);assert.equal(demos.durable(),0);
  // Test the real application storage/import branches with synthetic data, never real user storage.
  const fixture=D.create()[0];fixture.demo=false;fixture.charts=[];fixture.name='<img src=x onerror=alert(1)>';const saved={['run:'+fixture.id]:structuredClone(fixture)};real=app(saved);await tick();
- real.click('Analyze strategies');await tick();assert.match(real.d.querySelector('#detail').textContent,/Import a Nifty index CSV/);assert.equal(real.d.querySelector('#detail img[src=x]'),null);
+ real.click('Compare results');await tick();assert.match(real.d.querySelector('#detail').textContent,/Import a Nifty index CSV/);assert.equal(real.d.querySelector('#detail img[src=x]'),null);
  real.d.querySelector('.map-point[data-run-id]').dispatchEvent(new real.w.MouseEvent('click',{bubbles:true}));assert.equal(real.d.querySelector('#chart-inspector h4').textContent,fixture.name);assert.equal(real.d.querySelector('#chart-inspector img'),null);
  const input=real.d.querySelector('#detail input[type=file]');Object.defineProperty(input,'files',{value:[{name:'test-only.csv',size:70,text:async()=> 'Date,Total Returns Index\n2025-01-01,100\n2025-06-01,90\n2025-12-31,110'}]});await input.onchange();
  assert.match(real.d.getElementById('notice').textContent,/Benchmark saved locally/);assert.equal(Object.keys(saved).filter(k=>k.startsWith('benchmark:')).length,1);assert.deepEqual(saved['run:'+fixture.id],fixture);
@@ -76,7 +76,7 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
  ranking.click('Show all 7 runs');assert.equal(ranking.d.querySelectorAll('.rank-table tbody tr').length,7);ranking.click('Return');assert.equal(ranking.d.querySelector('.hero-message h3').textContent,'Candidate 6');assert.equal(ranking.d.querySelector('.rank-table tbody tr').dataset.runId,'test-rank-6');assert.equal(ranking.d.querySelectorAll('.rank-table tbody tr').length,5);
  ranking.click('Drawdown');assert.equal(ranking.d.querySelector('.hero-message h3').textContent,'Candidate 0');assert.equal(JSON.stringify(rankSaved),rankSource);
  ranking.d.getElementById('analysis-risk').value='1';ranking.click('Apply ceiling');assert.match(ranking.d.querySelector('.ranking-hero').textContent,/Only one run qualifies/);assert.equal(ranking.d.querySelectorAll('.rank-leader').length,0);assert.equal(ranking.d.querySelector('.rank-place').textContent,'—');
- ranking.click('Back to library');assert.equal(ranking.d.body.classList.contains('analysis-mode'),false);
+ ranking.click('Back to library');await tick();assert.equal(ranking.d.body.classList.contains('analysis-mode'),false);
  }finally{ranking.close();}
  const empty=app({},false,true);try{await tick();assert.match(empty.d.querySelector('.ranking-hero').textContent,/No runs have enough verified/);assert.equal(empty.d.querySelector('.rank-table'),null);}finally{empty.close();}
  const partial=D.create().slice(0,2);partial[1].quickStats=partial[1].quickStats.filter(s=>s.label!=='CAGR');partial.forEach(r=>{r.demo=false;r.charts=[];});const missing=app(Object.fromEntries(partial.map(r=>['run:'+r.id,r])),false,true);
@@ -114,7 +114,7 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
   d.getElementById('strategy-columns').open=true;click('column-win');click('column-drawdown');
   assert.ok(headers().includes('win'));assert.ok(!headers().includes('drawdown'));assert.equal(d.getElementById('strategy-columns').open,true);
   d.getElementById('column-grip-growth').dispatchEvent(new tableApp.w.KeyboardEvent('keydown',{key:'ArrowUp',bubbles:true,cancelable:true}));assert.ok(headers().indexOf('growth')<headers().indexOf('calmar'));assert.equal(d.activeElement.id,'column-grip-growth');
-  const chosen=headers();await tick();tableApp.click('Back to library');tableApp.click('Analyze strategies');await tick();assert.deepEqual(headers(),chosen);
+  const chosen=headers();await tick();tableApp.click('Back to library');await tick();tableApp.click('Compare results');await tick();assert.deepEqual(headers(),chosen);
   await tableApp.d.getElementById('backup').onclick();const backup=JSON.parse(await tableApp.downloads.at(-1).text());assert.equal(JSON.stringify(backup.runs),original);assert.equal(backup.preferences,undefined);assert.equal(tableApp.durable(),0);
   const all=d.getElementById('ranking-group');all.value='all';all.onchange();click('strategy-sort-growth');tableApp.click('Export analysis CSV');assert.equal((await tableApp.downloads.at(-1).text()).trim().split('\r\n').length,7);
   click('columns-reset');assert.deepEqual(headers(),['rank','strategy','returns','drawdown','calmar','growth']);
@@ -148,7 +148,7 @@ const importJSON=(a,data)=>a.d.getElementById('import').onchange({target:{files:
   geometry('y');pointer(d.getElementById('column-grip-trades'),'pointerdown',275,24);pointer(tableApp.w,'pointermove',900,230);pointer(tableApp.w,'pointerup',900,230);assert.deepEqual([...d.querySelectorAll('.column-option')].map(n=>n.dataset.column),beforeCancel);
   assert.equal(JSON.stringify(await tableApp.w.VaultStore.all()),original);assert.equal(tableApp.durable(),0);
   // Trade sorting uses original numbers and chronological dates, with missing cells last.
-  tableApp.click('Back to library');tableApp.click('Trades');const trade=d.querySelector('.trades-table'),by=name=>[...trade.querySelectorAll('th button')].find(b=>b.textContent===name).click();
+  tableApp.click('Back to library');await tick();tableApp.click('Trades');const trade=d.querySelector('.trades-table'),by=name=>[...trade.querySelectorAll('th button')].find(b=>b.textContent===name).click();
   by('G/L %');assert.match(trade.tBodies[0].rows[0].textContent,/-2.50%/);by('G/L %');assert.match(trade.tBodies[0].rows[0].textContent,/\+4.60%/);
   by('Sr #');assert.equal(trade.tBodies[0].rows[1].cells[0].textContent,'2');by('Sr #');assert.equal(trade.tBodies[0].rows[0].cells[0].textContent,'12');
   by('Entry Date');assert.match(trade.tBodies[0].rows[0].textContent,/2025-01-01/);by('Entry Date');assert.match(trade.tBodies[0].rows[0].textContent,/2025-12-01/);

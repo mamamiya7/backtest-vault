@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.13.0 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.14.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -17,27 +17,42 @@ A local Chrome extension and research workspace for Definedge momentum and portf
 
 ## Start in Vault
 
-**You do not need a saved backtest to begin.** Open the installed Vault and choose **New test**. RZone calculates the results; Vault applies your setup and saves each completed report.
+**Start with New test. One study carries your setup, tests and results together.** The journey at the top shows **Set up → Run tests → Review results**, with your current stage highlighted. RZone calculates the results; Vault applies your setup and saves each completed report. You do not need a saved backtest to begin.
 
-![Momentum Trading BackTest above Portfolio Backtesting, with Test values for dates, ranking, exits, allocation and sizing; fictional sample setup](docs/images/11-test-setup.png)
+![Study setup with a progress indicator, strategy values, Test period and Portfolio sections; fictional sample setup](docs/images/11-test-setup.png)
 
 ```mermaid
 flowchart LR
-    A["New test"] --> B["Load signed-in RZone choices"]
-    B --> C["One page: strategy, dates,<br/>exits and portfolio"]
-    C --> D["Test values / range beside a setting"]
-    D --> E["Backtest"]
-    E --> F["Review test count and comparison rules"]
-    F --> G["Run"]
-    G --> H["Results saved in Vault"]
+    N["New test"] --> A
+    subgraph Study["One study"]
+      A["1 · Set up<br/>Strategy, dates, portfolio<br/>and optional Test values"]
+      B["2 · Run tests<br/>Review the count → Run<br/>Each verified report is saved"]
+      C["3 · Review results<br/>Inspect reports and compare<br/>matching test conditions"]
+      A -->|"Review N tests"| B
+      B -->|"Tests finish"| C
+    end
+    C --> M["My studies<br/>Return to this work later"]
+    C --> R["Compare results<br/>Compare across saved runs"]
     style A fill:#b2f7dc,stroke:#247456,color:#122b22
 ```
 
 1. **Open New test:** keep RZone signed in. With one available RZone tab, Vault loads its choices automatically. If several tabs are available, select one and click **Connect RZone**. Loading choices does not run a backtest.
-2. **Set up on one page:** periods, weights, filters and Strategy 1–3 follow RZone's arrangement. Momentum Trading BackTest sits below the strategy controls; Portfolio Backtesting follows underneath. Search and select **Group** from the choices read from RZone. Arrow keys and Enter also work.
+2. **Set up on one page:** choose chart, Group, periods and indicators. **More strategy settings** contains period weights and secondary controls. **Test period** follows below; expand its **Execution settings** for ranking, chart selection and exits. **Portfolio** contains sizing, with **Portfolio limits** for additional controls. Search and select **Group** from the choices read from RZone. Arrow keys and Enter also work.
 3. **Add variations beside a setting:** Period 1 = `252,500` means two tests. A numeric range also needs a step. Choose **Off** to skip a period or filter, **On** to use it, or **Test both** for separate On and Off runs. Eligible rule menus can test selected choices from the loaded source catalogue.
-4. **Backtest:** check the compact summary, test count and comparison rules, then choose **Run … tests**. All source settings are already editable on the main page. Leave the range controls unused to run the current setup once.
-5. **Results:** Vault saves each report automatically. Open a saved trial or compare the batch in **Decision desk**. Exporting is an optional backup, not a step required to finish a run.
+4. **Review, then run:** choose **Review … tests** to check the compact summary, test count and comparison rules, then choose **Run … tests**. Reviewing does not start calculations; the stage indicator only shows progress. Leave the variation controls unused to run the current setup once.
+5. **Review results:** Vault saves each report automatically and marks the results stage when the tests finish. **View results** takes you to the saved evidence; it never starts another test. Open a saved report or inspect the study's **Results**. Exporting is an optional backup, not a step required to finish.
+
+**Example:** Period 1 values `252,500` create **one study with two tests**, not two separate studies. The study keeps the plan and both saved results together.
+
+| Where to go | When to use it |
+| --- | --- |
+| **New test** | Set up a new study, with one test or several variations. |
+| **My studies** | Return to a study, follow its progress, resume eligible paused work, review it or delete its plan. |
+| **Compare results** | Compare saved runs across studies; use matching conditions for a fair ranking. |
+
+The installed Vault opens **My studies**. An unfinished setup stays available through **Continue setup** while you move around the same open Vault tab; refreshing or closing that tab clears this unsaved draft. Saved studies remain in your archive. The library is still available for individual runs, imports and **Back up all**.
+
+All source settings stay on one page. The journey shows progress through the work; it does not split the form into a mandatory questionnaire. Only an explicit run or resume action can start source calculations. After reviewing a completed study, **Test on another period** lets you prepare a separate validation test without changing the original results.
 
 **Candle, P&F and Renko have separate settings and choices.** Select the main and execution charts independently. P&F exposes box size and reversal; Renko exposes brick size and its construction mode. Each chart keeps its own rule selections and Test values. P&F/Renko settings are available to inspect and prepare; their automatic execution remains unavailable until separate live write tests pass.
 
@@ -59,7 +74,7 @@ flowchart LR
 
 **Example:** two start dates × two allocation methods × two capital amounts = **8 tests**. Add dates with calendar inputs, select offered menu values, or use numeric From / To / Step ranges. The review checks every date combination before any test starts.
 
-**Choose dates** opens a calendar with typed dates, month/year jumps and 1/3/5-year presets. Apply commits the range; Cancel leaves it unchanged. Existing **Test values** still controls date variations.
+**Choose dates**, beside the **Test period** heading, opens a calendar with typed dates, month/year jumps and 1/3/5-year presets. Apply commits the range; Cancel leaves it unchanged. Existing **Test values** still controls date variations.
 
 ```mermaid
 flowchart LR
@@ -76,7 +91,7 @@ The study page shows a circular saved-trial count and the latest saved reports. 
 
 ![Completed fictional study with saved-result progress and report links](docs/images/13-study-progress.png)
 
-Keep RZone open during execution and leave its settings alone until the batch finishes. **Use a saved run** remains available in Experiments for an existing research baseline.
+Keep RZone open during execution and leave its settings alone until the batch finishes. **Use a saved run** remains available in **My studies** for an existing research baseline; a saved run also offers **Test variations**.
 
 ```mermaid
 flowchart LR
@@ -99,9 +114,9 @@ flowchart LR
     D --> E["Verified saved results<br/>Settings, trades and charts"]
 ```
 
-[Open the fictional experiment demo](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [full workflow and recovery guide](docs/EXPERIMENTS.md).
+[Open the fictional study preview](http://127.0.0.1:8767/?demo=1&view=experiments) or read the [full workflow and recovery guide](docs/EXPERIMENTS.md).
 
-| Available in 0.10.0 preview | Acceptance boundary |
+| Current capabilities | Acceptance boundary |
 | --- | --- |
 | Vault-first Candle/Price setup, source dropdown refresh and single or multiple tests | Normal Candle tests reported working by the user; this does not establish every setting combination |
 | Finite plans, reproducible samples, bounded adaptive neighborhood search | Local planner and isolated simulation tested |
@@ -109,7 +124,7 @@ flowchart LR
 | Frozen decision rules, neighboring-setting checks, baseline/index context, validation and holdout stages | Descriptive research evidence; no predictive or pooled portfolio score |
 | P&F and Renko setup, independent execution chart and daily menus | Discovery/editing available; live execution gated pending separate write tests |
 
-![Experiment Decision Desk with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
+![Earlier study layout with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
 
 No LLM setup is required. Current automatic setup uses **NSE**, **Candle**, **Price**, **Relative Strength off** and **Market Trend Filter off**. P&F/Renko execution and dynamic RS/filter adapters remain on the delivery plan. Existing captures from those chart families can still be inspected and compared. A [consolidated source-control audit](docs/EXPERIMENTS.md#chart-and-dependent-control-coverage) records the broader form dependencies separately from automation support.
 
@@ -119,11 +134,11 @@ No LLM setup is required. Current automatic setup uses **NSE**, **Candle**, **Pr
 | --- | --- |
 | Demo (`?demo=1`) | **Generate … sample results** creates fictional examples in seconds. RZone receives no submissions. |
 | Standalone viewer (`localhost`) | Inspect imported archives or prepare plans from saved runs. Open the installed extension for a new connected setup or real execution. |
-| Installed Chrome extension | **Run … tests** applies your new setup to the selected signed-in RZone tab. Existing saved plans use **Start experiment**. Both save completed reports automatically. |
+| Installed Chrome extension | **Run … tests** applies your reviewed setup or continues an eligible saved plan in the selected signed-in RZone tab. Each completed report is saved automatically. |
 
 ```mermaid
 flowchart LR
-    A[Experiment plan] --> B{Workspace}
+    A[Study plan] --> B{Workspace}
     B -->|Demo| C[Fictional sample results]
     B -->|Installed extension| D[Submit to RZone]
     D --> E[Observe fresh start and completion]
@@ -161,11 +176,11 @@ Definedge calculates the backtest. Vault records the completed report and the se
 
 ## Manage your studies
 
-Open **Experiments** to see your studies. Choose **Delete** on a study card, or **Delete study** inside it, then confirm the named study.
+Open **My studies** to see your studies. Choose **Delete** on a study card, or **Delete study** inside it, then confirm the named study.
 
 ```mermaid
 flowchart LR
-    A[Experiments] --> B[Delete study]
+    A[My studies] --> B[Delete study]
     B --> C{Confirm}
     C -->|Cancel| A
     C -->|Delete| D[Study and trial plan removed]
@@ -198,7 +213,7 @@ Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, not
 
 ## Install the extension
 
-**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.13.0.zip** asset; do not download a setup script by itself.
+**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.14.0.zip** asset; do not download a setup script by itself.
 
 ```mermaid
 flowchart LR
@@ -238,7 +253,7 @@ flowchart TD
     style E fill:#b2f7dc,stroke:#247456,color:#122b22
 ```
 
-Choose **Analyze strategies** for the whole library, or **Explain comparison** for selected runs. The first view opens the group with the most comparable runs and shows a leading-run explanation, top-five table and return/drawdown plot.
+Choose **Compare results** for the whole library, or **Explain comparison** for selected runs. The first view opens the group with the most comparable runs and shows a leading-run explanation, top-five table and return/drawdown plot.
 
 ### Make the table yours
 
@@ -265,7 +280,7 @@ On phones, the table scrolls sideways so every chosen column remains available. 
 
 ### One group or every run?
 
-Use **Compare within → All runs · exploratory** to see all strategies together, across Candle, P&F, Renko and different periods. When opened from a selection, “All runs” includes that selection; **Analyze strategies** includes the whole library.
+Use **Compare within → All runs · exploratory** to see all strategies together, across Candle, P&F, Renko and different periods. When opened from a selection, “All runs” includes that selection; **Compare results** includes the whole library.
 
 ```mermaid
 flowchart LR
@@ -379,7 +394,7 @@ The extension and standalone viewer have separate libraries. Transfer records wi
 | Export | Use it for | Complete backup? |
 | --- | --- | --- |
 | **Back up all · JSON** | Restore the library, including imported benchmarks | Yes |
-| **Export experiment · JSON** | Keep a plan and its saved trials together | That experiment only |
+| **Export study · JSON** | Keep a plan and its saved trials together | That study only |
 | **Export run · JSON** | Move one complete run | That run only |
 | **Library / selected / analysis CSV** | Review values and settings in a spreadsheet | No |
 | **Trades CSV** | Inspect trade rows | No |
@@ -451,7 +466,7 @@ npm run preview
 | `dist/intelligence-ui.js` | Leaderboard, plot and explanations |
 | `dist/source-layouts.js` | Shared Candle, P&F and Renko control maps used by discovery, editing and validation |
 | `dist/setup.js` | Source choices, editable settings and settings-only plan validation |
-| `dist/experiments-ui.js` | Guided setup, finite trial planning and Decision desk |
+| `dist/experiments-ui.js` | Study journey, finite trial planning and results |
 | `dist/experiments.js` / `experiment-coordinator.js` / `runner.js` | Approved trials, durable ownership and verified RZone execution |
 | `dist/dashboard.js` | Library, report views, comparison, imports and exports |
 | `dist/demo.js` | Deterministic fictional fixtures |

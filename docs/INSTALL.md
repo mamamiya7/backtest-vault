@@ -2,7 +2,7 @@
 
 ## New installation
 
-Download the complete **backtest-vault-0.13.0.zip** asset from [Releases](https://github.com/mamamiya7/backtest-vault/releases/latest), extract everything, and open the **BacktestVault** folder. Do not download only a setup script. Windows and Linux use the same ZIP.
+Download the complete **backtest-vault-0.14.0.zip** asset from [Releases](https://github.com/mamamiya7/backtest-vault/releases/latest), extract everything, and open the **BacktestVault** folder. Do not download only a setup script. Windows and Linux use the same ZIP.
 
 | System | Run | Default permanent extension folder |
 | --- | --- | --- |
@@ -17,7 +17,7 @@ Open **START-HERE.html** for the offline illustrated guide. To install without a
 
 ## Update an existing installation
 
-1. In Vault's library, click **Back up all**. Preserve any pending recovery download and stop active experiments before closing Vault and RZone tabs.
+1. In Vault's library, click **Back up all**. Preserve any pending recovery download and stop active studies before closing Vault and RZone tabs.
 2. Download and extract the complete new release into a separate folder.
 3. In Chrome's Extensions page, open Vault's **Details** and find **Loaded from**. Use that exact extension folder. Older source installs usually use a folder named **dist**.
 4. Run **Update.cmd** on Windows, or **bash update.sh** on Linux. Paste the existing folder when prompted. You can also pass it explicitly: `Update.cmd --target "existing folder"` or `bash update.sh --target "existing folder"`.
@@ -35,15 +35,17 @@ Setup does not fetch future versions automatically. Use each complete tested Vau
 
 Sign in to RZone as usual, then open Vault using the extension toolbar. **You do not need to complete or save a backtest first.**
 
-1. Choose **New test** in Vault.
+1. Vault opens **My studies**. Choose **New test**; the journey highlights **Set up**, followed by **Run tests** and **Review results**.
 2. With one available RZone tab, Vault loads its choices automatically. With several tabs, select one and click **Connect RZone**. RZone comes forward briefly while Vault reads its controls, then you return to Vault. If you switch tabs yourself, Vault leaves your chosen tab active. Connecting does not submit a backtest. If Vault cannot find Momentum Trading BackTesting, open RZone's Research menu as prompted, then reconnect.
-3. Set up the strategy in the RZone-style form. Search and select **Group**. For **Radar**, **Strategy 1, 2 or 3**, or **Exit Strategy**, choose **On**, then a category and rule. Native dropdowns load automatically, even if source rows started off. For strategy/exit **My / Public**, enter a name or keyword and click **Search**, then select a matching rule. Choose **Off** to skip a period/filter or **Test both** to compare separate On and Off runs. Add **Test values** beside a number or menu to compare values or a range. Momentum Trading BackTest and Portfolio Backtesting are stacked below the strategy form; their dates, ranking and portfolio inputs support variations too. Use calendar inputs to add date choices. Use **Recheck all choices** after adding or changing rules in RZone.
-4. On the same page, set dates, rank criteria, chart/selection, exits and portfolio sizing. Then click **Backtest**, review the test count and comparison rules, and click **Run … tests**. Leaving all variation controls unused runs the current setup once.
-5. Leave RZone open and avoid editing its settings while the queue runs. Vault saves each completed report automatically. Use **Export experiment** for a backup of that test, or **Back up all** on the main library page.
+3. Set up the strategy and select **Group**. Open **More strategy settings** for weights and secondary strategy controls. For **Radar**, **Strategy 1, 2 or 3**, or **Exit Strategy**, choose **On**, then a category and rule. Native dropdowns load automatically, even if source rows started off. For strategy/exit **My / Public**, enter a name or keyword and click **Search**, then select a matching rule. Choose **Off** to skip a period/filter or **Test both** to compare separate On and Off runs. Add **Test values** beside a number or menu to compare values or a range. **Test period** and **Portfolio** follow below; expand **Execution settings** or **Portfolio limits** for their additional controls. **Choose dates** sits beside the Test period heading; use Test values to add date variations. Use **Recheck all choices** after adding or changing rules in RZone.
+4. On the same page, set dates, rank criteria, chart/selection, exits and portfolio sizing. **More strategy settings** opens the secondary strategy controls. Then click **Review … tests**, review the count and comparison rules, and click **Run … tests**. Leaving all variation controls unused runs the current setup once. The journey itself never submits a test.
+5. Leave RZone open and avoid editing its settings while the queue runs. Vault saves each completed report automatically. When the tests finish, **View results** opens the saved evidence. Use **Export study** for a backup of that study, or **Back up all** on the library page. **Compare results** compares saved runs across studies.
+
+**My studies** keeps your saved work available. An unfinished setup can also be reopened with **Continue setup** while you navigate in the same open Vault tab. That unsaved draft does not survive a tab refresh or close.
 
 The editor supports NSE and Price selection under Candle, P&F and Renko, with separate main/execution chart controls. The first connection checks all three chart menus; subsequent connections reuse those menus within the same local day and RZone document session. Recheck all choices forces a fresh scan. Refreshing RZone starts a new document session and requires another check. Current settings are read fresh every time. P&F/Renko automatic execution remains gated pending its own live write acceptance. The user reports normal Candle tests working; this does not prove every combination.
 
-To continue an existing saved baseline, use **Experiments → Use a saved run**. That workflow requires the RZone tab's fixed settings to match the saved baseline. You can also work manually in RZone: submit the momentum and portfolio tests, wait for the report and all trade rows, then click **Save backtest**.
+To continue an existing saved baseline, use **My studies → Use a saved run**, or **Test variations** on the run. That workflow requires the RZone tab's fixed settings to match the saved baseline. You can also work manually in RZone: submit the momentum and portfolio tests, wait for the report and all trade rows, then click **Save backtest**.
 
 ## Standalone viewer
 
@@ -66,12 +68,12 @@ The standalone viewer cannot directly read Chrome extension storage or connect t
 | Connect stays on Reading available settings | Version 0.8.1 bounds the request to 70 seconds while the page is active and displays a retry error beside Connect. RZone's Vault bar shows the reading stage or source error. After updating, reload the same extension and refresh both pages; preserve any pending report first. Retry only when the source is ready. Connecting never submits a backtest. |
 | Source dialog did not close | Version 0.8.3 brings RZone forward during connection and checks the actual dialog state after delayed timer callbacks. If the error remains, open RZone and let its settings dialog finish closing; close it manually if needed, then retry Connect in Vault. Preserve any existing report before closing it. |
 | A dropdown is missing a recently added rule | Use **Recheck all choices**, then choose the intended category. For strategy/exit **My / Public**, enter a keyword and click **Search**. No matches refers to that query; unavailable old selections need review. |
-| Dependent choices never finish loading in an older version | Update to v0.13.0, reload the existing extension and refresh RZone/Vault. My and Public use searchable fields, which older readers incorrectly expected to be dropdowns. |
+| Dependent choices never finish loading in an older version | Update to v0.14.0, reload the existing extension and refresh RZone/Vault. My and Public use searchable fields, which older readers incorrectly expected to be dropdowns. |
 | Group could not be confirmed | Recheck all choices and select a Group from the searchable dropdown. Execution still requires the same exact choice to exist in RZone. |
 | Group list did not load | Let RZone finish loading its Group search, close that menu, then retry Connect or Recheck all choices. Vault preserves your entries and does not run a test after a failed read. |
 | RZone settings changed while reading Group | Let the named control finish loading and retry Connect or Recheck all choices. Vault waits for initial controls to settle and stops if settings change during discovery. |
 | Refreshing choices seems to open RZone settings | This reads the available controls and may change a rule source. It does not submit a backtest. **Run** starts the calculations. |
-| An experiment finishes almost instantly | Check the workspace label. **Generate … sample results** creates fictional examples without contacting RZone. Real execution uses **Run … tests**, or **Start experiment** for a saved plan, inside the installed extension. Inspect **Execution evidence** for source submission and capture times. |
+| A study finishes almost instantly | Check the workspace label. **Generate … sample results** creates fictional examples without contacting RZone. Real execution uses **Run … tests** inside the installed extension. Inspect **Execution evidence** for source submission and capture times. |
 | A duplicate import adds zero runs | Existing IDs stay unchanged. This prevents accidental overwrites. |
 | CAGR / annualized return is missing | Neither source value was available. The summary prefers CAGR and otherwise shows Annualized return, with the matching label. |
 | Both Renko price modes are selected | This is an ambiguous source form state. Review the record; Vault preserves both settings. |
@@ -88,8 +90,8 @@ The earlier raw `Cannot read properties of undefined (reading 'local')` failure 
 
 Chrome requires both the extension and host page to reload after content-script changes. [Chrome reload guidance](https://developer.chrome.com/docs/extensions/get-started/tutorial/hello-world#when_to_reload_the_extension). Extension-local storage requires the already-declared storage permission. [Chrome storage documentation](https://developer.chrome.com/docs/extensions/reference/api/storage).
 
-## Enable Experiments after an update
+## Continue studies after an update
 
-Reload the existing Backtest Vault extension on Chrome's Extensions page, refresh RZone, and reopen Vault. Preserve any pending recovery download before refreshing. Choose **New test** for the guided setup; **Experiments → Use a saved run** keeps the existing-baseline route. Live controls are available only inside the installed extension. Begin with a small Candle/Price test. P&F/Renko live execution remains gated pending separate acceptance tests. See [Experiments](EXPERIMENTS.md).
+Reload the existing Backtest Vault extension on Chrome's Extensions page, refresh RZone, and reopen Vault. Preserve any pending recovery download before refreshing. Choose **New test** for the guided setup; **My studies → Use a saved run** keeps the existing-baseline route. Live controls are available only inside the installed extension. Begin with a small Candle/Price test. P&F/Renko live execution remains gated pending separate acceptance tests. See [Studies, tests and results](EXPERIMENTS.md).
 
 After an interrupted trial, inspect its source report before refreshing. **Check saved result** verifies the saved trial's identity, submitted settings and source lifecycle. An older result without this receipt stays available in the archive but cannot prove a new automatic trial completed. An expired execution lease cannot be revived by a late heartbeat; review the interrupted trial rather than submitting it again automatically.

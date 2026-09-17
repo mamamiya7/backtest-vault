@@ -1,17 +1,19 @@
-# Backtest Vault 0.13.0 — installable preview
+# Backtest Vault 0.14.0 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
 
-- Choose a test period visually with the new date-range calendar, month/year jumps and 1/3/5-year presets. Type dates directly when preferred; Apply commits both dates, Cancel leaves them unchanged.
-- Circular progress reflects saved results. Paused, interrupted and skipped trials keep their actual counts.
-- New saved reports arrive in a compact results list. Panels use brief transitions, and study cards have subtle hover/focus feedback. Reduced motion is supported and financial values stay steady.
-- Existing Test values, date validation, deletion protections and execution safeguards remain.
+- Follow one study through **Set up → Run tests → Review results**, with the current stage and next action visible. The stage indicator only shows progress; it cannot submit or restart a test.
+- Start at **My studies**, create work with **New test**, and use **Compare results** for comparisons across saved runs. An existing run offers **Test variations**.
+- Keep strategy, dates and portfolio on one page, with **More strategy settings** for secondary controls. **Review … tests** opens the final check; only **Run … tests** starts calculations.
+- Return to an unfinished form with **Continue setup** while the same Vault tab stays open. Refreshing or closing the tab clears that unsaved draft; saved studies stay in the archive.
+- Open completed evidence with **View results**, export with **Export study**, or prepare a separate validation test under **Test on another period**.
+- Existing date controls, Test values, saved-only progress, reduced motion, deletion protections and execution safeguards remain. Source automation support has not expanded.
 
 ## Install
 
-Download **backtest-vault-0.13.0.zip**, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.14.0.zip**, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.

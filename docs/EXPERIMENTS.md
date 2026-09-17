@@ -1,40 +1,53 @@
-# Experiments and decision intelligence
+# Studies, tests and results
+
+A **study** keeps a setup, its planned tests and the saved results together. **New test** starts that journey; you do not need to create a second item elsewhere. For example, Period 1 values `252,500` make one study with two tests.
+
+The installed Vault opens **My studies**. A study's journey shows **Set up → Run tests → Review results**, highlights the current stage and gives the next useful action. **Compare results** is for comparing saved runs across studies. The library remains available for individual records, imports and **Back up all**.
+
+| Stage | What to do | What starts calculations? |
+| --- | --- | --- |
+| **Set up** | Choose source settings and optional Test values on one page. | Nothing yet. |
+| **Run tests** | Review the count and rules, then follow progress as reports save. | The explicit **Run … tests** action, or an eligible resume action. |
+| **Review results** | Inspect saved reports, compare matched conditions or prepare a later-period test. | **View results** only focuses evidence. A new validation test requires its own run action. |
+
+The journey is a noninteractive progress indicator; it cannot submit or restart a test. An unsaved setup is retained while navigating within the same open Vault tab; choose **Continue setup** from My studies. Refreshing or closing the tab clears that unsaved draft. Saved studies persist in the archive.
 
 ## Dates and progress
 
-Use **Choose dates** beneath From/To to open the calendar. Select a start and end, jump to a month/year, or choose 1/3/5 years ending on the current end date. Apply commits the pair; Cancel or Escape leaves the form unchanged. Typed dates still work. The independent **Test values** menus continue to vary From and To; every resulting pair must be valid. Validation and holdout calendars respect the unseen-period boundary.
+Use **Choose dates**, beside the **Test period** heading, to open the calendar. Select a start and end, jump to a month/year, or choose 1/3/5 years ending on the current end date. Apply commits the pair; Cancel or Escape leaves the form unchanged. Typed dates still work. The independent **Test values** menus continue to vary From and To; every resulting pair must be valid. Validation and holdout calendars respect the unseen-period boundary.
 
 The progress ring counts saved trials only. A complete stage can have fewer saved results than planned if trials were skipped. The latest-results list links to actual saved reports; old results do not replay arrival animations on each refresh. Reduced-motion preferences are respected, and return/CAGR/drawdown figures never count up.
 
 ## Remove an old study
 
-In **Experiments**, choose **Delete** beside a study, or open it and choose **Delete study**. The confirmation names the study. Cancel leaves it unchanged; Delete removes the study and its trial plan/history while keeping every saved run in the library. Export the study first to keep a copy of its plan. Deletion has no undo.
+In **My studies**, choose **Delete** beside a study, or open it and choose **Delete study**. The confirmation names the study. Cancel leaves it unchanged; Delete removes the study and its trial plan/history while keeping every saved run in the library. Export the study first to keep a copy of its plan. Deletion has no undo.
 
 Running work cannot be deleted. Choose **Stop after current**, wait for it to settle, then delete. The background worker checks current state again so an action in another tab cannot erase an active study. Interrupted work may need review before deletion is available.
 
-Version 0.10.0 preview lets you **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The user reports normal Candle tests working; the new chart-choice/cache flow still needs installed acceptance. The preceding v0.7.3 saved-baseline flow passed an independently checked real three-trial Candle batch on 2026-09-16.
+You can **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The user reports normal Candle tests working; broader chart execution still needs separate live acceptance. The preceding v0.7.3 saved-baseline flow passed an independently checked real three-trial Candle batch on 2026-09-16. The journey changes do not broaden that execution evidence.
 
 ## Trader workflow
 
 ```mermaid
 flowchart LR
-    A[New test in Vault] --> B[Connect signed-in RZone]
+    A[New test in Vault] --> B[Set up: connect signed-in RZone]
     B --> C[One page: strategy, dates, exits and portfolio]
-    C --> D[Test values beside a setting]
-    D --> E[Backtest]
-    E --> F[Test count and comparison rules]
-    F --> G[Run]
-    G --> H[Saved results and Decision desk]
+    C --> D[Optional Test values beside a setting]
+    D --> E[Review N tests]
+    E --> F[Run tests: check count and comparison rules]
+    F --> G[Run N tests]
+    G --> H[Review results: saved reports and comparisons]
+    H --> I[My studies: return later]
     style A fill:#b2f7dc,stroke:#247456,color:#122b22
 ```
 
-1. Open the **installed Vault** and choose **New test** or **Experiments → Start a new test**.
+1. Open the **installed Vault** at **My studies**, then choose **New test**.
 2. **Load choices:** open RZone and sign in if needed. **New test** automatically reads choices when exactly one RZone tab is available. With several tabs, select one and choose **Connect RZone**. Close any existing RZone report/settings dialog first; preserve an unsaved report before leaving it. A failed read allows an explicit retry and is never retried in a loop. Connecting does not submit a backtest.
-3. **Set up everything on one page:** chart, market, four periods and weights, timeframe, retracement, volume, EMA/TMA, Radar, Trend Quality and Strategy 1–3 follow RZone's arrangement. Directly below, Momentum Trading BackTest contains dates, rank criteria, execution chart/selection, exit strategy, target and stop loss. Portfolio Backtesting sits underneath it. Portfolio defaults are labelled and checked against RZone before submission. **Group** is a searchable dropdown populated from RZone's empty-search list. Select with the mouse or use Arrow keys and Enter; execution still resolves the exact source autocomplete choice.
+3. **Set up everything on one page:** choose chart, market, four periods, timeframe and indicators. **More strategy settings** contains period weights and secondary controls. **Test period** contains dates; expand **Execution settings** within it for rank criteria, execution chart/selection, exit strategy, target and stop loss. **Portfolio** follows with capital, allocation and maximum open trades; expand **Portfolio limits** for daily limits and the required portfolio-testing setting. Portfolio defaults are checked against RZone before submission. **Group** is a searchable dropdown populated from RZone's empty-search list. Select with the mouse or use Arrow keys and Enter; execution still resolves the exact source autocomplete choice.
 4. **Add Test values beside eligible controls:** use explicit numbers such as `252,500`, a numeric From/To/Step range, On/Off choices, or multiple available menu choices. Leave them unused for one test. Up to six settings can vary together. Every combination must be valid, including enabled periods, weights, rules and exits. These values are examples, not recommendations.
-5. **Backtest:** review the compact setup summary and total combination count. Choose your comparison measure and limits. Source settings and their eligible Test values are edited on the main page, without opening this review first.
+5. Choose **Review … tests** to check the compact setup summary and total combination count. Choose your comparison measure and limits. Source settings and their eligible Test values are edited on the main page, without opening this review first. Reviewing does not submit anything.
 6. Choose **Run 1 test** or **Run … tests**. Vault applies the full approved setup, runs momentum and portfolio calculations, saves the report, and advances only after verifying the save. Leave the RZone tab's settings alone while it works.
-7. Open saved trials or **Decision desk** for results. **Export experiment** downloads a backup; it is optional and does not trigger another test. **Stop after current** lets the active report finish saving before pausing.
+7. At **Review results**, choose **View results** to inspect the study's saved evidence. **Export study** downloads a backup; it is optional and does not trigger another test. **Stop after current** lets the active report finish saving before pausing. **Test on another period** prepares a separate validation stage after the original results are available.
 
 ### Refresh the available choices
 
@@ -101,7 +114,7 @@ Broader adapters must share one context model across discovery, editing, validat
 
 ### Continue from a saved run
 
-Choose **Experiments → Use a saved run**, or **Create experiment** on an existing run, to keep the older workflow. Choose the baseline, variation values and decision rules, then save the plan and select **Start experiment**. This route changes the chosen variation fields; the RZone tab must already match the saved baseline's fixed settings. **New test** is the route that applies a complete setup from Vault.
+Choose **My studies → Use a saved run**, or **Test variations** on an existing run, to keep the saved-baseline workflow. Choose the baseline, variation values and decision rules, save the plan, then select **Run … tests**. This route changes the chosen variation fields; the RZone tab must already match the saved baseline's fixed settings. **New test** is the route that applies a complete setup from Vault.
 
 The localhost viewer can inspect archives and prepare/export saved-run plans. It has no connection to the installed extension. New connected setup and real execution require the installed Vault. Importing a plan JSON restores it paused and never starts execution automatically.
 
@@ -134,7 +147,7 @@ For example, Period 3 at **90**, with **Test both**, compares including and excl
 | Capital and maximum open trades | Numeric inputs | Explicit values or From / To / Step ranges |
 | Daily stock limit | State and numeric input | Off / On / Test both, plus numeric values or a range |
 | Relative Strength and Market Trend Filter | Must remain off for this adapter | Unavailable |
-| P&F and Renko | Automatic setup/execution gated | Existing saved runs can still prepare plans; execution remains gated |
+| P&F and Renko | Chart-specific editors and choice discovery available | Existing saved runs can still prepare plans; automatic execution remains gated |
 
 The current new-test adapter is **Candle with Price selection**. Other source choices remain visibly unavailable where their dependent controls need a separate adapter. Universe, market, timeframe, chart/selection and source-menu parents stay fixed during a batch. Dates and portfolio assumptions may vary; results with different comparison conditions remain in separate groups. Choose a strategy category from its loaded choices, then select the rules to test. In the saved-run route, inactive fields remain excluded from that baseline's sweep picker. Named rules are recorded as names; hidden rule definitions are never inferred.
 
@@ -154,7 +167,7 @@ flowchart TD
     F --> G["Inspect results and compare within a group"]
 ```
 
-A different period or portfolio setup is useful research, but it does not establish a universal winning strategy. Decision Desk separates those conditions and never averages their return or drawdown into a combined result. Later validation and holdout dates must start after the latest actual end date already tested, including varied discovery dates.
+A different period or portfolio setup is useful research, but it does not establish a universal winning strategy. Results separate those conditions and never average their return or drawdown into a combined result. Later validation and holdout dates must start after the latest actual end date already tested, including varied discovery dates.
 
 ## Search modes
 
@@ -199,7 +212,9 @@ An expired heartbeat marks an active trial uncertain; it does **not** make it av
 
 Storage failure retains a completed pending capture in that source tab's memory, with the existing recovery download. Refreshing loses that pending memory. An imported experiment is always paused, loses source ownership, and marks in-flight trials uncertain. Back up all includes runs, benchmarks and experiment journals; appearance preferences remain excluded. Backups containing experiments use envelope version 2 while individual run records remain schema version 1. Older archives still import.
 
-## Decision Desk
+## Results and later-period testing
+
+The study's **Results** section explains the evidence within matching conditions. After a complete discovery stage, **Test on another period → Prepare validation test** freezes one candidate for a separate later-period test. Preparing that plan does not start source calculations.
 
 ```mermaid
 flowchart TD
@@ -218,7 +233,7 @@ flowchart TD
 
 - The leading trial is provisional while work remains. Ties are shown. Repeated report evidence stays in the journal but does not add independent ranked evidence.
 - Derived Calmar uses **source CAGR / positive maximum drawdown**. Annualized Returns remains a display fallback elsewhere, not a substitute for this calculation. Missing CAGR or zero drawdown withholds Calmar.
-- Neighbor checks examine trials that differ in one adjacent numeric or On/Off setting value, with every other dimension equal. Menu choices are categorical and are not described as adjacent numbers. The desk shows how many checks pass the frozen rules and their objective range. This is descriptive sensitivity, not a statistical confidence score or a causal explanation.
+- Neighbor checks examine trials that differ in one adjacent numeric or On/Off setting value, with every other dimension equal. Menu choices are categorical and are not described as adjacent numbers. Results show how many checks pass the frozen rules and their objective range. This is descriptive sensitivity, not a statistical confidence score or a causal explanation.
 - For a saved-run baseline, return versus baseline is a difference in percentage points and the original report remains available. A new settings-only setup has no baseline performance; Vault does not invent a comparison against it.
 - Index reference uses a local benchmark collection and the chosen discovery leader's dates. Missing, sparse, fictional/real mismatch and source/basis issues remain visible. No real Nifty series is bundled or fetched. Full analysis offers additional reference inspection.
 - Validation freezes one discovery candidate. Holdout freezes that validation candidate. Dates must be strictly later; scores remain separate. Selecting dates after viewing their performance does not create an untouched holdout.
@@ -226,7 +241,7 @@ flowchart TD
 
 ## Demo and acceptance
 
-Open `?demo=1&view=experiments`, choose **Start a new test**, and explore the same form and inline ranges using fictional choices. In the final review, **Generate … sample results** produces examples; the saved-run demo route retains **Generate sample results**. The sample workspace uses a distinct color and reports **Sample results ready** when finished. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary experiments and runs. Navigation pauses a simulation; reload resets it. The standalone viewer identifies itself separately and cannot execute RZone plans. An imported fictional experiment cannot enable real execution controls.
+Open `?demo=1&view=experiments`, choose **New test**, and explore the same journey, form and inline ranges using fictional choices. **Review … tests** opens the final check; **Generate … sample results** produces examples. The saved-run demo route retains **Generate sample results**. The sample workspace uses a distinct color and reports **Sample results ready** when finished. Synthetic series demonstrate changing ranks and queue progress; they do not execute a trading strategy. No RZone commands, extension storage, IndexedDB or network model calls are used. Reset demo clears the temporary studies and runs. Navigation pauses a simulation; reload resets it. The standalone viewer identifies itself separately and cannot execute RZone plans. An imported fictional study cannot enable real execution controls.
 
 Automated checks cover grid/sample bounds, malformed plans, fixed-control drift, worker restarts, concurrent claims, uncertain submissions, failed saves, staged validation, CAGR-only eligibility, three-trial full Candle DOM flows including dates, ranking and portfolio variations, complete backup/import and demo isolation. Date checks cover every combination before sampling, and comparisons keep unlike test conditions separate. These are simulated tests, not proof of the installed extension operating the live service.
 
