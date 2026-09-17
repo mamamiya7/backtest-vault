@@ -692,14 +692,18 @@ async function searchSymbols(p,index,query,{choose=false,sourceValue,market,expe
  const selectedMarket=V.clean(marketNode.selectedOptions[0]?.textContent);if(market!==selectedMarket)throw Error('The benchmark market changed. Search again.');
  if(popups().some(menu=>menu!==p))throw Error('Close the open RZone menu before searching symbols.');
  const original=node.value,owned=new Set(),old=new Set(document.querySelectorAll('.popupContent'));let last='',stableAt=Date.now(),fresh=false,committed=false;
- const observer=new MutationObserver(records=>{for(const menu of popups())if(menu!==p&&menu.querySelector('.ind-list')&&records.some(r=>r.target===menu||menu.contains(r.target))){owned.add(menu);fresh=true;stableAt=Date.now();}});
+ // Native symbol results temporarily become a spinner in the same popup.
+ // Recognize only that observed shell; unrelated dialogs still stop the read.
+ const loading=menu=>menu.parentElement?.classList.contains('tool-popup')&&!!menu.querySelector(':scope > .abcd-1 .loading')&&!menu.querySelector('.custom-dialog-header');
+ const observer=new MutationObserver(records=>{for(const menu of popups())if(menu!==p&&(menu.querySelector('.ind-list')||loading(menu))&&records.some(r=>r.target===menu||menu.contains(r.target))){owned.add(menu);fresh=true;stableAt=Date.now();}});
  observer.observe(document.body,{childList:true,subtree:true,characterData:true});
  try{
   node.focus();ownClick(node);ruleQuery(node,query);let choices,menu;const deadline=Math.min(Date.now()+10000,until-1000);
   while(Date.now()<deadline){
    check();if(inputs(p)[index]!==node||node.value!==query||V.clean(marketNode.selectedOptions[0]?.textContent)!==market)throw Error('The benchmark search changed while reading.');
-   const menus=popups().filter(m=>m!==p);if(menus.some(m=>!m.querySelector('.ind-list'))||menus.length>1)throw Error('RZone opened an unexpected symbol dialog.');
+   const menus=popups().filter(m=>m!==p);if(menus.some(m=>!m.querySelector('.ind-list')&&!loading(m))||menus.length>1)throw Error('RZone opened an unexpected symbol dialog.');
    menu=menus[0];if(menu){if(!old.has(menu)&&!owned.has(menu)){owned.add(menu);fresh=true;stableAt=Date.now();}
+    if(loading(menu)){last='';stableAt=Date.now();await delay(100);continue;}
     const rows=[...menu.querySelectorAll('.ind-list li[name][exhg]')].filter(C.visible);if(rows.length>3000)throw Error('Narrow the symbol search.');
     const read=rows.map(row=>{const id=row.getAttribute('name'),exchange=row.getAttribute('exhg'),label=V.clean(row.querySelector('.symbol-search-list > div')?.textContent);if(!id||id.length>2000||!label||id.split('|')[0]!==label||!exchange)throw Error('RZone symbol choices are incomplete.');return {value:label,label,sourceValue:id,market:exchange,disabled:false};}).filter(o=>market==='All'||o.market===market);
     const next=JSON.stringify(read);if(next!==last){last=next;stableAt=Date.now();}

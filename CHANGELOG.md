@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.2 preview - 2026-09-17
+
+- Wait through RZone's native symbol-loading spinner instead of rejecting it as an unexpected dialog. Reset result stability when a list is replaced so only settled symbols can be used.
+- Preserve the bounded timeout, exact symbol identity checks and native query cleanup. Unrelated dialogs still stop discovery.
+- Includes 0.17.0 and 0.17.1 improvements; their downloads were held after live filter discovery failures.
+
 ## 0.17.1 preview - 2026-09-17
 
 - Close RZone symbol lists through their native clear-search behavior; preserve existing input text and stop safely on failed or ambiguous selections.

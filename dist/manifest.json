@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Definedge Backtest Vault",
-  "version": "0.17.1",
+  "version": "0.17.2",
   "description": "Save momentum backtest settings, portfolio statistics, charts and trades to a local research archive.",
   "permissions": [
     "storage",
