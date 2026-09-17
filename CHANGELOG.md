@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.16.1 preview - 2026-09-17
+
+- Correct the connection progress regression assertion for the updated status copy; release includes all 0.16.0 improvements below.
+
 ## 0.16.0 preview - 2026-09-17
 
 - Add Use these settings beside saved trials and on reports. Reopen the full Step 1 form with exact recorded strategy, dates, exits and portfolio inputs; edit and run as a new study while preserving original evidence.

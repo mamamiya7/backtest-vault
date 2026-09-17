@@ -1,4 +1,4 @@
-# Backtest Vault 0.16.0 — installable preview
+# Backtest Vault 0.16.1 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
@@ -11,7 +11,7 @@ One complete package for Windows and Linux. No Node.js, Python, Git, npm, admini
 
 ## Install
 
-Download **backtest-vault-0.16.0.zip**, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.16.1.zip**, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.
