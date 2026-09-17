@@ -155,7 +155,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  function newTest(initial=null){
   const savedContext=initial?S.savedRunContext(initial):null;
   if(initial&&(initial.demo===true)!==store.demo)throw Error('Real and fictional saved settings cannot be mixed.');
-  const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid())setupPage();return;}
+  const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid()){setupPage();if(extension&&wizard.choiceCache?.checkedAt&&!choicesFromToday(wizard.choiceCache))void action(()=>refreshSetupChoices());}return;}
   selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),contextDrafts:new Map(),choiceCache:null,warmingChart:null,ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(initial){setupDrafts.delete(store);wizard.reuseRun=structuredClone(initial);wizard.reuseApplied=false;wizard.name=((initial.name||'Saved run').slice(0,110)+' · copy');}
   if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');const c=savedContext?.config;wizard.template=S.demoTemplate(c?{momentumChart:c['momentum.chart'],executionChart:c['execution.chart'],momentumBrickMode:c['momentum.brick.mode'],executionBrickMode:c['execution.brick.mode']}:{});wizard.config=initial?S.configFromRun(initial,wizard.template):S.defaults(wizard.template);wizard.reuseApplied=!!initial;wizard.step=1;}
@@ -196,6 +196,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  }
 
  const choiceCharts=['Candle','P&F','Renko'];
+ const choicesFromToday=cache=>!!cache?.checkedAt&&new Date(cache.checkedAt).toDateString()===new Date().toDateString();
  const stageContext=(config,stage)=>config?[config[stage+'.chart'],config[stage+'.brick.mode']||'',...(stage==='marketFilter'?[config[stage+'.exit.brick.mode']||'']:[])].join(':'):null;
  const contextStages=['momentum','execution','marketFilter'];
  const chartContext=config=>config?contextStages.map(stage=>stageContext(config,stage)).join('|'):null;
@@ -242,7 +243,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   const pending=[...state.choiceCache.pendingCharts];if(!pending.length)return;state.connecting=true;
   try{
    for(const chart of pending){
-    if(!alive()||wizard!==state||generation!==state.generation)return;state.warmingChart=chart;setupPage();
+    if(!alive()||wizard!==state||generation!==state.generation)return;if(!state.choiceCache.pendingCharts.includes(chart))continue;state.warmingChart=chart;setupPage();
     const response=await command('configure',{tabId:Number(state.sourceId),warmChart:chart});
     if(!alive()||wizard!==state||generation!==state.generation)return;if(response.source?.session!==state.sourceSession){state.template=null;state.sourceSession=null;state.choiceCache=null;state.step=0;state.stale=true;throw Error('RZone changed while checking choices. Reconnect before continuing.');}
     if(!cacheReceipt(state,response.source)||!state.choiceCache.charts.includes(chart))throw Error('RZone did not finish checking '+chart+' choices.');
@@ -351,7 +352,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    actions.append(connect,button('Open RZone',()=>action(async()=>{await command('open-source');await load();sync();}),'quiet'));shell.append(label('Source',picker),hint,connectionError,actions);return;
   }
   if(!state.template){state.step=0;setupPage();return;}
-  if(extension){const sourceBar=el('div',undefined,'setup-source-bar'),cache=state.choiceCache;let status='Connected to RZone';if(state.loadingFilter)status='Loading '+state.loadingFilter+' settings…';else if(state.warmingChart)status='Checking '+state.warmingChart+' choices… ('+Math.min(3,(cache?.charts.length||0)+1)+' of 3)';else if(cache&&!cache.pendingCharts.length){const when=new Date(cache.checkedAt);status=cache.source==='cache'||cache.scope==='shared-native'?'Using today’s dropdown choices':'Choices checked '+(when.toDateString()===new Date().toDateString()?'today':when.toLocaleDateString('en-IN'));}else if(cache?.charts.length)status='Choices ready: '+cache.charts.join(' · ');const refresh=button('Recheck all choices',()=>action(()=>refreshSetupChoices(undefined,{recheckAllChoices:true})),'quiet');refresh.disabled=state.connecting||!!state.ruleLookup;const receipt=el('span',status,'mini');receipt.setAttribute('role','status');receipt.setAttribute('aria-live','polite');if(cache?.checkedAt)receipt.title='Last checked '+new Date(cache.checkedAt).toLocaleString('en-IN');sourceBar.append(receipt,refresh);shell.append(sourceBar);}
+  if(extension){const sourceBar=el('div',undefined,'setup-source-bar'),cache=state.choiceCache;let status='Connected to RZone';if(state.loadingFilter)status='Loading '+state.loadingFilter+' settings…';else if(state.warmingChart)status='Checking '+state.warmingChart+' choices… ('+Math.min(3,(cache?.charts.length||0)+1)+' of 3)';else if(cache&&!cache.pendingCharts.length){const when=new Date(cache.checkedAt);status=choicesFromToday(cache)&&(cache.source==='cache'||['shared-native','daily'].includes(cache.scope))?'Using today’s dropdown choices':'Choices checked '+(choicesFromToday(cache)?'today':when.toLocaleDateString('en-IN'));}else if(cache?.charts.length)status='Choices ready: '+cache.charts.join(' · ');const refresh=button('Recheck all choices',()=>action(()=>refreshSetupChoices(undefined,{recheckAllChoices:true})),'quiet');refresh.disabled=state.connecting||!!state.ruleLookup;const receipt=el('span',status,'mini');receipt.setAttribute('role','status');receipt.setAttribute('aria-live','polite');if(cache?.checkedAt)receipt.title='Last checked '+new Date(cache.checkedAt).toLocaleString('en-IN');sourceBar.append(receipt,refresh);shell.append(sourceBar);}
   if(state.connectionError){const error=el('p',state.connectionError,'notice error setup-connection-error');error.setAttribute('role','alert');shell.append(error);}
   shell.classList.add('source-workbench');
   buildWorkbench(shell,state);

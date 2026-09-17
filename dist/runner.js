@@ -5,7 +5,9 @@ const C=window.VaultCapture,E=window.VaultExperiments,V=window.Vault,L=window.Va
 if(!C||!E||!L||typeof chrome==='undefined'||!chrome.runtime?.sendMessage)return;
 const session=crypto.randomUUID();let active=false,configuring=false,failed=false,interrupted=false,polling=false,writing=false;
 let lastConfig=null,optionalDay='';const optionalMenus=[];
-function checkOptionalDay(force=false){const now=new Date(),day=[now.getFullYear(),now.getMonth(),now.getDate()].join('-');if(force||optionalDay!==day){optionalMenus.length=0;optionalDay=day;}}
+const localChoiceDay=(time=Date.now())=>{const day=new Date(time);return [day.getFullYear(),day.getMonth(),day.getDate()].join('-');};
+const currentChoiceDay=()=>lastConfig&&localChoiceDay(lastConfig.capturedAt)===localChoiceDay();
+function checkOptionalDay(force=false){const day=localChoiceDay();if(force||optionalDay!==day){optionalMenus.length=0;optionalDay=day;}}
 const delay=ms=>new Promise(r=>setTimeout(r,ms));
 const send=async data=>{const r=await chrome.runtime.sendMessage({type:'vault-experiment',session,...data});if(!r?.ok)throw Error(r?.error||'Extension disconnected.');return r;};
 const inputs=p=>[...p.querySelectorAll('input,select,textarea')].filter(e=>C.visible(e)&&!['password','hidden','submit','button'].includes(e.type)&&!e.closest('[role="tab"]'));
@@ -33,14 +35,22 @@ function check(){if(interrupted)throw Error('The source tab was changed manually
 async function wait(checkValue,deadline,message){while(Date.now()<deadline){check();const v=checkValue();if(v)return v;await delay(250);}throw Error(message);}
 async function close(p,until=Infinity){
  check();if(!p.isConnected||!C.visible(p))return;
- const controls=[...p.querySelectorAll('.custom-dialog-header .close-buton')].filter(C.visible);
+ const controls=[...p.querySelectorAll('.custom-dialog-header .close-buton')].filter(node=>C.visible(node)&&node.closest('.popupContent')===p);
  if(controls.length!==1)throw Error('Cannot identify the RZone dialog close control. Close that dialog in RZone before continuing.');
- controls[0].click();const deadline=Math.min(Date.now()+5000,until);
+ if(popups().at(-1)!==p)throw Error('RZone still has an open menu above its settings. Close that menu before reconnecting.');
+ const started=Date.now(),deadline=Math.min(started+10000,until);let retried=false;
+ ownClick(controls[0]);
  for(;;){
   // A hidden tab can wake after the deadline, after GWT has already finished
   // closing. Read the owned dialog first; a late timer is not a failed close.
   check();if(!p.isConnected||!C.visible(p))return;
   if(Date.now()>=deadline)throw Error('Source dialog did not close.');
+  // GWT keeps the popup attached while its clipping animation runs. Allow
+  // that animation within the request's cleanup budget; never remove it.
+  const shell=p.closest('.custom-dialog'),style=shell&&getComputedStyle(shell),animating=style?.overflow==='hidden'&&style.clip!=='auto'&&style.clip!=='rect(auto, auto, auto, auto)';
+  if(!retried&&!animating&&Date.now()-started>=500&&popups().at(-1)===p&&controls[0].isConnected){
+   retried=true;controls[0].dispatchEvent(new MouseEvent('mousedown',{bubbles:true}));controls[0].dispatchEvent(new MouseEvent('mouseup',{bubbles:true}));ownClick(controls[0]);
+  }
   await delay(250);
  }
 }
@@ -405,21 +415,48 @@ async function strategyCatalogues(main,deadline,stage='momentum',shared=null,onl
 }
 function choiceContext(stage,descriptor){
  const layout=L.stage(stage,descriptor.fields),fields=descriptor.fields;
- if(stage==='marketFilter')return {chart:layout.chart,mode:fields[layout.rsModeIndex].checked?'RS':'Index',action:fields[layout.actionIndex].value,...(Number.isInteger(layout.modeIndex)?{brickMode:fields[layout.modeIndex].value}:{}),categories:layout.rows.map(row=>[row.parentIndex,fields[row.parentIndex].value])};
- return {chart:layout.chart,...(stage==='momentum'?{market:fields[layout.marketIndex].value}:{selection:fields[layout.selectionIndex].value}),...(Number.isInteger(layout.modeIndex)?{mode:fields[layout.modeIndex].value}:{}),categories:layout.rows.map(row=>[row.parentIndex,fields[row.parentIndex].value])};
+ const benchmarkMarkets=symbolIndices(layout).map(index=>[index-1,fields[index-1].value]);
+ if(stage==='marketFilter')return {chart:layout.chart,mode:fields[layout.rsModeIndex].checked?'RS':'Index',action:fields[layout.actionIndex].value,...(Number.isInteger(layout.modeIndex)?{brickMode:fields[layout.modeIndex].value}:{}),...(Number.isInteger(layout.exitModeIndex)?{exitBrickMode:fields[layout.exitModeIndex].value}:{}),categories:layout.rows.map(row=>[row.parentIndex,fields[row.parentIndex].value]),benchmarkMarkets};
+ return {chart:layout.chart,...(stage==='momentum'?{market:fields[layout.marketIndex].value,relativeStrength:layout.relativeStrength}:{selection:fields[layout.selectionIndex].value}),...(Number.isInteger(layout.modeIndex)?{mode:fields[layout.modeIndex].value}:{}),categories:layout.rows.map(row=>[row.parentIndex,fields[row.parentIndex].value]),...(benchmarkMarkets.length?{benchmarkMarkets}:{})};
 }
 const choiceSignature=descriptor=>descriptor.fields.map(field=>[field.type,field.label]);
 const jsonSame=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
 function choiceStageCache(stage,descriptor){
  const catalogues=structuredClone(descriptor.ruleCatalogues);
- for(const catalogue of Object.values(catalogues)){for(const category of Object.keys(catalogue.categories))if(catalogue.controlTypes?.[category]==='text')catalogue.categories[category]=[];catalogue.searchQueries={};}
- return {context:choiceContext(stage,descriptor),signature:choiceSignature(descriptor),nativeOptions:Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one')),ruleCatalogues:catalogues,...(stage==='momentum'?{groupOptions:descriptor.options[1]}:{})};
+ const symbols=new Set(symbolIndices(L.stage(stage,descriptor.fields)).map(String));
+ return {context:choiceContext(stage,descriptor),signature:choiceSignature(descriptor),nativeOptions:Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one')),ruleCatalogues:catalogues,...(stage==='momentum'?{groupOptions:descriptor.options[1]}:{}),...(symbols.size?{symbolOptions:Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>symbols.has(index))),symbolQueries:structuredClone(descriptor.symbolQueries||{})}:{})};
+}
+const rememberedChoices=(previous,current)=>compactRuleChoices([...new Map([...(previous||[]),...current].map(option=>[JSON.stringify([option.label,option.sourceValue,option.market]),structuredClone(option)])).values()]);
+function dailyStage(stage,descriptor,cached){
+ const layout=L.stage(stage,descriptor.fields),context=choiceContext(stage,descriptor),withoutCategories=value=>Object.fromEntries(Object.entries(value).filter(([key])=>key!=='categories').sort(([a],[b])=>a.localeCompare(b)));
+ if(!jsonSame(withoutCategories(cached.context),withoutCategories(context)))return null;
+ try{
+  if(cached.signature.length!==descriptor.fields.length)throw Error('signature');
+  const base=descriptor.fields.map((field,index)=>({...field,type:cached.signature[index][0],label:cached.signature[index][1]}));
+  for(const [index,value]of cached.context.categories)base[index].value=value;
+  const labels=window.VaultSetup.projectRuleLabels(base,cached.ruleCatalogues,descriptor.fields,stage),children=new Set(layout.rows.map(row=>String(row.childIndex)));
+  const native=Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one'&&!children.has(index))),priorNative=Object.fromEntries(Object.entries(cached.nativeOptions).filter(([index])=>!children.has(index)));
+  if(!jsonSame(native,priorNative))throw Error('native choices');
+  const copy=structuredClone(cached);
+  for(const row of layout.rows){const catalogue=copy.ruleCatalogues[row.childIndex],category=descriptor.fields[row.parentIndex].value;
+   if(!catalogue||catalogue.parentIndex!==row.parentIndex||catalogue.gateIndex!==row.gateIndex||!Array.isArray(catalogue.categories?.[category])||catalogue.controlTypes?.[category]!==descriptor.fields[row.childIndex].type)throw Error('category');
+   base[row.childIndex].type=catalogue.controlTypes[category];
+   if(!descriptor.fields[row.childIndex].disabled&&base[row.childIndex].type==='select-one'&&!jsonSame(catalogue.categories[category],compactRuleChoices(structuredClone(descriptor.options[row.childIndex]||[]))))throw Error('rules');
+  }
+  if(base.some((field,index)=>field.type!==descriptor.fields[index].type||labels[index]!==descriptor.fields[index].label))throw Error('layout');
+  for(const owner of Object.values(copy.ruleCatalogues))if(owner.labelDependents){const before=base[owner.parentIndex].label+' → ',after=labels[owner.parentIndex]+' → ';
+   for(const row of layout.rows){const indices=ruleRowIndices(row),catalogue=copy.ruleCatalogues[row.childIndex];for(const observed of Object.values(catalogue.fieldLabels||{}))indices.forEach((index,n)=>{if(owner.labelDependents.includes(index)){if(!observed[n].startsWith(before))throw Error('dependent labels');observed[n]=after+observed[n].slice(before.length);}});}
+  }
+  if(stage==='momentum'&&(!Array.isArray(copy.groupOptions)||descriptor.fields[1].value&&!copy.groupOptions.some(option=>!option.disabled&&option.label===descriptor.fields[1].value)))throw Error('group');
+  return copy;
+ }catch{throw Error('RZone choices changed. Use Recheck all choices to update today’s cache.');}
 }
 function cachedStage(stage,descriptor,records,force){
  if(force||!Array.isArray(records))return null;
  const layout=L.stage(stage,descriptor.fields);
- if(layout.rows.some(row=>descriptor.fields[row.childIndex].type==='text'&&descriptor.fields[row.childIndex].value.trim()))return null;
- for(const record of records.slice(0,18)){
+ for(const record of records.slice(-128).reverse()){
+  if(record?.schemaVersion===2&&record.adapterVersion===L.version&&(record.daily===true&&!Object.hasOwn(record,'session')||record.session===session)&&record.stages?.[stage]){const hit=dailyStage(stage,descriptor,record.stages[stage]);if(hit)return hit;continue;}
+  if(layout.rows.some(row=>descriptor.fields[row.childIndex].type==='text'&&descriptor.fields[row.childIndex].value.trim()))continue;
   const shared=record?.publicOnly===true,cached=record?.stages?.[stage];if(record?.schemaVersion!==1||record.adapterVersion!==L.version||(!shared&&record.session!==session)||shared&&Object.hasOwn(record,'session')||!cached||!jsonSame(cached.context,choiceContext(stage,descriptor))||!jsonSame(cached.signature,choiceSignature(descriptor)))continue;
   const childIndices=new Set(layout.rows.map(row=>String(row.childIndex)));
   if(!jsonSame(cached.nativeOptions,Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one'&&(!shared||!childIndices.has(index))))))continue;
@@ -429,6 +466,15 @@ function cachedStage(stage,descriptor,records,force){
    for(const row of layout.rows){const catalogue=cached.ruleCatalogues[row.childIndex],category=descriptor.fields[row.parentIndex].value;if(catalogue.parentIndex!==row.parentIndex||catalogue.gateIndex!==row.gateIndex)throw Error('Invalid cached category.');if(shared){if(Object.hasOwn(catalogue,'searchQueries')||Object.keys(catalogue.categories||{}).some(key=>!['Pre','Popular'].includes(key)||catalogue.controlTypes?.[key]!=='select-one'||!Array.isArray(catalogue.categories[key])))throw Error('Private choices cannot cross documents.');if(catalogue.categories?.[category]&&!jsonSame(catalogue.categories[category],compactRuleChoices(structuredClone(descriptor.options[row.childIndex]||[]))))throw Error('Shared choices changed.');}else if(!Array.isArray(catalogue.categories?.[category])||catalogue.controlTypes?.[category]!==descriptor.fields[row.childIndex].type)throw Error('Invalid cached category.');if(catalogue.fieldLabels?.[category]&&!jsonSame(catalogue.fieldLabels[category],ruleRowIndices(row).map(index=>descriptor.fields[index].label)))throw Error('Cached labels changed.');}
    return {...structuredClone(cached),publicOnly:shared};
   }catch{/* A cache mismatch falls back to current source discovery. */}
+ }
+ return null;
+}
+function cachedGroups(descriptor,records,force){
+ if(force)return null;
+ const value=descriptor.fields[1].value;
+ for(const record of (records||[]).slice().reverse())if(record?.schemaVersion===2&&record.adapterVersion===L.version&&(record.daily===true||record.session===session)){
+  const stage=record.stages?.momentum;
+  if(stage?.context.market===descriptor.fields[3].value&&Array.isArray(stage.groupOptions)&&(!value||stage.groupOptions.some(option=>!option.disabled&&option.label===value)))return structuredClone(stage.groupOptions);
  }
  return null;
 }
@@ -471,9 +517,10 @@ async function openMarketFilter(until){
  const layout=L.stage('momentum',C.fields(C.main()));if(!inputs(C.main())[layout.mtfIndex].checked){ownClick(inputs(C.main())[layout.mtfIndex]);await delay(150);}
  ownClick(button(C.main(),/^Market Trend Filter$/i));return C.popup('Market Trend Filter')||await wait(()=>C.popup('Market Trend Filter'),Math.min(Date.now()+10000,until),'Market Trend Filter did not open.');
 }
-async function benchmarkChoices(p,stage,until){
+async function benchmarkChoices(p,stage,until,cached,cachedLayout){
  const out={options:{},symbolQueries:{}},layout=L.stage(stage,C.fields(p));
- for(const index of symbolIndices(layout)){const node=inputs(p)[index];if(node.disabled||!node.value.trim())continue;const query=node.value,market=V.clean(inputs(p)[index-1].selectedOptions[0]?.textContent);out.options[index]=await searchSymbols(p,index,query,{market,until});out.symbolQueries[index]={market,query};}
+ for(const index of symbolIndices(layout)){const node=inputs(p)[index];if(node.disabled||!node.value.trim())continue;const query=node.value,market=V.clean(inputs(p)[index-1].selectedOptions[0]?.textContent),role=['benchmarkIndex','indexSymbolIndex','numeratorSymbolIndex','denominatorSymbolIndex'].find(key=>layout[key]===index),cachedIndex=cachedLayout?cachedLayout[role]:index,prior=cached?.symbolQueries?.[cachedIndex],choices=cached?.symbolOptions?.[cachedIndex];
+  out.options[index]=Array.isArray(choices)&&choices.some(option=>!option.disabled&&option.sourceValue&&option.label===query&&(market==='All'||option.market===market))?structuredClone(choices):await searchSymbols(p,index,query,{market,until});out.symbolQueries[index]={market,query};}
  return out;
 }
 function mergeBenchmarks(d,proof){d.options={...d.options,...proof.options};d.symbolQueries={...d.symbolQueries,...proof.symbolQueries};return d;}
@@ -482,7 +529,8 @@ async function filterConfiguration(requestedChanges,request={}){
  const feature=request.loadFilter||(requestedChanges?.momentum?'relativeStrength':'marketFilter'),changes=requestedChanges||{};
  if(!['relativeStrength','marketFilter'].includes(feature)||Object.keys(changes).some(key=>key!=='marketFilter'&&key!=='momentum')||Object.values(changes).reduce((n,v)=>n+Object.keys(v).length,0)>1)throw Error('Load one optional filter at a time.');
  if(!lastConfig)throw Error('Connect RZone before loading filter choices.');
- checkOptionalDay();configuring=true;interrupted=false;const started=Date.now(),until=started+42000;let p,snapshot,relativeSnapshot,originalMain,result,reusedChoices=false;
+ if(!currentChoiceDay())throw Error('A new day has started. Connect RZone again to update today’s choices.');
+ checkOptionalDay(request.forceChoices===true);const records=request.forceChoices?[]:[...optionalMenus,...(request.cachedChoices||[])];configuring=true;interrupted=false;const started=Date.now(),until=started+42000;let p,snapshot,relativeSnapshot,originalMain,result,reusedChoices=false,choiceCache;
  try{
   await prepare();await settledMain();originalMain=restorableStage(C.main(),'momentum');
   const base=lastConfig.stages.momentum;if(!jsonSame(originalMain.fields,base.fields))throw Error('RZone settings changed. Connect again before loading this filter.');
@@ -494,10 +542,10 @@ async function filterConfiguration(requestedChanges,request={}){
    await setField(C.main(),off.rsIndex,{...C.fields(C.main())[off.rsIndex],checked:true},'momentum',until);
    relativeSnapshot=restorableStage(C.main(),'momentum');
    for(const [raw,value]of Object.entries(changes.momentum||{})){const index=Number(raw),layout=L.stage('momentum',C.fields(C.main()));if(![layout.benchmarkMarketIndex,layout.rows.at(-1).parentIndex].includes(index)||typeof value!=='string'||!value||value.length>200)throw Error('This Relative Strength selector cannot refresh the source.');await setField(C.main(),index,{...C.fields(C.main())[index],value},'momentum',until);}
-   const relative={...descriptor(C.main()),supportedMarkets:['NSE']};relative.options[1]=structuredClone(base.options[1]);const previous=cachedStage('momentum',relative,optionalMenus,false);reusedChoices=!!previous;relative.ruleCatalogues=previous?previous.ruleCatalogues:{...without.ruleCatalogues,...await strategyCatalogues(C.main(),until,'momentum',null,['Relative Strength'])};
+   const relative={...descriptor(C.main()),supportedMarkets:['NSE']};relative.options[1]=structuredClone(base.options[1]);const previous=cachedStage('momentum',relative,records,request.forceChoices===true);reusedChoices=!!previous;relative.ruleCatalogues=previous?previous.ruleCatalogues:{...without.ruleCatalogues,...await strategyCatalogues(C.main(),until,'momentum',null,['Relative Strength'])};
    for(const [child,c]of Object.entries(relative.ruleCatalogues))relative.options[child]=c.categories[relative.fields[c.parentIndex].value];
-   mergeBenchmarks(relative,await benchmarkChoices(C.main(),'momentum',until));
-   optionalMenus.push({schemaVersion:1,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',relative)}});if(optionalMenus.length>18)optionalMenus.shift();
+   mergeBenchmarks(relative,await benchmarkChoices(C.main(),'momentum',until,previous));
+   choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',relative)}};optionalMenus.push(choiceCache);if(optionalMenus.length>128)optionalMenus.shift();
    config.stages.momentum.relativeStrength=relative;config.stages.momentum.withoutRelativeStrength=without;
   }else{
    p=await openMarketFilter(until);snapshot=restorableStage(p,'marketFilter');let layout=L.stage('marketFilter',snapshot.fields);
@@ -520,20 +568,20 @@ async function filterConfiguration(requestedChanges,request={}){
    const current={fields:C.fields(p)};
    if(!current.fields[layout.indexModeIndex].checked){await setField(p,layout.indexModeIndex,{...current.fields[layout.indexModeIndex],checked:true},'marketFilter',until);layout=L.stage('marketFilter',C.fields(p));}
    if(!layout.hasExit){await setField(p,layout.actionIndex,{...C.fields(p)[layout.actionIndex],value:L.marketActions[2]},'marketFilter',until);await settledStage(p,'marketFilter',layout.chart,until);layout=L.stage('marketFilter',C.fields(p));}
-   const full=descriptor(p);full.current=current;const previous=cachedStage('marketFilter',full,optionalMenus,false);reusedChoices=!!previous;full.ruleCatalogues=previous?previous.ruleCatalogues:await strategyCatalogues(p,until,'marketFilter');for(const [child,c]of Object.entries(full.ruleCatalogues))full.options[child]=c.categories[full.fields[c.parentIndex].value];
-   optionalMenus.push({schemaVersion:1,adapterVersion:L.version,session,stages:{marketFilter:choiceStageCache('marketFilter',full)}});if(optionalMenus.length>18)optionalMenus.shift();
-   mergeBenchmarks(full,await benchmarkChoices(p,'marketFilter',until));
+   const full=descriptor(p);full.current=current;const previous=cachedStage('marketFilter',full,records,request.forceChoices===true);reusedChoices=!!previous;full.ruleCatalogues=previous?previous.ruleCatalogues:await strategyCatalogues(p,until,'marketFilter');for(const [child,c]of Object.entries(full.ruleCatalogues))full.options[child]=c.categories[full.fields[c.parentIndex].value];
+   mergeBenchmarks(full,await benchmarkChoices(p,'marketFilter',until,previous));
    // Read both benchmark branches; map the observed RS indices back to the
    // full Index descriptor instead of assuming non-Candle positions match.
    const expanded=L.stage('marketFilter',full.fields);await setField(p,expanded.rsModeIndex,{...C.fields(p)[expanded.rsModeIndex],checked:true},'marketFilter',until);
-   const rs=L.stage('marketFilter',C.fields(p)),proof=await benchmarkChoices(p,'marketFilter',until);
+   const rs=L.stage('marketFilter',C.fields(p)),proof=await benchmarkChoices(p,'marketFilter',until,previous,expanded);
    for(const key of ['numeratorSymbolIndex','denominatorSymbolIndex']){if(proof.options[rs[key]]){full.options[expanded[key]]=proof.options[rs[key]];full.symbolQueries[expanded[key]]=proof.symbolQueries[rs[key]];}}
    config.stages.marketFilter=full;
+   choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{marketFilter:choiceStageCache('marketFilter',full)}};optionalMenus.push(choiceCache);if(optionalMenus.length>128)optionalMenus.shift();
   }
-  config.capturedAt=new Date().toISOString();window.VaultSetup.template(config);result={config,choicesFromCache:reusedChoices,hasCachedChoices:reusedChoices};
+  config.capturedAt=new Date().toISOString();window.VaultSetup.template(config);result={config,choiceCache,choicesFromCache:reusedChoices,hasCachedChoices:reusedChoices};
  }finally{
   try{
-   if(p?.isConnected&&C.visible(p)&&!interrupted){if(snapshot)await restoreStage(p,'marketFilter',snapshot,started+54000);await close(p);}
+   if(p?.isConnected&&C.visible(p)&&!interrupted){if(snapshot)await restoreStage(p,'marketFilter',snapshot,started+54000);await close(p,started+58000);}
    if(relativeSnapshot&&!interrupted)await restoreStage(C.main(),'momentum',relativeSnapshot,started+55000);
    if(originalMain&&!interrupted){await restoreStage(C.main(),'momentum',originalMain,started+59000);}
   }catch(error){failed=true;throw error;}finally{configuring=false;}
@@ -559,16 +607,17 @@ async function configuration(requestedChanges,request={}){
   if(warm){
    warmMain=restorableStage(C.main(),'momentum');
    button(C.main(),/^BackTest$/i).click();setup=C.popup('Momentum Trading BackTest')||await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(Date.now()+10000,started+12000),'Momentum settings did not open.');
-   warmExecution=restorableStage(setup,'execution');await close(setup);setup=null;
+   warmExecution=restorableStage(setup,'execution');await close(setup,started+20000);setup=null;
    if(Date.now()>=started+20000)throw Error('RZone took too long to prepare the other chart choices. Its original settings were left intact.');
   }
-  restoreMain=!!warm&&warmMain.fields[0].value!==warm;
+  restoreMain=!!warm&&(warmMain.fields[0].value!==warm||L.stage('momentum',warmMain.fields).relativeStrength);
+  if(warm){const layout=L.stage('momentum',C.fields(C.main()));if(layout.relativeStrength)await setField(C.main(),layout.rsIndex,{...C.fields(C.main())[layout.rsIndex],checked:false},'momentum',started+25000);}
   await changeParents(C.main(),warm?{0:warm}:changes.momentum,'momentum',started+(warm?25000:35000));const momentum={...descriptor(C.main()),supportedMarkets:['NSE']};
   L.stage('momentum',momentum.fields);
   const mainCache=cachedStage('momentum',momentum,request.cachedChoices,request.forceChoices===true);hits.push(!!mainCache);
   sharedChoicesUsed=!!mainCache?.publicOnly;
   if(mainCache)C.status('Reusing today’s dropdown choices; checking current settings…');
-  momentum.options[1]=mainCache&&!mainCache.publicOnly?mainCache.groupOptions:await groupCatalogue(C.main());
+  momentum.options[1]=mainCache&&!mainCache.publicOnly?mainCache.groupOptions:cachedGroups(momentum,request.cachedChoices,request.forceChoices===true)||await groupCatalogue(C.main());
   // Discovery shares a bounded request budget. Main scanning keeps its 35 s
   // cap; execution must be open/refreshed by 43 s, and its scan ends at 48 s.
   // Reserve 5 s each for exact exit restoration and owned-dialog closure,
@@ -576,27 +625,31 @@ async function configuration(requestedChanges,request={}){
   const scanDeadline=Math.min(Date.now()+35000,started+(warm?30000:Object.keys(changes.execution||{}).length?28000:38000));
   momentum.ruleCatalogues=mainCache&&!mainCache.publicOnly?mainCache.ruleCatalogues:await strategyCatalogues(C.main(),scanDeadline,'momentum',mainCache);
   for(const [child,catalogue]of Object.entries(momentum.ruleCatalogues))momentum.options[child]=catalogue.categories[momentum.fields[catalogue.parentIndex].value];
+  if(mainCache?.symbolOptions)mergeBenchmarks(momentum,{options:structuredClone(mainCache.symbolOptions),symbolQueries:structuredClone(mainCache.symbolQueries||{})});
   C.status('Connecting to Vault: reading backtest settings…');
   const openUntil=started+(warm?33000:43000)-(Object.keys(changes.execution||{}).length?10000:0);
   if(Date.now()>=openUntil)throw Error('RZone choices took too long to load. Refresh choices and try again.');
   button(C.main(),/^BackTest$/i).click();setup=C.popup('Momentum Trading BackTest')||await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(Date.now()+10000,openUntil),'Momentum settings did not open.');
   for(const row of stageRows('execution',setup))restorableRule(setup,row);
-  restoreExecution=!!warm&&warmExecution.fields[3].value!==warm;
-  await changeParents(setup,warm?{3:warm}:changes.execution,'execution',started+(warm?37000:43000));const execution=descriptor(setup);
+  restoreExecution=!!warm&&(warmExecution.fields[3].value!==warm||L.stage('execution',warmExecution.fields).selection!=='Price');
+  await changeParents(setup,warm?{3:warm}:changes.execution,'execution',started+(warm?37000:43000));
+  if(warm){const layout=L.stage('execution',C.fields(setup));if(layout.selection!=='Price')await setField(setup,layout.selectionIndex,{...C.fields(setup)[layout.selectionIndex],value:'Price'},'execution',started+37000);}
+  const execution=descriptor(setup);
   L.stage('execution',execution.fields);
   const executionCache=cachedStage('execution',execution,request.cachedChoices,request.forceChoices===true);hits.push(!!executionCache);
   sharedChoicesUsed=sharedChoicesUsed||!!executionCache?.publicOnly;
   execution.ruleCatalogues=executionCache&&!executionCache.publicOnly?executionCache.ruleCatalogues:await strategyCatalogues(setup,started+(warm?40000:48000),'execution',executionCache);
   for(const [child,catalogue]of Object.entries(execution.ruleCatalogues))execution.options[child]=catalogue.categories[execution.fields[catalogue.parentIndex].value];
+  if(executionCache?.symbolOptions)mergeBenchmarks(execution,{options:structuredClone(executionCache.symbolOptions),symbolQueries:structuredClone(executionCache.symbolQueries||{})});
   if(JSON.stringify(C.fields(C.main()))!==JSON.stringify(momentum.fields))throw Error('RZone momentum settings changed while reading backtest choices. Review the source.');
   const portfolio=window.VaultSetup?.portfolioTemplate();if(!portfolio)throw Error('Vault setup template is unavailable. Reload the extension and RZone.');
   check();config={schemaVersion:1,adapterVersion:L.version,session,capturedAt:new Date().toISOString(),stages:{momentum,execution,portfolio},supports:{charts:['Candle','P&F','Renko'],executeCharts:['Candle'],filters:['relative-strength','market-filter'],blocked:[]}};window.VaultSetup.template(config);
   }finally{
-   try{if(setup&&C.visible(setup)&&!interrupted){if(restoreExecution)await restoreStage(setup,'execution',warmExecution,started+50000);await close(setup);}}
+   try{if(setup&&C.visible(setup)&&!interrupted){if(restoreExecution)await restoreStage(setup,'execution',warmExecution,started+50000);await close(setup,started+55000);}}
    catch(error){failed=true;throw error;}
    finally{if(restoreMain&&!interrupted){try{await restoreStage(C.main(),'momentum',warmMain,started+59000);}catch(error){failed=true;throw error;}}}
   }
-  if(!warm)lastConfig=structuredClone(config);C.status('RZone settings read. Return to Vault to finish setup.');return {config,choiceCache:{schemaVersion:1,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',config.stages.momentum),execution:choiceStageCache('execution',config.stages.execution)}},choicesFromCache:hits.every(Boolean),hasCachedChoices:hits.some(Boolean),sharedChoicesUsed};
+  if(!warm)lastConfig=structuredClone(config);C.status('RZone settings read. Return to Vault to finish setup.');return {config,choiceCache:{schemaVersion:2,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',config.stages.momentum),execution:choiceStageCache('execution',config.stages.execution)}},choicesFromCache:hits.every(Boolean),hasCachedChoices:hits.some(Boolean),sharedChoicesUsed};
  }catch(error){C.status('Vault connection failed: '+error.message);throw error;}
  finally{configuring=false;}
 }
@@ -635,7 +688,10 @@ async function symbolLookup(request){
   const updated=L.stage(stage,C.fields(p)),role=['benchmarkIndex','indexSymbolIndex','numeratorSymbolIndex','denominatorSymbolIndex'].find(key=>layout[key]===request.fieldIndex),index=updated[role];
   await setField(p,index-1,{...C.fields(p)[index-1],value:request.market},stage,started+45000);
   const options=await searchSymbols(p,index,request.query,{market:request.market,until:started+45000});
-  return {stage,fieldIndex:request.fieldIndex,market:request.market,query:request.query,controlType:'text',options};
+  const result={stage,fieldIndex:request.fieldIndex,market:request.market,query:request.query,controlType:'text',options};
+  const descriptor=stage==='momentum'&&lastConfig.stages.momentum.relativeStrength&&request.fieldIndex===L.stage('momentum',lastConfig.stages.momentum.relativeStrength.fields).benchmarkIndex?lastConfig.stages.momentum.relativeStrength:lastConfig.stages[stage];
+  if(descriptor){descriptor.options[request.fieldIndex]=rememberedChoices(descriptor.options[request.fieldIndex],options);descriptor.symbolQueries={...descriptor.symbolQueries,[request.fieldIndex]:{market:request.market,query:request.query}};if(currentChoiceDay())result.choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{[stage]:choiceStageCache(stage,descriptor)}};}
+  return result;
  }finally{try{if(context)await context.restore();}catch(error){failed=true;throw error;}finally{configuring=false;}}
 }
 async function ruleLookup(request){
@@ -661,7 +717,10 @@ async function ruleLookup(request){
   const options=await searchRules(main,row.childIndex,request.query,{until:deadline});
   unchangedOutsideRow(main,snapshot,row);
   if(V.clean(inputs(main)[row.parentIndex].selectedOptions[0]?.textContent)!==request.category)throw Error('The rule source changed while searching.');
-  return {stage,parentIndex:row.parentIndex,childIndex:row.childIndex,category:request.category,query:request.query,controlType:'text',options};
+  const result={stage,parentIndex:row.parentIndex,childIndex:row.childIndex,category:request.category,query:request.query,controlType:'text',options};
+  const descriptor=stage==='momentum'&&lastConfig.stages.momentum.relativeStrength&&request.parentIndex===L.stage('momentum',lastConfig.stages.momentum.relativeStrength.fields).rows.at(-1).parentIndex?lastConfig.stages.momentum.relativeStrength:lastConfig.stages[stage],catalogue=descriptor?.ruleCatalogues?.[row.childIndex];
+  if(catalogue){catalogue.categories[request.category]=rememberedChoices(catalogue.categories[request.category],options);catalogue.searchQueries={...catalogue.searchQueries,[request.category]:request.query};if(descriptor.fields[row.parentIndex].value===request.category)descriptor.options[row.childIndex]=structuredClone(catalogue.categories[request.category]);if(currentChoiceDay())result.choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{[stage]:choiceStageCache(stage,descriptor)}};}
+  return result;
  }catch(error){throw Error((row?ruleRowName(row)+' / '+request.category+': ':'')+error.message);
  }finally{try{try{if(original&&!interrupted)await restoreStrategyRow(main,row,snapshot,original);}finally{if(context)await context.restore();}}finally{configuring=false;}}
 }
@@ -695,19 +754,21 @@ async function searchSymbols(p,index,query,{choose=false,sourceValue,market,expe
  // Native symbol results temporarily become a spinner in the same popup.
  // Recognize only that observed shell; unrelated dialogs still stop the read.
  const loading=menu=>menu.parentElement?.classList.contains('tool-popup')&&!!menu.querySelector(':scope > .abcd-1 .loading')&&!menu.querySelector('.custom-dialog-header');
- const observer=new MutationObserver(records=>{for(const menu of popups())if(menu!==p&&(menu.querySelector('.ind-list')||loading(menu))&&records.some(r=>r.target===menu||menu.contains(r.target))){owned.add(menu);fresh=true;stableAt=Date.now();}});
+ const noSymbols=menu=>menu.parentElement?.classList.contains('tool-popup')&&!menu.querySelector('.custom-dialog-header')&&[...menu.querySelectorAll(':scope > .abcd-1 .gwt-HTML')].some(node=>C.visible(node)&&V.clean(node.textContent)==='No matching symbol found');
+ const symbolMenu=menu=>!!menu.querySelector('.ind-list')||loading(menu)||noSymbols(menu);
+ const observer=new MutationObserver(records=>{for(const menu of popups())if(menu!==p&&symbolMenu(menu)&&records.some(r=>r.target===menu||menu.contains(r.target))){owned.add(menu);fresh=true;stableAt=Date.now();}});
  observer.observe(document.body,{childList:true,subtree:true,characterData:true});
  try{
   node.focus();ownClick(node);ruleQuery(node,query);let choices,menu;const deadline=Math.min(Date.now()+10000,until-1000);
   while(Date.now()<deadline){
    check();if(inputs(p)[index]!==node||node.value!==query||V.clean(marketNode.selectedOptions[0]?.textContent)!==market)throw Error('The benchmark search changed while reading.');
-   const menus=popups().filter(m=>m!==p);if(menus.some(m=>!m.querySelector('.ind-list')&&!loading(m))||menus.length>1)throw Error('RZone opened an unexpected symbol dialog.');
+   const menus=popups().filter(m=>m!==p);if(menus.some(m=>!symbolMenu(m))||menus.length>1)throw Error('RZone opened an unexpected symbol dialog.');
    menu=menus[0];if(menu){if(!old.has(menu)&&!owned.has(menu)){owned.add(menu);fresh=true;stableAt=Date.now();}
     if(loading(menu)){last='';stableAt=Date.now();await delay(100);continue;}
     const rows=[...menu.querySelectorAll('.ind-list li[name][exhg]')].filter(C.visible);if(rows.length>3000)throw Error('Narrow the symbol search.');
     const read=rows.map(row=>{const id=row.getAttribute('name'),exchange=row.getAttribute('exhg'),label=V.clean(row.querySelector('.symbol-search-list > div')?.textContent);if(!id||id.length>2000||!label||id.split('|')[0]!==label||!exchange)throw Error('RZone symbol choices are incomplete.');return {value:label,label,sourceValue:id,market:exchange,disabled:false};}).filter(o=>market==='All'||o.market===market);
     const next=JSON.stringify(read);if(next!==last){last=next;stableAt=Date.now();}
-    if(fresh&&read.length&&Date.now()-stableAt>=750){choices=compactRuleChoices(read);break;}
+    if(fresh&&(read.length||noSymbols(menu))&&Date.now()-stableAt>=750){choices=compactRuleChoices(read);break;}
    }await delay(100);
   }
   if(!choices)throw Error('RZone did not return confirmed symbols. Try a more specific symbol name.');
@@ -720,20 +781,25 @@ async function searchSymbols(p,index,query,{choose=false,sourceValue,market,expe
   }
   return choices;
  }finally{
-  observer.disconnect();if(!interrupted&&node.isConnected){try{
-   if([...owned].some(m=>m.isConnected&&C.visible(m))){
-    // The native symbol list does not dismiss on outside clicks. Clear only
-    // its transient query, then restore the displayed value without issuing
-    // another search. Escape can close the parent dialog and orphan the list.
-    if(!committed)ruleQuery(node,'');
-    const cleanupDeadline=Math.min(Date.now()+5000,until);
-    for(;;){check();if([...owned].every(m=>!m.isConnected||!C.visible(m)))break;if(Date.now()>=cleanupDeadline)throw Error('The symbol menu did not close.');await delay(100);}
+  try{if(!interrupted&&node.isConnected){try{
+   // Keep observing through dismissal: a delayed response can reopen the
+   // native list after its first empty-query acknowledgement. Restoring text
+   // or closing the parent at that first hidden frame leaves an orphan menu.
+   const cleanupDeadline=Math.min(Date.now()+5000,until);let quietSince=null,lastClear=Date.now();
+   if(!committed)ruleQuery(node,'');
+   for(;;){
+    check();
+    for(const menu of popups())if(menu!==p&&!old.has(menu)&&symbolMenu(menu))owned.add(menu);
+    const visible=[...owned].some(menu=>menu.isConnected&&C.visible(menu)),now=Date.now();
+    if(!visible){if(quietSince===null)quietSince=now;if(now-quietSince>=500)break;}
+    else{quietSince=null;if(!committed&&now-lastClear>=200){ruleQuery(node,'');lastClear=now;}}
+    if(now>=cleanupDeadline)throw Error('The symbol menu did not close.');
+    await delay(100);
    }
   }finally{if(!interrupted&&node.isConnected){
    if(!committed&&restore)Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,original);
    node.blur();
-  }}
-  }
+  }}}}finally{observer.disconnect();}
  }
 }
 async function group(node,value,expectedIdentity){

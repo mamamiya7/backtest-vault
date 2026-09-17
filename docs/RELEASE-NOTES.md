@@ -1,8 +1,11 @@
-# Backtest Vault 0.17.2 — installable preview
+# Backtest Vault 0.17.3 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
+
+- Reuse complete daily dropdown choices across RZone refreshes and tabs, including Group, private categories and loaded filter symbols. Keep Recheck all choices as the manual override.
+- Prevent delayed symbol responses from leaving orphan menus; handle native no-match results and wait for dialog close animations within the connection deadline.
 
 - Wait through RZone's normal symbol-loading spinner and read only settled results.
 - Close native RZone symbol lists correctly after reading their choices.
@@ -15,7 +18,7 @@ One complete package for Windows and Linux. No Node.js, Python, Git, npm, admini
 
 ## Install
 
-Download **backtest-vault-0.17.2.zip**, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.17.3.zip**, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.

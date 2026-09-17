@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.17.3 preview - 2026-09-17
+
+- Retain complete daily dropdown metadata across RZone refreshes and tabs: Group, private Radar choices, strategy categories, keyword results and loaded filter symbols. Recheck all choices refreshes it manually; a new local day expires it.
+- Preserve fresh source inputs and exact submission checks; avoid repeated chart scans when Relative Strength is already on.
+- Wait for symbol-menu dismissal to settle, including delayed replacement popups and native no-match results. Keep unknown dialogs untouched.
+- Allow RZone's dialog-closing animation within the existing overall connection deadline and retry one ignored close click when no animation is running.
+- These focused fixes still require installed/live acceptance; earlier 0.17.x downloads remain unpublished.
+
 ## 0.17.2 preview - 2026-09-17
 
 - Wait through RZone's native symbol-loading spinner instead of rejecting it as an unexpected dialog. Reset result stability when a list is replaced so only settled symbols can be used.

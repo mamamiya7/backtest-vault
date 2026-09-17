@@ -12,35 +12,58 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
  const collection=async prefix=>Object.entries(await storage.get(null)).filter(([k])=>k.startsWith(prefix)).map(([,v])=>v);
  const localDay=(time=clock())=>{const d=new Date(time);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
  const choiceText=value=>typeof value==='string'&&value.length<=4000&&!/[\u0000-\u001f\u007f]/.test(value);
- const sharedOptions=values=>{
+ const cacheSchema=2,dailyKey='runner:choices:daily';
+ const cacheStages=['momentum','execution','marketFilter'];
+ const onlyKeys=(value,allowed)=>{if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!allowed.includes(key)))throw Error('Invalid cached metadata.');};
+ const menuOptions=(values,symbol=false)=>{
   if(!Array.isArray(values)||values.length>3000)throw Error('Invalid cached menu.');
-  return values.map(option=>{
-   if(!option||!choiceText(option.label)||!option.label||option.value!==option.label||option.sourceValue!==undefined&&!choiceText(option.sourceValue)||option.disabled!==undefined&&typeof option.disabled!=='boolean')throw Error('Invalid cached option.');
-   return {value:option.value,label:option.label,...(option.sourceValue!==undefined?{sourceValue:option.sourceValue}:{}),...(option.disabled!==undefined?{disabled:option.disabled}:{})};
-  });
+  return values.map(option=>{onlyKeys(option,['value','label','sourceValue','disabled','market']);if(!choiceText(option.label)||!option.label||option.value!==option.label||option.sourceValue!==undefined&&!choiceText(option.sourceValue)||option.disabled!==undefined&&typeof option.disabled!=='boolean'||option.market!==undefined&&(!choiceText(option.market)||!option.market)||symbol&&(!option.sourceValue||!option.market))throw Error('Invalid cached option.');return {...option};});
  };
- const publicChoices=p=>({schemaVersion:1,adapterVersion:L.version,publicOnly:true,stages:Object.fromEntries(['momentum','execution'].map(stage=>{
-  const source=p.stages[stage],layout=stage==='momentum'?L.main(source.context.chart):L.execution(source.context.chart),children=new Set(layout.rows.map(row=>row.childIndex)),raw=source.context;
-  if(stage==='momentum'?raw.market!=='NSE':raw.selection!=='Price')throw Error('Unsupported cached context.');
-  if(!Array.isArray(raw.categories)||raw.categories.length!==layout.rows.length)throw Error('Invalid cached categories.');
-  const categories=layout.rows.map((row,i)=>{const pair=raw.categories[i];if(!Array.isArray(pair)||pair.length!==2||pair[0]!==row.parentIndex||!(row.name==='Radar'?['Pre','My']:['Pre','My','Public','Popular']).includes(pair[1]))throw Error('Invalid cached category context.');return [row.parentIndex,pair[1]];});
-  const context={chart:layout.chart,...(stage==='momentum'?{market:'NSE'}:{selection:'Price'}),...(Number.isInteger(layout.modeIndex)?{mode:raw.mode}:{}),categories};
-  if(Number.isInteger(layout.modeIndex)&&(layout.chart==='Renko'?!['Absolute','Percent','ATR','ATR %'].includes(raw.mode):typeof raw.mode!=='string'||!/^\d{1,3}$/.test(raw.mode)||Number(raw.mode)<1))throw Error('Invalid cached chart mode.');
-  if(!Array.isArray(source.signature)||source.signature.length!==layout.count)throw Error('Invalid cached signature.');
-  const signature=source.signature.map(pair=>{if(!Array.isArray(pair)||pair.length!==2||!['select-one','text','date','checkbox','radio'].includes(pair[0])||!choiceText(pair[1])||!pair[1])throw Error('Invalid cached control.');return [pair[0],pair[1]];});
-  const fields=signature.map(([type,label],index)=>({index,type,label,value:'',checked:['checkbox','radio'].includes(type)?false:null,disabled:false}));fields[layout.chartIndex].value=layout.chart;fields[stage==='momentum'?layout.marketIndex:layout.selectionIndex].value=stage==='momentum'?'NSE':'Price';for(const [index,category]of categories)fields[index].value=category;L.stage(stage,fields);
-  const nativeOptions=Object.fromEntries(signature.flatMap(([type],index)=>type==='select-one'&&!children.has(index)?[[index,sharedOptions(source.nativeOptions?.[index])]]:[]));
-  return [stage,{context,signature,nativeOptions,ruleCatalogues:Object.fromEntries(layout.rows.map(row=>{
-   const catalogue=source.ruleCatalogues?.[row.childIndex]||{},names=Object.keys(catalogue.categories||{}).filter(category=>['Pre','Popular'].includes(category)&&catalogue.controlTypes?.[category]==='select-one'),indices=[row.parentIndex,row.childIndex,...(Number.isInteger(row.valueIndex)?[row.valueIndex]:[]),row.gateIndex];
-   const fieldLabels=Object.fromEntries(names.filter(category=>catalogue.fieldLabels?.[category]).map(category=>{const labels=catalogue.fieldLabels[category];if(!Array.isArray(labels)||labels.length!==indices.length||labels.some(label=>!choiceText(label)||!label))throw Error('Invalid cached rule labels.');return [category,[...labels]];}));
-   if(catalogue.labelDependents&&JSON.stringify(catalogue.labelDependents)!==JSON.stringify(layout.labelDependents[row.childIndex]||[]))throw Error('Invalid cached label relationships.');
-   return [row.childIndex,{parentIndex:row.parentIndex,gateIndex:row.gateIndex,categories:Object.fromEntries(names.map(category=>[category,sharedOptions(catalogue.categories[category])])),controlTypes:Object.fromEntries(names.map(category=>[category,'select-one'])),fieldLabels,...(catalogue.labelDependents?{labelDependents:[...catalogue.labelDependents]}:{})}];
-  }))}];
- }))});
- const validChoicePayload=(p,tab,shared=false)=>{
-  try{return p&&p.schemaVersion===1&&p.adapterVersion===L.version&&(shared?p.publicOnly===true&&JSON.stringify(p)===JSON.stringify(publicChoices(p)):p.publicOnly!==true&&p.session===tab.session&&!!publicChoices(p))&&JSON.stringify(p).length<=2000000;}catch{return false;}
- };
- const choiceKey=p=>JSON.stringify(['momentum','execution'].map(stage=>p.stages[stage].context));
+ const categoryNames=['Pre','My','Public','Popular'];
+ function menuStage(stage,source){
+  onlyKeys(source,['context','signature','nativeOptions','ruleCatalogues','groupOptions','symbolOptions','symbolQueries']);
+  const c=source.context;onlyKeys(c,stage==='momentum'?['chart','market','relativeStrength','mode','categories','benchmarkMarkets']:stage==='execution'?['chart','selection','mode','categories','benchmarkMarkets']:['chart','mode','action','brickMode','exitBrickMode','categories','benchmarkMarkets']);
+  if(!L.charts.includes(c.chart)||!Array.isArray(source.signature)||!source.signature.length||source.signature.length>80)throw Error('Invalid cached layout.');
+  const signature=source.signature.map(pair=>{if(!Array.isArray(pair)||pair.length!==2||!['select-one','text','date','checkbox','radio'].includes(pair[0])||!choiceText(pair[1])||!pair[1])throw Error('Invalid cached control.');return [...pair];});
+  const fields=signature.map(([type,label],index)=>({index,type,label,value:'',checked:['checkbox','radio'].includes(type)?false:null,disabled:false}));
+  // Text-backed My/Public controls are part of the layout signature. The
+  // category routes are checked against the known layout immediately below.
+  if(!Array.isArray(c.categories))throw Error('Invalid cached categories.');
+  for(const pair of c.categories){if(!Array.isArray(pair)||pair.length!==2||!Number.isInteger(pair[0])||!fields[pair[0]]||!categoryNames.includes(pair[1]))throw Error('Invalid cached category context.');fields[pair[0]].value=pair[1];}
+  const context={chart:c.chart};let layout;
+  if(stage==='momentum'){
+   if(!choiceText(c.market)||!c.market||typeof c.relativeStrength!=='boolean')throw Error('Invalid cached market context.');Object.assign(context,{market:c.market,relativeStrength:c.relativeStrength});layout=L.main(c.chart,c.relativeStrength);fields[layout.chartIndex].value=c.chart;fields[layout.marketIndex].value=c.market;fields[layout.rsIndex].checked=c.relativeStrength;
+  }else if(stage==='execution'){
+   if(!['Price','RS','Both'].includes(c.selection))throw Error('Invalid cached selection context.');context.selection=c.selection;layout=L.execution(c.chart,c.selection);fields[layout.chartIndex].value=c.chart;fields[layout.selectionIndex].value=c.selection;
+  }else{
+   if(!['Index','RS'].includes(c.mode)||!L.marketActions.includes(c.action))throw Error('Invalid cached filter context.');Object.assign(context,{mode:c.mode,action:c.action});fields[0].value=c.chart;const topPrice=c.chart!=='Candle'&&fields[3]?.type==='radio'&&fields[4]?.type==='radio',offset=1+(c.chart==='Candle'?0:topPrice?4:2);if(!fields[offset+16])throw Error('Invalid cached filter layout.');fields[offset].checked=c.mode==='Index';fields[offset+3].checked=c.mode==='RS';fields[offset+8].checked=true;fields[offset+16].value=c.action;layout=L.marketFilter(fields);
+  }
+  const mode=(key,index)=>{if(!Number.isInteger(index)){if(Object.hasOwn(c,key))throw Error('Unexpected cached chart mode.');return;}const value=c[key];if(typeof value!=='string'||(layout.chart==='Renko'?!['Absolute','Percent','ATR','ATR %'].includes(value):!/^\d{1,3}$/.test(value)||Number(value)<1))throw Error('Invalid cached chart mode.');context[key]=value;fields[index].value=value;};
+  if(stage==='marketFilter'){mode('brickMode',layout.modeIndex);mode('exitBrickMode',layout.exitModeIndex);}else mode('mode',layout.modeIndex);
+  if(!Array.isArray(c.categories)||c.categories.length!==layout.rows.length)throw Error('Invalid cached categories.');context.categories=layout.rows.map((row,n)=>{const pair=c.categories[n];if(!Array.isArray(pair)||pair.length!==2||pair[0]!==row.parentIndex||!(row.name==='Radar'?['Pre','My']:categoryNames).includes(pair[1]))throw Error('Invalid cached category context.');fields[row.parentIndex].value=pair[1];return [...pair];});
+  const symbols=['benchmarkIndex','indexSymbolIndex','numeratorSymbolIndex','denominatorSymbolIndex'].filter(key=>Number.isInteger(layout[key])).map(key=>layout[key]);
+  if(c.benchmarkMarkets!==undefined){if(!Array.isArray(c.benchmarkMarkets)||c.benchmarkMarkets.length!==symbols.length)throw Error('Invalid cached benchmark markets.');context.benchmarkMarkets=symbols.map((index,n)=>{const pair=c.benchmarkMarkets[n];if(!Array.isArray(pair)||pair.length!==2||pair[0]!==index-1||!choiceText(pair[1])||!pair[1])throw Error('Invalid cached benchmark market.');fields[index-1].value=pair[1];return [...pair];});}
+  L.stage(stage,fields);
+  onlyKeys(source.nativeOptions,signature.flatMap(([type],index)=>type==='select-one'?[String(index)]:[]));
+  const nativeOptions=Object.fromEntries(signature.flatMap(([type],index)=>type==='select-one'?[[index,menuOptions(source.nativeOptions[index])]]:[]));
+  onlyKeys(source.ruleCatalogues,layout.rows.map(row=>String(row.childIndex)));
+  const ruleCatalogues=Object.fromEntries(layout.rows.map(row=>{
+   const catalogue=source.ruleCatalogues[row.childIndex];onlyKeys(catalogue,['parentIndex','gateIndex','categories','controlTypes','fieldLabels','searchQueries','labelDependents']);if(catalogue.parentIndex!==row.parentIndex||catalogue.gateIndex!==row.gateIndex)throw Error('Invalid cached rule route.');
+   const names=Object.keys(catalogue.categories||{}),allowed=row.name==='Radar'?['Pre','My']:categoryNames;onlyKeys(catalogue.categories,allowed);if(!names.includes(fields[row.parentIndex].value))throw Error('Cached category is missing.');onlyKeys(catalogue.controlTypes,names);onlyKeys(catalogue.fieldLabels||{},names);onlyKeys(catalogue.searchQueries||{},names);
+   const categories={},controlTypes={},fieldLabels={},searchQueries={},indices=[row.parentIndex,row.childIndex,...(Number.isInteger(row.valueIndex)?[row.valueIndex]:[]),row.gateIndex];
+   for(const name of names){const type=catalogue.controlTypes[name];if(!['select-one','text'].includes(type)||type==='text'&&!['My','Public'].includes(name))throw Error('Invalid cached rule control.');categories[name]=menuOptions(catalogue.categories[name]);controlTypes[name]=type;if(catalogue.fieldLabels?.[name]){const labels=catalogue.fieldLabels[name];if(!Array.isArray(labels)||labels.length!==indices.length||labels.some(label=>!choiceText(label)||!label))throw Error('Invalid cached rule labels.');fieldLabels[name]=[...labels];}if(catalogue.searchQueries?.[name]!==undefined){if(type!=='text'||!choiceText(catalogue.searchQueries[name]))throw Error('Invalid cached rule query.');searchQueries[name]=catalogue.searchQueries[name];}}
+   const out={parentIndex:row.parentIndex,gateIndex:row.gateIndex,categories,controlTypes,fieldLabels,searchQueries};if(catalogue.labelDependents!==undefined){if(JSON.stringify(catalogue.labelDependents)!==JSON.stringify(layout.labelDependents[row.childIndex]||[]))throw Error('Invalid cached label relationships.');out.labelDependents=[...catalogue.labelDependents];}return [row.childIndex,out];
+  }));
+  const out={context,signature,nativeOptions,ruleCatalogues};if(stage==='momentum')out.groupOptions=menuOptions(source.groupOptions);else if(source.groupOptions!==undefined)throw Error('Unexpected cached groups.');
+  for(const [name,symbol]of [['symbolOptions',true],['symbolQueries',false]])if(source[name]!==undefined){onlyKeys(source[name],symbols.map(String));out[name]=Object.fromEntries(Object.entries(source[name]).map(([index,value])=>{if(symbol)return [index,menuOptions(value,true)];onlyKeys(value,['market','query']);if(!choiceText(value.market)||!value.market||!choiceText(value.query))throw Error('Invalid cached symbol query.');return [index,{market:value.market,query:value.query}];}));}
+  return out;
+ }
+ function choicePayload(p,tab,daily=false){
+  onlyKeys(p,daily?['schemaVersion','adapterVersion','daily','stages']:['schemaVersion','adapterVersion','session','stages']);
+  if(p.schemaVersion!==cacheSchema||p.adapterVersion!==L.version||(daily?p.daily!==true:p.session!==tab.session)||JSON.stringify(p).length>2000000)throw Error('Invalid cached source.');
+  onlyKeys(p.stages,cacheStages);if(!Object.keys(p.stages).length)throw Error('Empty cached source.');return {schemaVersion:cacheSchema,adapterVersion:L.version,daily:true,stages:Object.fromEntries(cacheStages.filter(stage=>p.stages[stage]).map(stage=>[stage,menuStage(stage,p.stages[stage])]))};
+ }
+ const choiceKey=p=>JSON.stringify(Object.entries(p.stages).map(([stage,value])=>[stage,value.context,value.signature]));
  const lookupKey=tab=>'runner:lookup:'+tab.id;
  function lookupRoutes(template,session){
   const rules=[],symbols=[];
@@ -55,32 +78,31 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
  }
  const queryValid=query=>typeof query==='string'&&query.length>0&&query.length<=200&&query===query.trim()&&!/[\u0000-\u001f\u007f]/.test(query);
  async function readChoiceCache(tab,force){
-  const key='runner:choices:'+tab.id,sharedKey='runner:choices:shared-native';
-  if(force){await storage.set({[key]:null,[sharedKey]:null});return {key,sharedKey,day:localDay(),records:[]};}
-  const saved=await get(key),shared=await get(sharedKey),day=localDay();
-  const validRecord=(r,publicOnly)=>validChoicePayload(r?.payload,tab,publicOnly)&&typeof r.checkedAt==='string'&&Number.isFinite(Date.parse(r.checkedAt))&&Date.parse(r.checkedAt)<=clock()&&localDay(Date.parse(r.checkedAt))===day;
-  const own=saved?.version===L.version&&saved.session===tab.session&&saved.day===day&&Array.isArray(saved.records)?saved.records.filter(r=>validRecord(r,false)).slice(-9):[];
-  const known=new Set(own.map(r=>choiceKey(r.payload))),publicRecords=shared?.version===L.version&&shared.day===day&&Array.isArray(shared.records)?shared.records.filter(r=>validRecord(r,true)&&!known.has(choiceKey(r.payload))).slice(-9):[];
-  return {key,sharedKey,day,records:[...own,...publicRecords]};
+  const day=localDay();
+  if(force){const old=await storage.get(null);await storage.set({...Object.fromEntries(Object.keys(old).filter(key=>key.startsWith('runner:choices:')).map(key=>[key,null])),[dailyKey]:null});return {key:dailyKey,day,records:[]};}
+  const saved=await get(dailyKey),records=[];
+  if(saved?.version===L.version&&saved.cacheVersion===cacheSchema&&saved.day===day&&Array.isArray(saved.records))for(const record of saved.records.slice(-128)){
+   try{if(typeof record?.checkedAt!=='string'||!Number.isFinite(Date.parse(record.checkedAt))||Date.parse(record.checkedAt)>clock()||localDay(Date.parse(record.checkedAt))!==day)continue;const payload=choicePayload(record.payload,tab,true);if(Object.keys(payload.stages).length!==1)continue;records.push({checkedAt:record.checkedAt,payload});}catch{/* Malformed metadata is never overlaid onto source controls. */}
+  }
+  return {key:dailyKey,day,records};
  }
  async function retainChoices(tab,cache,response){
-  const day=localDay(),rolledOver=cache.day!==day;
-  let records=rolledOver?[]:cache.records,writeFailed=false;
-  // A reply that reused yesterday's choices cannot renew them after midnight.
+  const day=localDay(),rolledOver=cache.day!==day;let records=rolledOver?[]:cache.records,writeFailed=false;
+  // Crossing midnight must never make yesterday's reused metadata look fresh.
   const oldChoicesUsed=response.hasCachedChoices===true||response.choicesFromCache===true||cache.records.length>0&&response.hasCachedChoices!==false;
-  if(validChoicePayload(response.choiceCache,tab)&&!(rolledOver&&oldChoicesUsed)){
-   const payload=response.choiceCache,key=choiceKey(payload),existing=records.find(r=>choiceKey(r.payload)===key);
-   const checkedAt=(response.choicesFromCache===true||response.sharedChoicesUsed===true)&&existing?existing.checkedAt:new Date(clock()).toISOString();
-   records=[...records.filter(r=>choiceKey(r.payload)!==key),{payload,checkedAt}].slice(-18);
-   // RZone exposes no stable account identifier. Only shared Pre/Popular
-   // menus cross document boundaries. Group, My and keyword-search results
-   // remain document-scoped and are read again after reconnecting.
-   const privateRecords=records.filter(r=>r.payload.publicOnly!==true).slice(-9),sharedRecords=records.slice(-9).map(r=>({checkedAt:r.checkedAt,payload:publicChoices(r.payload)}));
-   try{await storage.set({[cache.key]:{version:L.version,session:tab.session,day,records:privateRecords},[cache.sharedKey]:{version:L.version,day,records:sharedRecords}});}catch{writeFailed=true;}
-  }
-  const covered=stage=>new Set(records.map(r=>r.payload.stages[stage].context.chart));
+  try{
+   const received=choicePayload(response.choiceCache,tab);
+   if(!(rolledOver&&oldChoicesUsed)){
+    for(const [stage,value]of Object.entries(received.stages)){
+     const payload={schemaVersion:cacheSchema,adapterVersion:L.version,daily:true,stages:{[stage]:value}},key=choiceKey(payload),existing=records.find(record=>choiceKey(record.payload)===key);
+     records=[...records.filter(record=>choiceKey(record.payload)!==key),{payload,checkedAt:existing?.checkedAt||new Date(clock()).toISOString()}].slice(-128);
+    }
+    try{await storage.set({[dailyKey]:{version:L.version,cacheVersion:cacheSchema,day,records}});}catch{writeFailed=true;}
+   }
+  }catch{/* A source form can be shown without retaining invalid cache metadata. */}
+  const covered=stage=>new Set(records.flatMap(record=>{const context=record.payload.stages[stage]?.context;return context&&(stage!=='momentum'||context.relativeStrength===false)&&(!context.selection||context.selection==='Price')?[context.chart]:[];}));
   const main=covered('momentum'),execution=covered('execution'),charts=L.charts.filter(chart=>main.has(chart)&&execution.has(chart));
-  return {checkedAt:records.map(r=>r.checkedAt).sort().at(-1)||null,source:response.choicesFromCache===true?'cache':'live',scope:response.sharedChoicesUsed===true?'shared-native':'document',charts,pendingCharts:L.charts.filter(chart=>!charts.includes(chart)),...(writeFailed?{notSaved:true}:{})};
+  return {checkedAt:records.map(record=>record.checkedAt).sort().at(-1)||null,day,source:response.choicesFromCache===true?'cache':'live',scope:'daily',charts,pendingCharts:L.charts.filter(chart=>!charts.includes(chart)),complete:charts.length===L.charts.length,...(writeFailed?{notSaved:true}:{})};
  }
 
  async function sourceStatus(tab){
@@ -138,7 +160,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
     if(m.session!==tab.session)throw Error('RZone changed or reloaded. Reconnect before searching for strategies.');
     const stage=m.stage===undefined?'momentum':m.stage,routes=await get(lookupKey(tab)),recorded=routes?.session===tab.session?routes.rules.find(route=>route.stage===stage&&route.parentIndex===m.parentIndex):null,parents=stage==='momentum'?[39,41,43,45,47,49]:stage==='execution'?[6,10]:[],allowed=recorded?recorded.categories.includes(m.category):(!routes||routes.session!==tab.session)&&parents.includes(m.parentIndex);
     if(!allowed||!['My','Public'].includes(m.category)||!queryValid(m.query))throw Error('Enter a strategy search of 1–200 characters. Load this filter\'s choices first.');
-    const request={stage,parentIndex:m.parentIndex,category:m.category,query:m.query,session:tab.session};
+    const request={stage,parentIndex:m.parentIndex,category:m.category,query:m.query,session:tab.session},lookupCache=await readChoiceCache(tab,false);
     const r=await configure(tab.id,{},request);
     if(!r?.ok)throw Error(r?.error||'RZone strategy search could not be read.');
     if(r.session!==tab.session)throw Error('RZone reloaded during the search. Reconnect and try again.');
@@ -147,18 +169,20 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
     // must identify its stage explicitly; its result cannot satisfy a main-form query.
     const resultStage=result?.stage===undefined?'momentum':result.stage;
     if(!result||resultStage!==stage||result.parentIndex!==m.parentIndex||result.childIndex!==(recorded?.childIndex??m.parentIndex+1)||result.category!==m.category||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000)throw Error('RZone returned a different strategy search. Search again.');
-    return {ok:true,result};
+    const metadata=r.choiceCache||result.choiceCache;if(metadata)await retainChoices(tab,lookupCache,{choiceCache:metadata,hasCachedChoices:true});
+    const visible={...result};delete visible.choiceCache;return {ok:true,result:visible};
    }
    if(m.action==='lookup-symbol'){
     if(m.session!==tab.session)throw Error('RZone changed or reloaded. Reconnect before searching for symbols.');
     const routes=await get(lookupKey(tab)),route=routes?.session===tab.session&&routes.symbols?.find(route=>route.stage===m.stage&&route.fieldIndex===m.fieldIndex);
     if(!route||!route.markets.includes(m.market)||!queryValid(m.query))throw Error('Enter a symbol search of 1–200 characters after loading this filter\'s choices.');
-    const request={kind:'symbol',stage:m.stage,fieldIndex:m.fieldIndex,market:m.market,query:m.query,session:tab.session},r=await configure(tab.id,{},request);
+    const request={kind:'symbol',stage:m.stage,fieldIndex:m.fieldIndex,market:m.market,query:m.query,session:tab.session},lookupCache=await readChoiceCache(tab,false),r=await configure(tab.id,{},request);
     if(!r?.ok)throw Error(r?.error||'RZone symbol search could not be read.');
     if(r.session!==tab.session)throw Error('RZone reloaded during the search. Reconnect and try again.');
     const result=r.result;
     if(!result||result.stage!==m.stage||result.fieldIndex!==m.fieldIndex||result.market!==m.market||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000||result.options.some(option=>!option||!choiceText(option.label)||!option.label||option.value!==option.label||!choiceText(option.sourceValue)||!option.sourceValue||!(option.market===m.market||m.market==='All'&&option.market!=='All'&&route.markets.includes(option.market))||option.disabled!==undefined&&typeof option.disabled!=='boolean'))throw Error('RZone returned a different symbol search. Search again.');
-    return {ok:true,result};
+    const metadata=r.choiceCache||result.choiceCache;if(metadata)await retainChoices(tab,lookupCache,{choiceCache:metadata,hasCachedChoices:true});
+    const visible={...result};delete visible.choiceCache;return {ok:true,result:visible};
    }
    const changes=m.changes??{};
    if(!changes||typeof changes!=='object'||Array.isArray(changes)||Object.keys(changes).some(k=>!['momentum','execution','marketFilter'].includes(k)))throw Error('Invalid source choices request.');
@@ -170,9 +194,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    if(!r?.ok)throw Error(r?.error||'RZone setup could not be read.');
    if(r.session!==tab.session||r.config?.session!==tab.session)throw Error('RZone reloaded while connecting. Connect again.');
    const template=S.template(r.config),routes=lookupRoutes(template,tab.session);try{await storage.set({[lookupKey(tab)]:routes});}catch{/* The form can still load; an unrecorded filter search must reconnect. */}
-   // Choice caches are deliberately outside run/experiment archives. They are
-   // split into document-private and daily shared native choices. Current
-   // settings always came from the fresh response, never from stored menus.
+   // All menu metadata stays local for this calendar day, across source tabs.
+   // Current settings come from this fresh response, never from stored menus.
    const choiceCache=await retainChoices(tab,cache,r);
    return {ok:true,source:{...r.config,choiceCache}};
   }

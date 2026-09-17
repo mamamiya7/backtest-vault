@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.17.2 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.17.3 preview** · Chrome · Local storage · MIT · No cloud account
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -77,18 +77,18 @@ All source settings stay on one page. The journey shows progress through the wor
 
 **Candle, P&F and Renko have separate settings and choices.** Select the main and execution charts independently. P&F exposes box size and reversal; Renko exposes brick size and its construction mode. Each chart keeps its own rule selections and Test values. P&F/Renko settings are available to inspect and prepare; their automatic execution remains unavailable until separate live write tests pass.
 
-**Shared Pre/Popular dropdown choices are reused for the local calendar day, including after RZone refreshes.** The first connection checks all three charts. Reconnecting reads current settings, Group and private choices afresh, while reusing compatible shared menus and avoiding another full all-chart scan. My/Public keyword-search results stay in their original connection. **Recheck all choices** forces a fresh scan after rules change. A new day, changed adapter or incompatible controls requires new choices. No backtest starts during a choice check.
+**Dropdown choices are saved for the local calendar day, including after RZone refreshes or opening another RZone tab.** This includes Group, Radar, strategy categories and already-read filter choices and symbol searches. The first connection checks all three charts; later connections read current settings without walking those menus again. A newly used filter context or search needs its first lookup. **Recheck all choices** refreshes the menus immediately, for example after changing rules or switching RZone accounts. A new day or adapter update starts a fresh check. No backtest starts during a choice check.
 
 Radar currently offers native **Pre / My** menus. Strategy and exit **Pre / Popular** are dropdowns; **My / Public** are keyword searches. Choose the category, enter a name and click **Search**, then select a returned rule. RZone does not expose an all-rules list for an empty keyword. An untouched search is not an empty account; no matches refers only to the entered query. Identical names are unavailable for automatic selection because their identity would be ambiguous. Fresh connected setups support NSE; other markets require a separate form adapter.
 
 ```mermaid
 flowchart LR
-    A[Open New test] --> B{Shared choices checked today?}
+    A[Open New test] --> B{Choices checked today?}
     B -->|Yes| C[Reuse chart-specific menus]
     B -->|No| D[Check Candle · P&F · Renko]
     R[Recheck all choices] --> D
     D --> E[Restore source settings]
-    C --> F[Read current settings and private choices]
+    C --> F[Read current settings]
     E --> F
     F --> G[Edit setup in Vault]
 ```
@@ -248,7 +248,7 @@ Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, not
 
 ## Install the extension
 
-**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.17.2.zip** asset; do not download a setup script by itself.
+**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.17.3.zip** asset; do not download a setup script by itself.
 
 ```mermaid
 flowchart LR
