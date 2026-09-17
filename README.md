@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.16.1 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.17.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -48,6 +48,20 @@ flowchart LR
 3. **Add variations beside a setting:** Period 1 = `252,500` means two tests. A numeric range also needs a step. Choose **Off** to skip a period or filter, **On** to use it, or **Test both** for separate On and Off runs. Eligible rule menus can test selected choices from the loaded source catalogue.
 4. **Review, then run:** choose **Review … tests** to check the compact summary, test count and comparison rules, then choose **Run … tests**. Reviewing does not start calculations; the stage indicator only shows progress. Leave the variation controls unused to run the current setup once.
 5. **Review results:** Vault saves each report automatically and marks the results stage when the tests finish. **View results** takes you to the saved evidence; it never starts another test. Open a saved report or inspect the study's **Results**. Exporting is an optional backup, not a step required to finish.
+
+**Universe and Timeframe can vary too.** Select their Test values to test every combination. Three universes × two timeframes create six tests. Results with different universes or timeframes are compared in separate matching groups.
+
+**Radar, Relative Strength and Market Trend Filter:** their Off / On / Test both control sits with the settings it enables. Turning a filter on loads its own choices when needed. Benchmark symbols must be selected from RZone search results. Market Trend Filter includes its chart, Index/RS mode, benchmarks, method, action, exits and Test values. A result is saved only after the planned settings match the source capture.
+
+```mermaid
+flowchart LR
+    U["3 Universes"] --> C["Every selected combination"]
+    T["2 Timeframes"] --> C
+    F["Filter settings and Test values"] --> C
+    C --> R["Review test count → Run"]
+    R --> S["Save result + exact settings"]
+    S --> G["Compare matching conditions"]
+```
 
 **Example:** Period 1 values `252,500` create **one study with two tests**, not two separate studies. The study keeps the plan and both saved results together.
 
@@ -122,7 +136,7 @@ flowchart LR
     D --> E["Rank by Return, Drawdown or Calmar"]
 ```
 
-Use **Test values** for complete date ranges and rank criteria too. Portfolio allocation, initial capital, maximum open trades and daily limits have their own variation controls. Different dates or portfolio assumptions form separate comparison groups; a highlighted setting leads only within its matched group. Universe, market, chart model and rule-source categories stay fixed in the current adapter.
+Use **Test values** for complete date ranges and rank criteria too. Portfolio allocation, initial capital, maximum open trades and daily limits have their own variation controls. Different dates or portfolio assumptions form separate comparison groups; a highlighted setting leads only within its matched group. Universe and Timeframe can vary too. Market, chart construction and rule-source categories stay fixed within a batch.
 
 ```mermaid
 flowchart LR
@@ -147,7 +161,7 @@ flowchart LR
 
 ![Earlier study layout with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
 
-No LLM setup is required. Current automatic setup uses **NSE**, **Candle**, **Price**, **Relative Strength off** and **Market Trend Filter off**. P&F/Renko execution and dynamic RS/filter adapters remain on the delivery plan. Existing captures from those chart families can still be inspected and compared. A [consolidated source-control audit](docs/EXPERIMENTS.md#chart-and-dependent-control-coverage) records the broader form dependencies separately from automation support.
+No LLM setup is required. Current automatic setup uses **NSE**, **Candle** and **Price**. Relative Strength and Market Trend Filter have their own settings, choices and Test values, with complete settings captured for each run. P&F/Renko main or execution charts remain gated pending separate live acceptance. Existing captures from those chart families can still be inspected and compared. A [consolidated source-control audit](docs/EXPERIMENTS.md#chart-and-dependent-control-coverage) records the broader form dependencies separately from automation support.
 
 ### Sample results or a real backtest?
 
@@ -234,7 +248,7 @@ Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, not
 
 ## Install the extension
 
-**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.16.1.zip** asset; do not download a setup script by itself.
+**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.17.0.zip** asset; do not download a setup script by itself.
 
 ```mermaid
 flowchart LR

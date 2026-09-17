@@ -13,6 +13,7 @@ const same=(a,b)=>JSON.stringify(ordered(a))===JSON.stringify(ordered(b));
 const owns=(o,key)=>!!o&&Object.prototype.hasOwnProperty.call(o,key);
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const blocked='This dynamic rule is not available in automatic setup yet.';
+const symbolMarketMatches=(requested,actual)=>requested===actual||requested==='All'&&['NSE','BSE','MF','EQW'].includes(actual);
 const ruleCategories=['Pre','My','Public','Popular'];
 const searchRule=(shape,category)=>shape?.name!=='Radar'&&['My','Public'].includes(category);
 const ruleRowIndices=(stage,key,shape)=>[shape.parentIndex,Number(key),...(shape.valueIndex!==undefined?[shape.valueIndex]:[]),shape.gateIndex];
@@ -81,8 +82,8 @@ function ruleCatalogues(input,stage,fields,options){
  return out;
 }
 
-function projectRuleLabels(baseFields,catalogues,selectedFields){
- const stage=baseFields[1]?.type==='date'?'execution':'momentum',layout=layoutFor(stage,baseFields),labels=baseFields.map(f=>f.label);
+function projectRuleLabels(baseFields,catalogues,selectedFields,sourceStage){
+ const stage=sourceStage||(baseFields[1]?.type==='date'?'execution':'momentum'),layout=layoutFor(stage,baseFields),labels=baseFields.map(f=>f.label);
  for(const [key,catalogue] of Object.entries(catalogues||{})){
   const observed=catalogue.fieldLabels?.[selectedFields[catalogue.parentIndex]?.value];if(!observed)continue;
   ruleRowIndices(stage,key,layout.rows.find(row=>row.childIndex===Number(key))).forEach((index,n)=>{labels[index]=observed[n];});
@@ -112,8 +113,7 @@ function template(source){
  if(source.adapterVersion!==undefined){if(source.adapterVersion!==L.version)throw Error('This source adapter version is not supported.');t.adapterVersion=L.version;}
  if(source.session!==undefined){if(typeof source.session!=='string'||!source.session||source.session.length>120)throw Error('Invalid setup source session.');t.session=source.session;}
  if(source.capturedAt!==undefined){if(typeof source.capturedAt!=='string'||!Number.isFinite(Date.parse(source.capturedAt)))throw Error('Invalid setup capture time.');t.capturedAt=source.capturedAt;}
- for(const stage of stages){
-  const s=input[stage]||(stage==='portfolio'?portfolioTemplate():null);
+ function normalize(stage,s){
   if(!s||!Array.isArray(s.fields)||!s.fields.length||s.fields.length>100)throw Error('RZone '+stage+' controls were not available.');
   const fields=s.fields.map((f,index)=>{
    if(!f||f.index!==index||!['text','date','checkbox','radio','select-one'].includes(f.type)||typeof f.label!=='string'||!f.label.trim()||f.label.length>2000||typeof f.value!=='string'||f.value.length>2000||typeof f.disabled!=='boolean'||(!['checkbox','radio'].includes(f.type)?f.checked!==null:typeof f.checked!=='boolean'))throw Error('RZone '+stage+' settings layout is invalid.');
@@ -132,31 +132,86 @@ function template(source){
      if(stage==='momentum'&&f.index===1&&(!raw.label.trim()||/[\u0000-\u001f]/.test(raw.label)))throw Error('Invalid source choice for '+f.label);
      // Captured select values are display labels, never opaque DOM tokens.
      const value=raw.label,entry={value,label:raw.label,disabled:raw.disabled===true};
+     const identity=stage==='momentum'&&(f.index===1||f.index===layout.benchmarkIndex)||stage==='execution'&&f.index===layout.benchmarkIndex||stage==='marketFilter'&&[layout.indexSymbolIndex,layout.numeratorSymbolIndex,layout.denominatorSymbolIndex].includes(f.index);
+     if(identity&&raw.sourceValue!==undefined){if(typeof raw.sourceValue!=='string'||!raw.sourceValue||raw.sourceValue.length>2000||/[\u0000-\u001f]/.test(raw.sourceValue))throw Error('Invalid native choice identity.');entry.sourceValue=raw.sourceValue;}
+     if(identity&&raw.market!==undefined){if(typeof raw.market!=='string'||!['All','NSE','BSE','MF','EQW'].includes(raw.market))throw Error('Invalid benchmark market.');entry.market=raw.market;}
      if(seen.has(value))throw Error('Ambiguous source choices for '+f.label);seen.add(value);return entry;
     });
    }else if(f.type==='select-one')options[f.index]=[{value:f.value,label:f.value,disabled:false}];
    const emptyRule=ruleIndices.includes(f.index)&&options[f.index]?.length===0&&f.value==='';
    if(f.type==='select-one'&&!emptyRule&&!options[f.index].some(o=>o.value===f.value))throw Error('Selected source value is absent from its choices: '+f.label);
   }
-  t.stages[stage]={fields,options};
+  const out={fields,options};
   if(owns(s,'supportedMarkets')){
    if(stage!=='momentum'||!same(s.supportedMarkets,['NSE'])||fields[3]?.value!=='NSE')throw Error('This RZone market layout is not available for automatic setup yet.');
-   t.stages[stage].supportedMarkets=['NSE'];
+   out.supportedMarkets=['NSE'];
   }
-  if(owns(s,'ruleCatalogues'))t.stages[stage].ruleCatalogues=ruleCatalogues(s.ruleCatalogues,stage,fields,options);
-  for(const index of ruleIndices)if(fields[index]?.type==='text'&&!t.stages[stage].ruleCatalogues?.[index]?.controlTypes)throw Error('Invalid strategy search rule association.');
-  if(s.template===true){t.stages[stage].template=true;t.stages[stage].origin=s.origin==='verified-layout'?'verified-layout':'template';}
+  if(owns(s,'ruleCatalogues'))out.ruleCatalogues=ruleCatalogues(s.ruleCatalogues,stage,fields,options);
+  for(const index of ruleIndices)if(fields[index]?.type==='text'&&!out.ruleCatalogues?.[index]?.controlTypes)throw Error('Invalid strategy search rule association.');
+  if(s.template===true){out.template=true;out.origin=s.origin==='verified-layout'?'verified-layout':'template';}
+  const symbolIndices=stage==='momentum'?[layout.benchmarkIndex]:stage==='execution'?[layout.benchmarkIndex]:stage==='marketFilter'?[layout.indexSymbolIndex,layout.numeratorSymbolIndex,layout.denominatorSymbolIndex]:[];
+  if(s.symbolQueries!==undefined){if(!record(s.symbolQueries))throw Error('Invalid benchmark searches.');out.symbolQueries={};for(const [index,entry] of Object.entries(s.symbolQueries)){if(!symbolIndices.includes(Number(index))||!record(entry)||Object.keys(entry).some(key=>!['market','query'].includes(key))||typeof entry.market!=='string'||typeof entry.query!=='string'||!entry.query.trim()||entry.query.length>200||/[\u0000-\u001f]/.test(entry.query))throw Error('Invalid benchmark search.');out.symbolQueries[index]={market:entry.market,query:entry.query};}}
+  return out;
  }
+ for(const stage of stages)t.stages[stage]=normalize(stage,input[stage]||(stage==='portfolio'?portfolioTemplate():null));
+ const filters=source.supports?.filters;if(filters!==undefined){if(!Array.isArray(filters)||filters.some(value=>!['relative-strength','market-filter'].includes(value))||new Set(filters).size!==filters.length)throw Error('Invalid filter capabilities.');}
+ for(const key of ['relativeStrength','withoutRelativeStrength'])if(input.momentum?.[key]){const sub=normalize('momentum',input.momentum[key]),layout=L.stage('momentum',sub.fields);if(layout.chart!==t.stages.momentum.fields[0].value||layout.relativeStrength!==(key==='relativeStrength'))throw Error('Relative Strength source context changed.');t.stages.momentum[key]=sub;}
+ if(input.marketFilter){const sub=normalize('marketFilter',input.marketFilter),layout=L.stage('marketFilter',sub.fields);if(!layout.hasExit||!sub.fields[layout.indexModeIndex].checked)throw Error('Read the complete market trend filter settings.');if(!input.marketFilter.current?.fields)throw Error('Market trend current settings were not recorded.');const current=clone(input.marketFilter.current);L.stage('marketFilter',current.fields);if(current.fields.length>100||current.fields.some((f,index)=>!f||f.index!==index||!['text','date','checkbox','radio','select-one'].includes(f.type)||typeof f.label!=='string'||!f.label.trim()||f.label.length>2000||typeof f.value!=='string'||f.value.length>2000||typeof f.disabled!=='boolean'||(['checkbox','radio'].includes(f.type)?typeof f.checked!=='boolean':f.checked!==null)))throw Error('Invalid current market trend fields.');if(current.fields[0].value!==sub.fields[0].value)throw Error('Market trend chart context changed.');sub.current={fields:current.fields.map(({index,type,label,value,checked,disabled})=>({index,type,label,value,checked,disabled}))};t.stages.marketFilter=sub;}
+
  const m=t.stages.momentum.fields,x=t.stages.execution.fields;
- L.validate('momentum',m);L.validate('execution',x);
+ L.validate('momentum',m);const executionLayout=L.validate('execution',x);if(executionLayout.selection!=='Price')throw Error('Automatic setup currently requires Price selection.');
  const layout=P.settings({parameters:parameters(t)});
- if(layout.length!==3||layout.some(s=>s.groups.some(g=>g.name==='Captured settings')))throw Error('RZone controls changed. Reload the available setup before continuing.');
+ if(layout.filter(s=>stages.includes(s.key)).length!==3||layout.filter(s=>stages.includes(s.key)).some(s=>s.groups.some(g=>g.name==='Captured settings')))throw Error('RZone controls changed. Reload the available setup before continuing.');
  t.supports={charts:[...new Set([m[0].value,x[3].value])],selection:['Price'],blocked:['market-filter','relative-strength']};
+ if(filters){t.supports.filters=[...filters];t.supports.blocked=t.supports.blocked.filter(value=>!filters.includes(value));}
+ if(m[L.main(m[0].value).rsIndex].checked&&!t.stages.momentum.relativeStrength&&!filters?.includes('relative-strength'))throw Error('Load complete Relative Strength settings before continuing.');
+ if(m[2].checked&&!t.stages.marketFilter&&!filters?.includes('market-filter'))throw Error('Load complete Market Trend Filter settings before continuing.');
  if(t.adapterVersion)t.supports.executeCharts=['Candle'];
  return t;
 }
+function editorStages(t){
+ const out=clone(t.stages),current=out.momentum,rs=current.relativeStrength;
+ if(rs){const original=L.stage('momentum',current.fields),expanded=L.stage('momentum',rs.fields),full=clone(rs);
+  for(let index=0;index<=original.rsIndex;index++)full.fields[index]=clone(current.fields[index]);
+  if(original.variant)for(const name of ['sizeIndex','modeIndex',...[]]){const a=original[name],b=expanded[name];full.fields[b]={...current.fields[a],index:b,label:rs.fields[b].label};if(current.options[a])full.options[b]=clone(current.options[a]);}
+  if(original.variant)original.priceIndices.forEach((a,n)=>{const b=expanded.priceIndices[n];full.fields[b]={...current.fields[a],index:b,label:rs.fields[b].label};});
+  for(const [index,options]of Object.entries(current.options))if(Number(index)<=original.rsIndex)full.options[index]=clone(options);
+  full.ruleCatalogues={...clone(current.ruleCatalogues||{}),...Object.fromEntries(Object.entries(rs.ruleCatalogues||{}).filter(([key])=>Number(key)===expanded.rows.at(-1).childIndex))};
+  out.momentum=full;
+ }
+ if(out.marketFilter){const full=out.marketFilter,now=full.current.fields,a=L.marketFilter(now),b=L.marketFilter(full.fields);
+  const keys=['chartIndex','sizeIndex','modeIndex','indexModeIndex','rsModeIndex','indexMarketIndex','indexSymbolIndex','numeratorMarketIndex','numeratorSymbolIndex','denominatorMarketIndex','denominatorSymbolIndex','actionIndex','targetGateIndex','targetValueIndex','stopGateIndex','stopValueIndex','exitSizeIndex','exitModeIndex'];
+  const pairs=keys.filter(key=>a[key]!==null&&a[key]!==undefined&&b[key]!==null&&b[key]!==undefined).map(key=>[a[key],b[key]]);
+  for(const key of ['priceIndices','methodIndices','methodValueIndices','exitPriceIndices'])a[key].forEach((index,n)=>{if(b[key][n]!==undefined)pairs.push([index,b[key][n]]);});
+  if(a.rows[0])for(const key of ['gateIndex','parentIndex','childIndex'])pairs.push([a.rows[0][key],b.rows[0][key]]);
+  for(const [from,to]of pairs)full.fields[to]={...now[from],index:to,label:full.fields[to].label};
+ }
+ return out;
+}
+function descriptorForFields(input,stage,expected){
+ const t=template(input);if(stage==='portfolio')return clone(t.stages.portfolio);const target=L.stage(stage,expected),editing=editorStages(t);let descriptor=clone(editing[stage]);if(!descriptor)throw Error('Load the '+stage+' settings before running.');
+ let fields,mapping;
+ if(stage==='marketFilter'){
+  const observed=t.stages.marketFilter,from=L.marketFilter(observed.fields);descriptor=clone(observed);fields=L.projectMarketFilter(observed.fields,{mode:expected[target.rsModeIndex].checked?'RS':'Index',action:expected[target.actionIndex].value});const projected=L.marketFilter(fields);mapping=new Map();
+  const singles=['chartIndex','sizeIndex','modeIndex','indexModeIndex','rsModeIndex','indexMarketIndex','indexSymbolIndex','numeratorMarketIndex','numeratorSymbolIndex','denominatorMarketIndex','denominatorSymbolIndex','actionIndex','targetGateIndex','targetValueIndex','stopGateIndex','stopValueIndex','exitSizeIndex','exitModeIndex'];
+  for(const key of singles)if(Number.isInteger(from[key])&&Number.isInteger(projected[key]))mapping.set(from[key],projected[key]);
+  for(const key of ['priceIndices','methodIndices','methodValueIndices','exitPriceIndices'])from[key].forEach((index,n)=>{if(Number.isInteger(projected[key][n]))mapping.set(index,projected[key][n]);});
+  if(projected.rows[0])for(const key of ['parentIndex','childIndex','gateIndex'])mapping.set(from.rows[0][key],projected.rows[0][key]);
+ }else if(stage==='momentum'&&t.stages.momentum.relativeStrength){
+  const from=L.main(descriptor.fields[0].value,true);descriptor.fields[from.rsIndex].checked=true;mapping=new Map();fields=[];
+  const push=(index,label)=>{const field=descriptor.fields[index],next=fields.length;mapping.set(index,next);fields.push({...field,index:next,...(label?{label}:{})});};
+  for(let index=0;index<=from.rsIndex;index++)push(index);
+  if(target.relativeStrength){for(let index=from.rsIndex+1;index<descriptor.fields.length;index++)push(index);}else if(from.variant){const off=t.stages.momentum.fields.length===target.count?t.stages.momentum:t.stages.momentum.withoutRelativeStrength;if(!off)throw Error('Read the Relative Strength off settings.');[from.sizeIndex,from.modeIndex,...from.priceIndices].forEach((index,n)=>push(index,off.fields[[target.sizeIndex,target.modeIndex,...target.priceIndices][n]].label));}
+  fields[target.rsIndex].checked=target.relativeStrength;
+ }else return descriptor;
+ descriptor.fields=fields;descriptor.options=Object.fromEntries(Object.entries(descriptor.options||{}).filter(([index])=>mapping.has(Number(index))).map(([index,options])=>[mapping.get(Number(index)),options]));
+ if(descriptor.symbolQueries)descriptor.symbolQueries=Object.fromEntries(Object.entries(descriptor.symbolQueries).filter(([index])=>mapping.has(Number(index))).map(([index,value])=>[mapping.get(Number(index)),value]));
+ if(descriptor.ruleCatalogues)descriptor.ruleCatalogues=Object.fromEntries(Object.entries(descriptor.ruleCatalogues).filter(([index])=>mapping.has(Number(index))).map(([index,catalogue])=>[mapping.get(Number(index)),{...catalogue,parentIndex:mapping.get(catalogue.parentIndex),gateIndex:mapping.get(catalogue.gateIndex),...(catalogue.labelDependents?{labelDependents:catalogue.labelDependents.map(index=>mapping.get(index))}:{})}]));
+ delete descriptor.current;delete descriptor.relativeStrength;delete descriptor.withoutRelativeStrength;L.stage(stage,descriptor.fields);return descriptor;
+}
+function activeField(field,config){return (!field.enabledBy||config[field.enabledBy]===true)&&(!field.activeWhen||field.activeWhen.every(condition=>condition.values.includes(config[condition.key])));}
 function fieldsForUI(input,config={}){
- const t=template(input),groups=[],m=t.stages.momentum.fields,x=t.stages.execution.fields,p=t.stages.portfolio.fields,main=L.main(m[0].value),execution=L.execution(x[3].value);
+ const source=template(input),t={...source,stages:editorStages(source)},groups=[],m=t.stages.momentum.fields,x=t.stages.execution.fields,p=t.stages.portfolio.fields,main=L.main(m[0].value,!!source.stages.momentum.relativeStrength||L.stage('momentum',source.stages.momentum.fields).relativeStrength),execution=L.stage('execution',x);
  const group=(stage,key,title)=>{const g={stage,key:stage+'.'+key,title,fields:[]};groups.push(g);return g;};
  const add=(g,key,label,index,type,extra={})=>{
   const f=t.stages[g.stage].fields[index],d={key:g.stage+'.'+key,label,stage:g.stage,index,type,value:type==='boolean'?f.checked:type==='number'?V.number(f.value):f.value,...extra};
@@ -200,7 +255,7 @@ function fieldsForUI(input,config={}){
  number(g,'volume','Minimum volume',19,0,1000000000000,{integer:true});reference('volume.reference','Volume reference',[20,21],['Average','Highest']);
  toggle(g,'trend-quality.enabled','Use Trend Quality',main.trendGateIndex);number(g,'trend-quality','Trend Quality (%)',main.trendValueIndex,0,100,{enabledBy:'momentum.trend-quality.enabled'});
  g=group('momentum','rules','Additional rules');
- for(const [key,label,index] of [['market-filter','Market trend filter',main.mtfIndex],['rs','Relative Strength',main.rsIndex]])fixed(g,key,label,index,blocked).value=false;
+ for(const [key,label,index,capability,loaded] of [['market-filter','Market trend filter',main.mtfIndex,'market-filter',!!source.stages.marketFilter],['rs','Relative Strength',main.rsIndex,'relative-strength',!!source.stages.momentum.relativeStrength&&(source.stages.momentum.fields.length===L.main(m[0].value).count||!!source.stages.momentum.withoutRelativeStrength)]]){if(source.supports.filters?.includes(capability)){toggle(g,key,label,index,{variation:true,...(!loaded?{needsDiscovery:true}:{})});}else fixed(g,key,label,index,blocked).value=false;}
  const cachedRule=(g,parent,child)=>{
   const catalogue=t.stages[g.stage].ruleCatalogues?.[child.index];if(!catalogue)return;
   const category=owns(config,parent.key)?config[parent.key]:parent.value;
@@ -212,10 +267,30 @@ function fieldsForUI(input,config={}){
   else if(category!==parent.value)child.options=[];
   if(category!==parent.value)child.value='';
  };
- for(const [i,row] of main.rows.entries()){
+ for(const [i,row] of main.rows.slice(0,4).entries()){
   const key=i?'strategy.'+i:'radar',label=row.name;toggle(g,key+'.enabled','Use '+label,row.gateIndex);
   const parent=dynamic(g,key+'.source',label+' source',row.parentIndex,[row.childIndex]),child=add(g,key+'.rule',label+' rule',row.childIndex,'select',{enabledBy:'momentum.'+key+'.enabled',rule:true});cachedRule(g,parent,child);
   if(i){if(row.companionType==='number')number(g,key+'.input',label+' input',row.valueIndex,0.000001,1000000,{enabledBy:'momentum.'+key+'.enabled'});else add(g,key+'.timeframe',label+' timeframe',row.valueIndex,'select',{enabledBy:'momentum.'+key+'.enabled'});}
+ }
+ const symbol=(g,key,label,index,marketKey,extra={})=>{const d=add(g,key,label,index,'combobox',{symbol:true,marketKey,variation:true,...extra});const market=config[marketKey]??groups.flatMap(group=>group.fields).find(field=>field.key===marketKey)?.value;d.options=d.options.filter(option=>option.sourceValue&&symbolMarketMatches(market,option.market));d.searchQuery=t.stages[g.stage].symbolQueries?.[index]?.market===market?t.stages[g.stage].symbolQueries[index].query:null;return d;};
+ if(source.stages.momentum.relativeStrength){g=group('momentum','relative-strength','Relative Strength');const row=main.rows.at(-1),extra={sourceContainer:'relativeStrength',enabledBy:'momentum.rs',variation:true};
+  const market=dynamic(g,'rs.market','Benchmark market',main.benchmarkMarketIndex,[main.benchmarkIndex]);Object.assign(market,{sourceContainer:'relativeStrength',enabledBy:'momentum.rs'});
+  symbol(g,'rs.benchmark','Benchmark',main.benchmarkIndex,'momentum.rs.market',extra);
+  const parent=dynamic(g,'rs.source','Relative Strength source',row.parentIndex,[row.childIndex]),child=add(g,'rs.rule','Relative Strength rule',row.childIndex,'select',{...extra,rule:true});Object.assign(parent,{sourceContainer:'relativeStrength',enabledBy:'momentum.rs'});cachedRule(g,parent,child);if(main.variant&&parent.cachedCategories)parent.cachedCategories=[parent.value];
+ }
+ if(source.stages.marketFilter){const original=source.stages.marketFilter,layout=L.marketFilter(original.fields),f=t.stages.marketFilter.fields,base={enabledBy:'momentum.market-filter',variation:true};g=group('marketFilter','filter','Market trend filter');
+  chartSelector(g,layout).enabledBy='momentum.market-filter';
+  const radios=(key,label,indices,names,extra={})=>{const selected=indices.filter(index=>f[index].checked);if(selected.length!==1)throw Error('Choose exactly one '+label.toLowerCase()+'.');const d={stage:'marketFilter',key:'marketFilter.'+key,label,type:'select',indices:clone(indices),radioValues:clone(names),value:names[indices.indexOf(selected[0])],options:names.map(value=>({value,label:value,disabled:false})),...base,...extra};g.fields.push(d);return d;};
+  radios('mode','Filter mode',[layout.indexModeIndex,layout.rsModeIndex],['Index','RS']);
+  const benchmarks=[['index','Index',layout.indexMarketIndex,layout.indexSymbolIndex,'Index'],['numerator','RS numerator',layout.numeratorMarketIndex,layout.numeratorSymbolIndex,'RS'],['denominator','RS denominator',layout.denominatorMarketIndex,layout.denominatorSymbolIndex,'RS']];
+  for(const [key,label,marketIndex,symbolIndex,mode]of benchmarks){const activeWhen=[{key:'marketFilter.mode',values:[mode]}],market=dynamic(g,key+'.market',label+' market',marketIndex,[symbolIndex]);Object.assign(market,{enabledBy:base.enabledBy,activeWhen});symbol(g,key+'.symbol',label,symbolIndex,'marketFilter.'+key+'.market',{...base,activeWhen});}
+  radios('method','Trend method',layout.methodIndices,['EMA','D Smart','MAST','KTQP']);
+  for(const [n,key]of ['ema','dsmart','mast','ktqp'].entries())number(g,key,['EMA','D Smart','MAST','KTQP'][n]+' period',layout.methodValueIndices[n],1,1000000,{...base,integer:true,activeWhen:[{key:'marketFilter.method',values:[['EMA','D Smart','MAST','KTQP'][n]]}]});
+  add(g,'action','When trend changes',layout.actionIndex,'select',base);
+  const exitWhen=[{key:'marketFilter.action',values:L.marketActions.slice(2)}],row=layout.rows[0];
+  toggle(g,'exit.enabled','Use exit strategy',row.gateIndex,{...base,activeWhen:exitWhen});const parent=dynamic(g,'exit.source','Exit strategy source',row.parentIndex,[row.childIndex]),child=add(g,'exit.rule','Exit strategy rule',row.childIndex,'select',{...base,activeWhen:[...exitWhen,{key:'marketFilter.exit.enabled',values:[true]}],rule:true});Object.assign(parent,{enabledBy:base.enabledBy,activeWhen:exitWhen});cachedRule(g,parent,child);
+  for(const [key,label,gate,value]of [['target','Profit target (%)',layout.targetGateIndex,layout.targetValueIndex],['stop','Stop loss (%)',layout.stopGateIndex,layout.stopValueIndex]]){toggle(g,key+'.enabled','Use '+label.toLowerCase(),gate,{...base,activeWhen:exitWhen});number(g,key,label,value,0.000001,100,{...base,activeWhen:[...exitWhen,{key:'marketFilter.'+key+'.enabled',values:[true]}]});}
+  if(layout.variant)for(const [prefix,sizeIndex,modeIndex,prices,activeWhen]of [['',layout.sizeIndex,layout.modeIndex,layout.priceIndices,[]],['exit.',layout.exitSizeIndex,layout.exitModeIndex,layout.exitPriceIndices,exitWhen]]){const renko=layout.chart==='Renko',modeKey='marketFilter.'+prefix+'brick.mode',mode=config[modeKey]??f[modeIndex].value,atr=renko&&['ATR','ATR %'].includes(mode);number(g,prefix+(renko?'brick.size':'box.size'),(prefix?'Exit ':'')+(atr?'ATR period':renko?'Brick size':'Box size'),sizeIndex,atr?1:0.000001,1000000,{...base,integer:atr,activeWhen});if(renko){const mode=dynamic(g,prefix+'brick.mode',(prefix?'Exit ':'')+'brick size mode',modeIndex,[sizeIndex]);Object.assign(mode,{enabledBy:base.enabledBy,activeWhen,chartContext:true});}else add(g,prefix+'box.reversal',(prefix?'Exit ':'')+'reversal size',modeIndex,'select',{...base,activeWhen});prices.forEach((index,n)=>toggle(g,prefix+'price.'+(n?'high-low':'close-only'),(prefix?'Exit ':'')+(n?'High & Low':'Close Only'),index,{...base,activeWhen:[...activeWhen,...(!prefix?[{key:'marketFilter.mode',values:['Index']}]:[])]}));}
  }
  g=group('execution','test','Backtest');
  add(g,'rank','Rank criteria',0,'select');add(g,'from','From date',1,'date');add(g,'to','To date',2,'date');chartSelector(g,execution);fixed(g,'selection','Selection type',execution.selectionIndex,'Automatic testing currently supports Price. RS and Both are not yet available.');
@@ -226,6 +301,7 @@ function fieldsForUI(input,config={}){
  g=group('portfolio','allocation','Portfolio');
  fixed(g,'enabled','Portfolio testing',0,'Portfolio testing is required to collect the full report.').value=true;add(g,'allocation','Allocation',1,'select');number(g,'capital','Initial capital',2,0.01,1000000000000000);number(g,'max-open','Maximum open trades',3,1,1000000,{integer:true});toggle(g,'daily-limit.enabled','Limit new stocks per day',4);number(g,'daily-limit','Stocks per day',5,1,1000000,{integer:true,enabledBy:'portfolio.daily-limit.enabled'});
  if(t.stages.portfolio.template)g.note='Editable portfolio defaults; confirmed against RZone before submission.';
+ const original=L.stage('momentum',source.stages.momentum.fields);if(main.variant&&main.relativeStrength!==original.relativeStrength)for(const field of groups.flatMap(group=>group.fields).filter(field=>field.stage==='momentum'))for(const key of ['sizeIndex','modeIndex'])if(field.index===main[key])field.sourceIndex=original[key];
  return groups;
 }
 function defaults(input){return Object.fromEntries(fieldsForUI(input).flatMap(g=>g.fields.map(f=>[f.key,f.value])));}
@@ -240,6 +316,7 @@ function savedRunFields(run){
   out[stage]=fields;
  }
  L.validate('momentum',out.momentum);L.validate('execution',out.execution);
+ if(out.momentum[2].checked){const captured=run.parameters?.strategy?.marketTrend?.fields;if(!Array.isArray(captured))throw Error('This saved run does not contain its market trend settings.');L.stage('marketFilter',captured);out.marketFilter=captured;}else if(run.parameters?.strategy?.marketTrend)throw Error('Saved market trend settings do not match their enabled state.');
  const presented=P.settings(run).filter(s=>stages.includes(s.key));
  if(presented.length!==3||presented.some(s=>s.groups.some(g=>g.name==='Captured settings')))throw Error('This saved settings layout is not supported for a new test yet.');
  return out;
@@ -250,20 +327,29 @@ function savedRunContext(run){
  // already matching the current source before loading any dependent choices.
  const changes=[{momentum:{0:config['momentum.chart']}},{momentum:{3:config['momentum.market']}},{execution:{3:config['execution.chart']}}];
  for(const stage of ['momentum','execution']){const layout=L.stage(stage,fields[stage]);if(layout.chart==='Renko'){config[stage+'.brick.mode']=fields[stage][layout.modeIndex].value;changes.push({[stage]:{[layout.modeIndex]:config[stage+'.brick.mode']}});}}
- return {config,changes};
+ const main=L.stage('momentum',fields.momentum),loadFilters=[];if(fields.momentum[main.rsIndex].checked)config['momentum.rs']=true;if(fields.momentum[2].checked)config['momentum.market-filter']=true;
+ if(config['momentum.rs']){loadFilters.push('relativeStrength');config['momentum.rs.market']=fields.momentum[main.benchmarkMarketIndex].value;config['momentum.rs.source']=fields.momentum[main.rows.at(-1).parentIndex].value;}
+ if(fields.marketFilter){loadFilters.push('marketFilter');const layout=L.marketFilter(fields.marketFilter);config['marketFilter.chart']=layout.chart;changes.push({marketFilter:{0:layout.chart}});if(layout.chart==='Renko')for(const [key,index]of [['marketFilter.brick.mode',layout.modeIndex],['marketFilter.exit.brick.mode',layout.exitModeIndex]])if(index!==null){config[key]=fields.marketFilter[index].value;changes.push({marketFilter:{[index]:config[key]}});}}
+ return {config,changes,...(loadFilters.length?{loadFilters}:{})};
 }
 function configFromRun(run,input){
  const fields=savedRunFields(run),t=template(input),context=savedRunContext(run).config,current=defaults(t);
  if((run.demo===true)!==t.demo)throw Error('Real and fictional saved settings cannot be mixed.');
- for(const key of ['momentum.chart','execution.chart','momentum.brick.mode','execution.brick.mode'])if(owns(context,key)&&context[key]!==current[key])throw Error('Load the saved '+(key.startsWith('momentum.')?'Momentum':'Backtest')+' chart settings before using this run.');
- const config={},covered=Object.fromEntries(stages.map(stage=>[stage,new Set()]));
+ for(const key of ['momentum.chart','execution.chart','momentum.brick.mode','execution.brick.mode','marketFilter.chart','marketFilter.brick.mode','marketFilter.exit.brick.mode'])if(owns(context,key)&&context[key]!==current[key])throw Error('Load the saved '+(key.startsWith('momentum.')?'Momentum':'Backtest')+' chart settings before using this run.');
+ const config={...current},covered=Object.fromEntries(Object.keys(fields).map(stage=>[stage,new Set()])),editor=editorStages(t);
+ const indexMap=(stage,index)=>{
+  if(stage==='momentum'){const a=L.main(editor.momentum.fields[0].value,!!t.stages.momentum.relativeStrength),b=L.stage('momentum',fields.momentum);if(index<=a.rsIndex)return index;if(a.variant){for(const key of ['sizeIndex','modeIndex'])if(index===a[key])return b[key];for(const [n,value]of a.priceIndices.entries())if(index===value)return b.priceIndices[n];}return b.relativeStrength?index:null;}
+  if(stage==='marketFilter'){if(!fields.marketFilter)return null;const a=L.marketFilter(t.stages.marketFilter.fields),b=L.marketFilter(fields.marketFilter);for(const key of ['chartIndex','sizeIndex','modeIndex','indexModeIndex','rsModeIndex','indexMarketIndex','indexSymbolIndex','numeratorMarketIndex','numeratorSymbolIndex','denominatorMarketIndex','denominatorSymbolIndex','actionIndex','targetGateIndex','targetValueIndex','stopGateIndex','stopValueIndex','exitSizeIndex','exitModeIndex'])if(a[key]===index)return b[key];for(const key of ['priceIndices','methodIndices','methodValueIndices','exitPriceIndices']){const n=a[key].indexOf(index);if(n!==-1)return b[key][n]??null;}for(const key of ['gateIndex','parentIndex','childIndex'])if(a.rows[0]?.[key]===index)return b.rows[0]?.[key]??null;throw Error('Unknown saved market trend setting.');}
+  return index;
+ };
  for(const descriptor of fieldsForUI(t).flatMap(g=>g.fields)){
-  const captured=fields[descriptor.stage],indices=descriptor.indices||[descriptor.index];
-  for(const index of indices){if(!captured[index]||covered[descriptor.stage].has(index))throw Error('This saved settings layout cannot be copied safely.');covered[descriptor.stage].add(index);}
-  if(descriptor.indices){const selected=descriptor.indices.filter(index=>captured[index].checked);if(selected.length!==1)throw Error('Choose a saved run with exactly one '+descriptor.label.toLowerCase()+'.');config[descriptor.key]=String(selected[0]);}
-  else{const field=captured[descriptor.index];config[descriptor.key]=descriptor.type==='boolean'?field.checked:descriptor.type==='number'?(V.number(field.value)??field.value):field.value;}
+  const captured=fields[descriptor.stage],indices=(descriptor.indices||[descriptor.index]).map(index=>indexMap(descriptor.stage,index));
+  if(indices.some(index=>index===null||index===undefined))continue;
+  for(const index of indices){if(!captured?.[index]||covered[descriptor.stage].has(index))throw Error('This saved settings layout cannot be copied safely.');covered[descriptor.stage].add(index);}
+  if(descriptor.indices){const selected=indices.filter(index=>captured[index].checked);if(selected.length!==1)throw Error('Choose a saved run with exactly one '+descriptor.label.toLowerCase()+'.');config[descriptor.key]=descriptor.radioValues?descriptor.radioValues[indices.indexOf(selected[0])]:String(descriptor.indices[indices.indexOf(selected[0])]);}
+  else{const field=captured[indices[0]];config[descriptor.key]=descriptor.type==='boolean'?field.checked:descriptor.type==='number'?(V.number(field.value)??field.value):field.value;}
  }
- if(stages.some(stage=>covered[stage].size!==fields[stage].length))throw Error('Some saved settings are not supported by the current form.');
+ if(Object.keys(fields).some(stage=>covered[stage].size!==fields[stage].length))throw Error('Some saved settings are not supported by the current form.');
  // Menus always remain current source evidence. Keep a removed or unsearched
  // saved choice visible in the draft; validateConfig must block its submission.
  return config;
@@ -277,38 +363,54 @@ function validateConfig(config,input){
   if(f.type==='boolean'){if(typeof v!=='boolean')throw Error(f.label+' must be on or off.');}
   else if(f.type==='number'){if(!['string','number'].includes(typeof v)||typeof v==='string'&&!/^\s*[+]?(?:\d+(?:\.\d*)?|\.\d+)\s*$/.test(v))throw Error(f.label+': enter a valid number.');v=Number(v);if(!Number.isFinite(v)||v<f.min||v>f.max||(f.integer&&!Number.isInteger(v)))throw Error(f.label+': enter '+(f.integer?'a whole number':'a number')+' between '+f.min+' and '+f.max+'.');}
   else if(f.type==='combobox'){
+   if(f.symbol&&!activeField(f,config)){if(typeof v!=='string'||v.length>2000)throw Error('Check '+f.label+'.');out[f.key]=v;continue;}
    if(!f.options.length)throw Error('No '+f.label.toLowerCase()+' choices are available. Refresh choices in RZone.');
    if(typeof v!=='string'||!v.trim()||!f.options.some(o=>o.value===v&&!o.disabled))throw Error('Choose an available '+f.label.toLowerCase()+'.');
   }
   else if(f.type==='select'){
-   const unchangedInactive=(f.disabled||f.enabledBy&&config[f.enabledBy]===false)&&v===f.value;
-   const emptyUnusedRule=f.rule&&(f.options.length===0&&f.value===''||f.nativeType==='text')&&v===''&&config[f.enabledBy]===false;
-   if(f.rule&&f.options.length===0&&config[f.enabledBy]===true)throw Error(f.searchable&&!f.searchQuery?'Search RZone for '+f.label.toLowerCase()+' before enabling it.':'No '+f.label.toLowerCase()+' choices are available. Turn the rule off or '+(f.searchable?'search again.':'refresh choices.'));
+   const unchangedInactive=(f.disabled||!activeField(f,config))&&v===f.value;
+   const emptyUnusedRule=f.rule&&(f.options.length===0&&f.value===''||f.nativeType==='text')&&v===''&&!activeField(f,config);
+   if(f.rule&&f.options.length===0&&activeField(f,config))throw Error(f.searchable&&!f.searchQuery?'Search RZone for '+f.label.toLowerCase()+' before enabling it.':'No '+f.label.toLowerCase()+' choices are available. Turn the rule off or '+(f.searchable?'search again.':'refresh choices.'));
    if(typeof v!=='string'||!emptyUnusedRule&&!f.options.some(o=>o.value===v&&(!o.disabled||unchangedInactive)))throw Error('Choose an available '+f.label.toLowerCase()+'.');
-   if(f.rule&&config[f.enabledBy]===true&&(!v.trim()||/^\s*--|select.*(?:system|rule|radar)/i.test(v)))throw Error('Choose a '+f.label.toLowerCase()+' before enabling it.');
+   if(f.rule&&activeField(f,config)&&(!v.trim()||/^\s*--|select.*(?:system|rule|radar)/i.test(v)))throw Error('Choose a '+f.label.toLowerCase()+' before enabling it.');
   }
   else if(f.type==='date'){if(!validDate(v))throw Error(f.label+': choose a valid date.');}
   else {if(typeof v!=='string'||!v.trim()||v.trim().length>(f.maxLength||2000)||/[\u0000-\u001f]/.test(v))throw Error('Enter a valid '+f.label.toLowerCase()+'.');v=v.trim();}
   if(f.disabled&&!same(v,f.value))throw Error(f.label+' is not available for automatic setup.');
   if(f.dynamic&&!same(v,f.value)&&!f.cachedCategories?.includes(v))throw Error('Refresh choices for '+f.label+' before continuing.');out[f.key]=v;
  }
+ validateCombination(out,input,descriptors);
  if(out['execution.from']>=out['execution.to'])throw Error('The end date must be after the start date.');
  for(const stage of ['momentum','execution'])if(owns(out,stage+'.price.close-only')&&Number(out[stage+'.price.close-only'])+Number(out[stage+'.price.high-low'])!==1)throw Error('Choose exactly one '+(stage==='momentum'?'Momentum':'Backtest')+' price mode: Close Only or High & Low.');
  if(![1,2,3,4].some(i=>out['momentum.period.'+i+'.enabled']&&out['momentum.period.'+i+'.weight']>0))throw Error('Enable at least one period with a positive weight.');
  return out;
 }
+function validateCombination(config,input,preparedFields){
+ const fields=preparedFields||fieldsForUI(input,config).flatMap(group=>group.fields);
+ for(const field of fields){if(field.needsDiscovery&&config[field.key]===true)throw Error('Load '+field.label+' settings before continuing.');if(!field.variation||!activeField(field,config))continue;
+  const value=config[field.key];if(field.symbol&&!field.options.some(option=>option.value===value&&option.sourceValue&&symbolMarketMatches(config[field.marketKey],option.market)&&!option.disabled))throw Error('Search for and choose '+field.label.toLowerCase()+' in its selected market.');
+  if(field.rule&&(!value||/^\s*--|select.*(?:system|rule)/i.test(value)||!field.options.some(option=>option.value===value&&!option.disabled)))throw Error('Choose an available '+field.label.toLowerCase()+'.');
+ }
+ for(const prefix of ['marketFilter.','marketFilter.exit.']){const a=fields.find(field=>field.key===prefix+'price.close-only');if(a&&activeField(a,config)&&Number(config[a.key])+Number(config[prefix+'price.high-low'])!==1)throw Error('Choose exactly one market trend price mode.');}
+ return config;
+}
 function configToBaseline(config,input,{id='vault-setup',name='New strategy',demo}={}){
  const t=template(input),values=validateConfig(config,t);
  if(!idOK(id)||typeof name!=='string'||!name.trim()||name.length>120)throw Error('Give this setup a short name.');
  if(demo!==undefined&&demo!==t.demo)throw Error('Real and fictional setup cannot be mixed.');
- const p=parameters(t),get=stage=>stage==='momentum'?p.strategy.main.fields:stage==='execution'?p.strategy.execution.fields:p.settings.fields;
- for(const d of fieldsForUI(t,values).flatMap(g=>g.fields)){const f=get(d.stage),v=values[d.key];if(d.indices){for(const i of d.indices)f[i].checked=String(i)===v;}else if(d.type==='boolean')f[d.index].checked=v;else{f[d.index].value=String(v);if(d.nativeType)f[d.index].type=d.nativeType;}}
- for(const stage of ['momentum','execution']){
-  const f=get(stage),labels=projectRuleLabels(t.stages[stage].fields,t.stages[stage].ruleCatalogues,f);f.forEach((field,index)=>{field.label=labels[index];});
+ const editing=editorStages(t),p=parameters({stages:editing});if(editing.marketFilter)p.strategy.marketTrend={fields:clone(editing.marketFilter.fields)};
+ const get=stage=>stage==='momentum'?p.strategy.main.fields:stage==='execution'?p.strategy.execution.fields:stage==='marketFilter'?p.strategy.marketTrend.fields:p.settings.fields;
+ const descriptors=fieldsForUI(t,values).flatMap(g=>g.fields);
+ for(const d of descriptors){const f=get(d.stage),v=values[d.key];if(d.indices){for(const [n,i]of d.indices.entries())f[i].checked=(d.radioValues?d.radioValues[n]:String(i))===v;}else if(d.type==='boolean')f[d.index].checked=v;else{f[d.index].value=String(v);if(d.nativeType)f[d.index].type=d.nativeType;}}
+ for(const stage of ['momentum','execution',...(editing.marketFilter?['marketFilter']:[])]){
+  const f=get(stage),base=clone(editing[stage].fields);if(stage==='momentum'&&t.stages.momentum.relativeStrength)base[L.main(base[0].value).rsIndex].checked=true;
+  if(stage==='marketFilter'){const observed=L.marketFilter(t.stages.marketFilter.fields);base[observed.indexModeIndex].checked=true;base[observed.rsModeIndex].checked=false;base[observed.actionIndex].value=t.stages.marketFilter.fields[observed.actionIndex].value;}
+  const labels=projectRuleLabels(base,editing[stage].ruleCatalogues,f,stage);f.forEach((field,index)=>{field.label=labels[index];});
  }
- // Disabled is a recorded UI condition, not a user setting. Keep dependencies
- // consistent for presentation while the runner always verifies source values.
- for(const d of fieldsForUI(t,values).flatMap(g=>g.fields)){if(d.enabledBy&&d.index!==undefined)get(d.stage)[d.index].disabled=!values[d.enabledBy];}
+ // Source disablement is evidence of visibility, rather than a user setting.
+ for(const d of descriptors)if(d.enabledBy&&d.index!==undefined&&!(d.stage==='marketFilter'&&(/\.market$/.test(d.key)||['marketFilter.target','marketFilter.stop'].includes(d.key))))get(d.stage)[d.index].disabled=!activeField(d,values);
+ if(t.stages.momentum.relativeStrength&&!values['momentum.rs']){const full=get('momentum'),on=L.main(full[0].value,true),offSource=t.stages.momentum.fields.length===L.main(full[0].value).count?t.stages.momentum:t.stages.momentum.withoutRelativeStrength;if(!offSource)throw Error('Read the Relative Strength off settings before switching it off.');const off=L.stage('momentum',offSource.fields),projected=full.slice(0,on.rsIndex+1);if(on.variant)for(const [n,index]of [on.sizeIndex,on.modeIndex,...on.priceIndices].entries())projected.push({...full[index],label:offSource.fields[[off.sizeIndex,off.modeIndex,...off.priceIndices][n]].label});p.strategy.main.fields=projected.map((field,index)=>({...field,index}));}
+ if(editing.marketFilter){if(values['momentum.market-filter']){const full=get('marketFilter'),observed=L.marketFilter(t.stages.marketFilter.fields);full[observed.indexModeIndex].checked=true;full[observed.rsModeIndex].checked=false;full[observed.actionIndex].value=t.stages.marketFilter.fields[observed.actionIndex].value;p.strategy.marketTrend.fields=L.projectMarketFilter(full,{mode:values['marketFilter.mode'],action:values['marketFilter.action']});}else delete p.strategy.marketTrend;}
  return {id,name:name.trim(),demo:t.demo,origin:'vault-setup',setupVersion:1,parameters:p,setup:{version:1,template:t,config:values}};
 }
 function validateBaseline(b){
@@ -329,6 +431,6 @@ function demoTemplate({momentumChart='Candle',executionChart=momentumChart,momen
  Object.assign(source.stages.momentum.options,{1:[r.parameters.strategy.main.fields[1].value,'Demo universe 20','Demo universe 60'],3:['NSE'].map(value=>({value,label:value})),33:['Daily','Weekly'].map(value=>({value,label:value}))});
  return template(source);
 }
-const api={template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,executionCapability,demoTemplate};
+const api={descriptorForFields,activeField,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,executionCapability,demoTemplate};
 if(typeof module!=='undefined')module.exports=api;root.VaultSetup=api;
 })(typeof window!=='undefined'?window:globalThis);

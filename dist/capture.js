@@ -8,7 +8,7 @@
   const main = () => [...document.querySelectorAll('.account-right')].find(p => visible(p) && p.textContent.includes('Retracement') && p.textContent.includes('Period'));
   const onMomentum = () => !!main() && document.body.innerText.includes('Momentum Trading BackTesting');
   let strategy = null, portfolio = null, busy = false, sawRunning = false, sawCleared = false, lastReport = null, pendingRun = null;
-  let reportsAtSubmit = new Set(), portfolioLinked = false;
+  let reportsAtSubmit = new Set(), portfolioLinked = false, marketTrendReceipt = null;
   const reportLinks = new WeakMap();
   const reports = () => [...document.querySelectorAll('.popupContent')].filter(p=>caption(p)==='Portfolio Backtesting Report');
   const running = () => [...(main()?.querySelectorAll('button') || [])].some(b=>visible(b)&&/Cancel BackTest/i.test(text(b)));
@@ -32,9 +32,19 @@
     });
   }
   function snapshot(container) {return {at:now(), fields:fields(container)};}
+  function recordMarketTrend(container) {
+    const observed=fields(container);
+    if(!window.VaultSourceLayouts)throw Error('Source layouts are unavailable.');
+    window.VaultSourceLayouts.stage('marketFilter',observed);
+    marketTrendReceipt={at:now(),fields:observed,mainFields:fields(main())};
+  }
+  function currentMarketTrend() {
+    if(!marketTrendReceipt||popup('Error')||popup('Market Trend Filter')||JSON.stringify(marketTrendReceipt.mainFields)!==JSON.stringify(fields(main())))return null;
+    return {at:marketTrendReceipt.at,fields:structuredClone(marketTrendReceipt.fields)};
+  }
   function status(message) {statusEl.textContent = message;}
   const host = document.createElement('div'); host.id = 'definedge-backtest-vault';
-  host.dataset.version = '0.16.1';
+  host.dataset.version = '0.17.0';
   host.style.cssText = 'position:fixed;right:16px;bottom:14px;z-index:2147483646;';
   const shadow = host.attachShadow({mode:'closed'});
   shadow.innerHTML = `<style>:host{font:14px system-ui;color:#f3f8fc}.bar{background:#112639;border:1px solid #34536e;border-radius:12px;padding:10px;box-shadow:0 6px 26px #0007;max-width:390px}button{font:600 14px system-ui;border:0;border-radius:7px;padding:9px 12px;cursor:pointer;background:#52d8ca;color:#072923;margin-right:6px}button.secondary{background:#2b455b;color:white}button:disabled{opacity:.5;cursor:wait}p{margin:8px 2px 0;line-height:1.35;font-size:13px}</style><div class="bar"><button id="save">Save backtest</button><button class="secondary" id="open">Open vault</button><p id="status" role="status">Recording settings when you run a backtest.</p></div>`;
@@ -84,12 +94,21 @@
   document.documentElement.append(host);
   document.addEventListener('click', event => {
     if (!onMomentum() || busy) return;
+    const touchedPopup=event.target.closest?.('.popupContent');
+    if(['Market Trend Filter','Error'].includes(caption(touchedPopup)))marketTrendReceipt=null;
     const button = event.target.closest?.('button');
-    if (!button || !/^backtest$/i.test(text(button))) return;
+    if (!button) return;
+    if(/^Market Trend Filter$/i.test(text(button)))marketTrendReceipt=null;
     const p = button.closest('.popupContent');
+    if(caption(p)==='Market Trend Filter'&&/^save$/i.test(text(button))){
+      try{recordMarketTrend(p);}catch{marketTrendReceipt=null;}
+      return;
+    }
+    if(!/^backtest$/i.test(text(button)))return;
     if (caption(p) === 'Momentum Trading BackTest') {
       const extraSettings = [...main().querySelectorAll('button')].some(b=>/Market Trend Filter/i.test(text(b)) && !b.disabled);
-      strategy = {id:crypto.randomUUID(), at:now(), main:snapshot(main()), execution:snapshot(p), completed:false, auxiliarySettingsUncaptured:extraSettings};
+      const marketTrend=extraSettings?currentMarketTrend():null;
+      strategy = {id:crypto.randomUUID(), at:now(), main:snapshot(main()), execution:snapshot(p), completed:false, auxiliarySettingsUncaptured:extraSettings&&!marketTrend,...(marketTrend?{marketTrend}:{})};
       // An already-running source cannot establish a new submission lifecycle.
       if(running()) strategy = null;
       portfolio = null; sawRunning = false; sawCleared = !completed();
@@ -101,14 +120,16 @@
       status('Portfolio settings recorded. Save when the report opens.');
     }
   }, true);
+  for(const eventName of ['input','change'])document.addEventListener(eventName,event=>{if(caption(event.target.closest?.('.popupContent'))==='Market Trend Filter')marketTrendReceipt=null;},true);
   function monitor() {
     const active = onMomentum(); host.hidden = !active;
+    if(popup('Error'))marketTrendReceipt=null;
     // GWT modal previews reject events whose target is outside the active popup.
     // Keep the host inside it so shadow-button clicks belong to that popup too.
     const activePopup = [...document.querySelectorAll('.popupContent')].filter(visible).at(-1);
     const parent = activePopup || document.body;
     if (host.parentElement !== parent) parent.append(host);
-    if (!active) {strategy = null; portfolio = null; lastReport = null; reportsAtSubmit.clear(); return;}
+    if (!active) {strategy = null; marketTrendReceipt=null; portfolio = null; lastReport = null; reportsAtSubmit.clear(); return;}
     if (popup('Error') && (portfolio || strategy && !strategy.completed)) {
       const which=portfolio?'portfolio':'strategy';
       strategy = null; portfolio = null; sawRunning = false; sawCleared = false;
@@ -239,7 +260,7 @@
       const run = {schemaVersion:1,id:crypto.randomUUID(),name:`Momentum · ${now().slice(0,16).replace('T',' ')}`,savedAt:now(),source:'https://zone.definedgesecurities.com/index.html#research',provenance:linked?.strategy ? 'recorded-at-submit':'unverified',parameters:linked || null,observedMain:linked?.strategy ? null : snapshot(main()),...extracted,trades,warnings:[]};
       if(!linked?.strategy) run.warnings.push('This report predates a confirmed strategy submission in this tab. Current visible inputs are reference only; do not treat them as the settings used. Run both backtests with the extension active for linked settings.');
       if(extracted.charts.length<6) run.warnings.push(`Captured ${extracted.charts.length} chart graphics; the inspected portfolio layout contains six. Review chart completeness.`);
-      if(linked?.strategy?.auxiliarySettingsUncaptured) run.warnings.push('Market Trend Filter is enabled. Its separate dialog values are not captured by this version; record them in Notes.');
+      if(linked?.strategy?.auxiliarySettingsUncaptured) run.warnings.push('Market Trend Filter was enabled without a confirmed settings save. Open its settings, save them, then run the backtest again to capture the complete filter.');
       const expected=V.metrics(run).trades;
       if(expected!==null && trades.rows.length!==expected) throw new Error(`Trade capture incomplete: ${trades.rows.length} of ${expected}. Nothing was saved.`);
       if(options.strict){
@@ -258,7 +279,7 @@
   }
   saveButton.onclick=()=>{if(window.VaultRunner?.active){status('An experiment is using this tab. Stop after current in Vault before saving manually.');return;}return capture();};
   // This facade exists in the extension's isolated world, not the site's page world.
-  window.VaultCapture={capture,fields,snapshot,main,popup,visible,monitor,status,host,
+  window.VaultCapture={capture,fields,snapshot,main,popup,visible,monitor,status,host,recordMarketTrend,getMarketTrend:currentMarketTrend,
     getStrategy:()=>strategy?structuredClone(strategy):null,
     getPortfolio:()=>portfolio?structuredClone(portfolio):null,
     running,

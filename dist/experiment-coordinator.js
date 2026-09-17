@@ -41,6 +41,19 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
   try{return p&&p.schemaVersion===1&&p.adapterVersion===L.version&&(shared?p.publicOnly===true&&JSON.stringify(p)===JSON.stringify(publicChoices(p)):p.publicOnly!==true&&p.session===tab.session&&!!publicChoices(p))&&JSON.stringify(p).length<=2000000;}catch{return false;}
  };
  const choiceKey=p=>JSON.stringify(['momentum','execution'].map(stage=>p.stages[stage].context));
+ const lookupKey=tab=>'runner:lookup:'+tab.id;
+ function lookupRoutes(template,session){
+  const rules=[],symbols=[];
+  const add=(stage,descriptor)=>{
+   if(!descriptor)return;const layout=L.stage(stage,descriptor.fields);
+   for(const row of layout.rows||[])if(row.name!=='Radar')rules.push({stage,parentIndex:row.parentIndex,childIndex:row.childIndex,categories:(descriptor.options?.[row.parentIndex]||[]).filter(option=>!option.disabled&&['My','Public'].includes(option.value)).map(option=>option.value)});
+   const pairs=stage==='marketFilter'?[[layout.indexMarketIndex,layout.indexSymbolIndex],[layout.numeratorMarketIndex,layout.numeratorSymbolIndex],[layout.denominatorMarketIndex,layout.denominatorSymbolIndex]]:[[layout.benchmarkMarketIndex,layout.benchmarkIndex]];
+   for(const [marketIndex,fieldIndex]of pairs)if(Number.isInteger(marketIndex)&&Number.isInteger(fieldIndex)&&descriptor.fields[fieldIndex]?.type==='text')symbols.push({stage,fieldIndex,marketIndex,markets:(descriptor.options?.[marketIndex]||[]).filter(option=>!option.disabled).map(option=>option.value)});
+  };
+  add('momentum',template.stages.momentum);add('momentum',template.stages.momentum.relativeStrength);add('execution',template.stages.execution);add('marketFilter',template.stages.marketFilter);
+  return {session,rules,symbols};
+ }
+ const queryValid=query=>typeof query==='string'&&query.length>0&&query.length<=200&&query===query.trim()&&!/[\u0000-\u001f\u007f]/.test(query);
  async function readChoiceCache(tab,force){
   const key='runner:choices:'+tab.id,sharedKey='runner:choices:shared-native';
   if(force){await storage.set({[key]:null,[sharedKey]:null});return {key,sharedKey,day:localDay(),records:[]};}
@@ -89,7 +102,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
   if(!r||r.id!==t.runId||r.experiment?.id!==e.id||r.experiment?.trialId!==t.id||r.experiment?.phase!==t.phase||r.provenance!=='recorded-at-submit')throw Error('A matching durable capture has not been saved.');
   if(e.demo||r.demo===true)throw Error('A fictional result cannot complete a real RZone trial.');
   V.validate(r);if(r.charts.length!==6||r.trades.rows.length!==V.metrics(r).trades)throw Error('The saved report is incomplete.');
-  const planned=E.expected(e,t);for(const s of ['momentum','execution','portfolio'])E.verify(E.fields(planned,s),E.fields(r,s));
+  const planned=E.expected(e,t);E.verifySettings(planned,r);
   E.verifyEvidence(e,t,r);
  }
  async function execute(m,sender){
@@ -112,7 +125,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    const e=E.create({...m.plan,id:uuid()});if(e.demo)throw Error('Fictional experiments cannot control RZone.');
    if(await get('experiment:'+e.id))throw Error('Experiment ID already exists.');await put(e);return {ok:true,experiment:e};
   }
-  if(dashboard&&['configure','lookup-rule','open-source'].includes(m.action)){
+  if(dashboard&&['configure','lookup-rule','lookup-symbol','open-source'].includes(m.action)){
    if(await reviewLease()||(await collection('experiment:')).some(x=>['running','pausing'].includes(x.status)))throw Error('Finish or pause the current tests before changing the RZone setup.');
    if(m.action==='open-source'){
     if(!openSource)throw Error('Open RZone in Chrome and sign in, then reconnect here.');
@@ -123,8 +136,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    if(!tab?.capable&&!tab?.ready)throw Error(tab?.reason||'Open RZone and sign in, then connect again.');
    if(m.action==='lookup-rule'){
     if(m.session!==tab.session)throw Error('RZone changed or reloaded. Reconnect before searching for strategies.');
-    const stage=m.stage===undefined?'momentum':m.stage,parents=stage==='momentum'?[39,41,43,45,47,49]:stage==='execution'?[6,10]:[];
-    if(!parents.includes(m.parentIndex)||!['My','Public'].includes(m.category)||typeof m.query!=='string'||!m.query.length||m.query.length>200||m.query!==m.query.trim()||/[\u0000-\u001f\u007f]/.test(m.query))throw Error('Enter a strategy search of 1–200 characters.');
+    const stage=m.stage===undefined?'momentum':m.stage,routes=await get(lookupKey(tab)),recorded=routes?.session===tab.session?routes.rules.find(route=>route.stage===stage&&route.parentIndex===m.parentIndex):null,parents=stage==='momentum'?[39,41,43,45,47,49]:stage==='execution'?[6,10]:[],allowed=recorded?recorded.categories.includes(m.category):(!routes||routes.session!==tab.session)&&parents.includes(m.parentIndex);
+    if(!allowed||!['My','Public'].includes(m.category)||!queryValid(m.query))throw Error('Enter a strategy search of 1–200 characters. Load this filter\'s choices first.');
     const request={stage,parentIndex:m.parentIndex,category:m.category,query:m.query,session:tab.session};
     const r=await configure(tab.id,{},request);
     if(!r?.ok)throw Error(r?.error||'RZone strategy search could not be read.');
@@ -133,19 +146,30 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
     // Older source readers omitted stage for momentum searches. Execution
     // must identify its stage explicitly; its result cannot satisfy a main-form query.
     const resultStage=result?.stage===undefined?'momentum':result.stage;
-    if(!result||resultStage!==stage||result.parentIndex!==m.parentIndex||result.childIndex!==m.parentIndex+1||result.category!==m.category||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000)throw Error('RZone returned a different strategy search. Search again.');
+    if(!result||resultStage!==stage||result.parentIndex!==m.parentIndex||result.childIndex!==(recorded?.childIndex??m.parentIndex+1)||result.category!==m.category||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000)throw Error('RZone returned a different strategy search. Search again.');
+    return {ok:true,result};
+   }
+   if(m.action==='lookup-symbol'){
+    if(m.session!==tab.session)throw Error('RZone changed or reloaded. Reconnect before searching for symbols.');
+    const routes=await get(lookupKey(tab)),route=routes?.session===tab.session&&routes.symbols?.find(route=>route.stage===m.stage&&route.fieldIndex===m.fieldIndex);
+    if(!route||!route.markets.includes(m.market)||!queryValid(m.query))throw Error('Enter a symbol search of 1–200 characters after loading this filter\'s choices.');
+    const request={kind:'symbol',stage:m.stage,fieldIndex:m.fieldIndex,market:m.market,query:m.query,session:tab.session},r=await configure(tab.id,{},request);
+    if(!r?.ok)throw Error(r?.error||'RZone symbol search could not be read.');
+    if(r.session!==tab.session)throw Error('RZone reloaded during the search. Reconnect and try again.');
+    const result=r.result;
+    if(!result||result.stage!==m.stage||result.fieldIndex!==m.fieldIndex||result.market!==m.market||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000||result.options.some(option=>!option||!choiceText(option.label)||!option.label||option.value!==option.label||!choiceText(option.sourceValue)||!option.sourceValue||!(option.market===m.market||m.market==='All'&&option.market!=='All'&&route.markets.includes(option.market))||option.disabled!==undefined&&typeof option.disabled!=='boolean'))throw Error('RZone returned a different symbol search. Search again.');
     return {ok:true,result};
    }
    const changes=m.changes??{};
-   if(!changes||typeof changes!=='object'||Array.isArray(changes)||Object.keys(changes).some(k=>!['momentum','execution'].includes(k)))throw Error('Invalid source choices request.');
+   if(!changes||typeof changes!=='object'||Array.isArray(changes)||Object.keys(changes).some(k=>!['momentum','execution','marketFilter'].includes(k)))throw Error('Invalid source choices request.');
    for(const values of Object.values(changes))if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>10||Object.entries(values).some(([index,value])=>!/^\d{1,2}$/.test(index)||typeof value!=='string'||value.length>2000))throw Error('Invalid source choices request.');
-   if(m.recheckAllChoices!==undefined&&typeof m.recheckAllChoices!=='boolean'||m.warmChart!==undefined&&!L.charts.includes(m.warmChart)||m.warmChart&&Object.keys(changes).length)throw Error('Invalid source choice refresh.');
+   if(m.recheckAllChoices!==undefined&&typeof m.recheckAllChoices!=='boolean'||m.warmChart!==undefined&&!L.charts.includes(m.warmChart)||m.loadFilter!==undefined&&!['relativeStrength','marketFilter'].includes(m.loadFilter)||m.warmChart&&(Object.keys(changes).length||m.loadFilter))throw Error('Invalid source choice refresh.');
    const cache=await readChoiceCache(tab,m.recheckAllChoices===true);
-   const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(m.warmChart?{warmChart:m.warmChart}:{})};
+   const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(m.warmChart?{warmChart:m.warmChart}:{}),...(m.loadFilter?{loadFilter:m.loadFilter}:{})};
    const r=await configure(tab.id,changes,undefined,options);
    if(!r?.ok)throw Error(r?.error||'RZone setup could not be read.');
    if(r.session!==tab.session||r.config?.session!==tab.session)throw Error('RZone reloaded while connecting. Connect again.');
-   S.template(r.config);
+   const template=S.template(r.config),routes=lookupRoutes(template,tab.session);try{await storage.set({[lookupKey(tab)]:routes});}catch{/* The form can still load; an unrecorded filter search must reconnect. */}
    // Choice caches are deliberately outside run/experiment archives. They are
    // split into document-private and daily shared native choices. Current
    // settings always came from the fresh response, never from stored menus.

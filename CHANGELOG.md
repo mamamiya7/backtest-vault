@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.0 preview - 2026-09-17
+
+- Put Radar's Off / On / Test both switch beside its source and rule.
+- Add Universe and Timeframe Test values with every selected combination and separate matching-condition rankings.
+- Add complete Relative Strength and Market Trend Filter editors, source-specific rule catalogues and confirmed benchmark searches. Optional settings load on demand; edits survive refreshes.
+- Apply and capture the complete filter settings for each automated Candle/Price trial, including dynamic On/Off layouts, market-filter modes, methods and exits. Reject mismatched source settings and changed benchmark identities.
+- Preserve source controls after discovery and searches, daily menu reuse, source-session guards, durable saves and original research archives.
+- Keep P&F/Renko main/execution automation and non-Price execution gated; source inspection and fixture tests are separate from installed/live acceptance.
+
 ## 0.16.1 preview - 2026-09-17
 
 - Correct the connection progress regression assertion for the updated status copy; release includes all 0.16.0 improvements below.

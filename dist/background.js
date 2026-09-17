@@ -18,7 +18,7 @@ async function configure(tabId,changes={},lookup,choiceOptions={}){
    // RZone animates its dialogs. Keep its rendering active while reading and
    // closing the settings we opened; hidden tabs may pause that animation.
    await chrome.tabs.update(tabId,{active:true});check();
-   const message=lookup?{type:'vault-runner-rule-search',...lookup}:{type:'vault-runner-config',changes,...choiceOptions};
+   const message=lookup?{type:lookup.kind==='symbol'?'vault-runner-symbol-search':'vault-runner-rule-search',...Object.fromEntries(Object.entries(lookup).filter(([key])=>key!=='kind'))}:{type:'vault-runner-config',changes,...choiceOptions};
    return await chrome.tabs.sendMessage(tabId,message,{frameId:0});
   }finally{
    if(previous&&source&&current()){

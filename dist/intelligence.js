@@ -16,6 +16,10 @@ function stat(run,label){const values=run.quickStats.filter(x=>norm(x.label)===n
 function inspect(run){
  const errors=V.assessment(run),cautions=[],metrics=V.metrics(run),stages=P.settings(run),rows=new Map();
  for(const s of stages){if(s.key==='observed')continue;if(s.groups.some(g=>g.name==='Captured settings'))errors.push(s.title+': unknown setting layout.');for(const g of s.groups)for(const r of g.rows)rows.set(s.key+'.'+r.key,r);}
+ const marketTrendEnabled=rows.get('momentum.market-filter')?.checked===true,marketTrendStage=stages.find(stage=>stage.key==='marketFilter');
+ if(marketTrendEnabled&&!marketTrendStage)errors.push('Enabled market trend filter settings were not captured.');
+ if(!marketTrendEnabled&&marketTrendStage)errors.push('Market trend settings do not match the submitted filter state.');
+ if(run.parameters?.strategy?.auxiliarySettingsUncaptured)errors.push('Additional enabled strategy settings were not captured.');
  const value=k=>rows.get(k)?.value,details=V.details(run),from=date(value('execution.from')),to=date(value('execution.to'));
  const capital=V.number(value('portfolio.capital')),limits=rows.get('portfolio.daily-limit');
  const controls={

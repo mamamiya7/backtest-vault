@@ -9,8 +9,9 @@ const clone=x=>JSON.parse(JSON.stringify(x)), stages=['momentum','execution','po
 // Storage may reorder object properties. Array order and every value still matter.
 const ordered=x=>Array.isArray(x)?x.map(ordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,ordered(x[k])])):x;
 const signature=x=>JSON.stringify(ordered(x)),same=(a,b)=>signature(a)===signature(b);
-const fields=(b,s)=>s==='portfolio'?b.parameters?.settings?.fields:b.parameters?.strategy?.[s==='momentum'?'main':'execution']?.fields;
+const fields=(b,s)=>s==='marketFilter'?b.parameters?.strategy?.marketTrend?.fields:s==='portfolio'?b.parameters?.settings?.fields:b.parameters?.strategy?.[s==='momentum'?'main':'execution']?.fields;
 const stageSnapshot=(b,s)=>({fields:fields(b,s)});
+const auxiliarySetup=b=>b.setup?.template?.stages?.momentum?.relativeStrength||b.setup?.template?.stages?.marketFilter;
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const active=['applying','strategy-submitting','strategy-complete','portfolio-submitting','capturing'];
 function deletionReason(e){
@@ -29,19 +30,21 @@ function catalogFromSetup(template,config={}){
  if(!S)throw Error('Reload Vault to load the test setup editor.');
  const strategy=/^momentum\.(?:period\.[1-4](?:\.enabled|\.weight)?|ema\.[1-3](?:\.enabled)?|tma|retracement(?:\.enabled|\.mode|\.reference)?|volume(?:\.reference)?|radar\.(?:enabled|rule)|trend-quality(?:\.enabled)?|strategy\.[1-3]\.(?:enabled|rule|timeframe|input)|signal-mode)$/;
  const exits=/^execution\.(?:target(?:\.enabled)?|stop(?:\.enabled)?|exit\.(?:enabled|rule))$/;
- const context=/^(?:execution\.(?:rank|from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
+ const context=/^(?:momentum\.(?:group|timeframe)|execution\.(?:rank|from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
  const chartValues=/^(?:momentum|execution)\.(?:box\.(?:size|reversal)|brick\.size|price\.(?:close-only|high-low))$/;
- const out=S.fieldsForUI(template,config).flatMap(g=>g.fields).filter(f=>!f.disabled&&(strategy.test(f.key)||exits.test(f.key)||context.test(f.key)||chartValues.test(f.key))).map(f=>{
+ const descriptors=S.fieldsForUI(template,config).flatMap(g=>g.fields),out=descriptors.filter(f=>!f.disabled&&!/^marketFilter\.(?:exit\.)?price\.(?:close-only|high-low)$/.test(f.key)&&(f.key!=='momentum.group'||f.type==='combobox')&&(f.variation===true||strategy.test(f.key)||exits.test(f.key)||context.test(f.key)||chartValues.test(f.key))).map(f=>{
   // Keep existing descriptor labels stable so older approved archives still validate.
-  const prefix=exits.test(f.key)?'Exit · ':f.stage==='execution'?'Backtest · ':f.stage==='portfolio'?'Portfolio · ':'';
-  const d={key:f.key,label:prefix+f.label,stage:f.stage,type:f.type==='select'?'enum':f.type,value:Object.hasOwn(config,f.key)?config[f.key]:f.value};
+  const prefix=exits.test(f.key)?'Exit · ':f.stage==='execution'?'Backtest · ':f.stage==='portfolio'?'Portfolio · ':f.stage==='marketFilter'?'Market filter · ':'';
+  const choice=f.type==='select'||f.type==='combobox';
+  const d={key:f.key,label:prefix+f.label,stage:f.stage,type:choice?'enum':f.type,value:Object.hasOwn(config,f.key)?config[f.key]:f.value};
   if(f.index!==undefined)d.index=f.index;if(f.indices)d.indices=clone(f.indices);
   if(f.type==='number'){d.min=f.min;d.max=f.max;d.integer=f.integer===true;}
-  if(f.type==='select')d.options=f.options.filter(o=>!o.disabled).map(o=>({value:o.value,label:o.label}));
+  if(choice)d.options=f.options.filter(o=>!o.disabled).map(o=>({value:o.value,label:o.label}));
   return d;
  });
  const from=out.find(f=>f.key==='execution.from'),to=out.find(f=>f.key==='execution.to');
  if(from&&to)out.push({key:'execution.period',label:'Test period',stage:'execution',type:'date-range',value:from.value+'/'+to.value});
+ for(const prefix of ['marketFilter.','marketFilter.exit.']){const close=descriptors.find(f=>f.key===prefix+'price.close-only'),high=descriptors.find(f=>f.key===prefix+'price.high-low');if(close&&high&&!close.disabled&&!high.disabled){const a=Object.hasOwn(config,close.key)?config[close.key]:close.value,b=Object.hasOwn(config,high.key)?config[high.key]:high.value;out.push({key:prefix+'price-mode',label:prefix.includes('.exit.')?'Market filter · Exit price mode':'Market filter · Price mode',stage:'marketFilter',type:'enum',value:a&&!b?'close-only':b&&!a?'high-low':'',options:[{value:'close-only',label:'Close Only'},{value:'high-low',label:'High & Low'}]});}}
  return out;
 }
 function catalog(b){
@@ -105,7 +108,7 @@ function dimensions(b,input){
 }
 function combos(dims){let out=[{}];for(const d of dims){if(out.length*d.values.length>10000)throw Error('This plan exceeds 10,000 combinations. Narrow the ranges.');out=out.flatMap(c=>d.values.map(v=>({...c,[d.key]:v})));}return out;}
 function shuffled(list,seed){let s=Number(seed)>>>0;const next=()=>{s=(s+0x6D2B79F5)>>>0;let x=Math.imul(s^(s>>>15),1|s);x^=x+Math.imul(x^(x>>>7),61|x);return ((x^(x>>>14))>>>0)/4294967296;};const a=[...list];for(let i=a.length-1;i>0;i--){const j=Math.floor(next()*(i+1));[a[i],a[j]]=[a[j],a[i]];}return a;}
-function combinationRules(b){return S.fieldsForUI(b.setup.template,b.setup.config).flatMap(g=>g.fields).filter(f=>f.rule).map(f=>({key:f.key,label:f.label,gate:f.enabledBy,available:new Set(f.options.filter(o=>!o.disabled).map(o=>o.value))}));}
+function combinationRules(b){return S.fieldsForUI(b.setup.template,b.setup.config).flatMap(g=>g.fields).filter(f=>f.rule&&f.variation!==true).map(f=>({key:f.key,label:f.label,gate:f.enabledBy,available:new Set(f.options.filter(o=>!o.disabled).map(o=>o.value))}));}
 function checkSetupCombination(config,rules){
  // The unchanged baseline already passed S.validateBaseline. Dimension values
  // passed the exact source enum, boolean, date and numeric domains in dimensions().
@@ -119,6 +122,7 @@ function checkSetupCombination(config,rules){
 }
 function setupPatch(patch){
  const config={...patch};
+ for(const prefix of ['marketFilter.','marketFilter.exit.'])if(Object.hasOwn(config,prefix+'price-mode')){const value=config[prefix+'price-mode'];if(!['close-only','high-low'].includes(value))throw Error('Choose an available market trend price mode.');delete config[prefix+'price-mode'];config[prefix+'price.close-only']=value==='close-only';config[prefix+'price.high-low']=value==='high-low';}
  if(Object.hasOwn(config,'execution.period')){
   const period=dateRange(config['execution.period']);if(!period)throw Error('Invalid test period.');
   delete config['execution.period'];config['execution.from']=period.from;config['execution.to']=period.to;
@@ -130,6 +134,7 @@ function setupExpected(b,patch,period){
  if(period){config['execution.from']=period.from;config['execution.to']=period.to;}
  const next=S.configToBaseline(config,b.setup.template,{id:b.id,name:b.name,demo:b.demo});
  checkSetupCombination(next.setup.config,combinationRules(b));
+ if(auxiliarySetup(b))S.validateCombination(next.setup.config,b.setup.template);
  return next;
 }
 function create({id,name,baseline:b,dimensions:input,mode='grid',budget=30,seed=42,objective='calmar',ceiling=25,minTrades=30,timeoutMinutes=20,now=new Date().toISOString()}){
@@ -143,8 +148,8 @@ function create({id,name,baseline:b,dimensions:input,mode='grid',budget=30,seed=
  if(!Number.isFinite(+timeoutMinutes)||timeoutMinutes<1||timeoutMinutes>120)throw Error('Trial timeout must be 1–120 minutes.');
  const dims=dimensions(b,input),all=combos(dims),main=fields(b,'momentum');
  if(mode==='grid'&&all.length>budget)throw Error(all.length+' combinations exceed the '+budget+' run budget. Increase the budget or use a sample.');
- const rules=b.origin==='vault-setup'?combinationRules(b):null;
- for(const patch of all){if(rules){checkSetupCombination({...b.setup.config,...setupPatch(patch)},rules);continue;}const weight=Array.from({length:4},(_,i)=>main[11+i*2].checked?(patch['momentum.period.'+(i+1)+'.weight']??V.number(main[22+i].value)):0);if(!weight.some(x=>x>0))throw Error('Each combination needs a positive weight on an enabled period.');}
+ const rules=b.origin==='vault-setup'?combinationRules(b):null,combinationFields=auxiliarySetup(b)?S.fieldsForUI(b.setup.template,b.setup.config).flatMap(g=>g.fields):null;
+ for(const patch of all){if(rules){const config={...b.setup.config,...setupPatch(patch)};checkSetupCombination(config,rules);if(combinationFields)S.validateCombination(config,b.setup.template,combinationFields);continue;}const weight=Array.from({length:4},(_,i)=>main[11+i*2].checked?(patch['momentum.period.'+(i+1)+'.weight']??V.number(main[22+i].value)):0);if(!weight.some(x=>x>0))throw Error('Each combination needs a positive weight on an enabled period.');}
  const candidates=mode==='grid'?all:shuffled(all,seed).slice(0,+budget);
  const make=(patch,i)=>({id:id+'-t'+(i+1),runId:id+'-t'+(i+1),ordinal:i+1,patch,status:'queued',phase:'discovery',events:[]});
  return {schemaVersion:1,id,name:name.trim(),createdAt:now,status:'draft',revision:0,baseline:clone(b),dimensions:dims,mode,budget:+budget,seed:+seed,objective,ceiling:+ceiling,minTrades:+minTrades,timeoutMinutes:+timeoutMinutes,combinationCount:all.length,trials:candidates.map(make),events:[{at:now,action:'planned'}],demo:b.demo===true};
@@ -162,6 +167,12 @@ function verify(expectedFields,actualFields){
  for(let i=0;i<expectedFields.length;i++){const a=expectedFields[i],b=actualFields[i];if(a.type!==b.type||V.clean(a.label)!==V.clean(b.label))throw Error('Setting label/layout changed at field '+(i+1)+'.');if(!fieldEqual(a,b))throw Error('Setting read-back differs: '+a.label+' (field '+(i+1)+').');}
  return true;
 }
+function verifySettings(planned,actual){
+ for(const stage of stages)verify(fields(planned,stage),fields(actual,stage));
+ const expectedFilter=fields(planned,'marketFilter'),actualFilter=fields(actual,'marketFilter');
+ if(planned.parameters?.strategy?.marketTrend!==undefined||actual.parameters?.strategy?.marketTrend!==undefined){if(!Array.isArray(expectedFilter)||!Array.isArray(actualFilter)||!expectedFilter.length||!actualFilter.length)throw Error('Market Trend Filter settings do not match the approved trial.');verify(expectedFilter,actualFilter);}
+ return true;
+}
 function verifyEvidence(e,t,run){
  const proof=run.experiment?.evidence,s=run.parameters?.strategy,p=run.parameters,execution=t.execution;
  if(!proof||proof.version!==1||!execution||typeof execution.sourceSession!=='string'||!execution.sourceSession||execution.sourceSession.length>80||proof.sourceSession!==execution.sourceSession)throw Error('Fresh source execution evidence is missing or belongs to another source session.');
@@ -170,6 +181,7 @@ function verifyEvidence(e,t,run){
  if(pairs.some(([key,value])=>!value||proof[key]!==value))throw Error('Source execution timestamps do not match this result.');
  const times=[execution.claimedAt,...pairs.map(([key])=>proof[key])];
  if(times.some(x=>typeof x!=='string'||!Number.isFinite(Date.parse(x))||new Date(x).toISOString()!==x)||times.some((x,i)=>i&&Date.parse(x)<Date.parse(times[i-1])))throw Error('Source execution order could not be verified.');
+ if(s.marketTrend!==undefined){const at=s.marketTrend?.at;if(typeof at!=='string'||!Number.isFinite(Date.parse(at))||new Date(at).toISOString()!==at||Date.parse(at)<Date.parse(execution.claimedAt)||Date.parse(at)>Date.parse(s.at))throw Error('Market Trend Filter must be saved during this trial before its backtest submission.');}
  return true;
 }
 function trialPeriod(e,t){return t.period||dateRange(t.patch?.['execution.period'])||{from:t.patch?.['execution.from']??fields(e.baseline,'execution')[1].value,to:t.patch?.['execution.to']??fields(e.baseline,'execution')[2].value};}
@@ -212,12 +224,16 @@ function result(e,t,run){return inspectResult(e,t,run,()=>expected(e,t));}
 function inspectResult(e,t,run,readExpected){
  const issues=[];let item;
  if(!run)return {trial:t,eligible:false,reasons:['Saved result is missing.']};
- try{V.validate(run);if(run.id!==t.runId||run.experiment?.id!==e.id||run.experiment?.trialId!==t.id||run.experiment?.phase!==t.phase)throw Error('Result does not belong to this experiment trial.');const planned=readExpected();for(const s of stages)verify(fields(planned,s),fields(run,s));if((run.demo===true)!==e.demo)throw Error('Real and fictional results cannot be mixed.');if(!e.demo)verifyEvidence(e,t,run);item=I.inspect(run);issues.push(...item.errors);if(item.metrics.drawdown>e.ceiling)issues.push('Drawdown exceeds '+e.ceiling+'%.');if(item.metrics.trades===null||item.metrics.trades<e.minTrades)issues.push('Below '+e.minTrades+' reported trades.');if(!Number.isFinite(e.objective==='calmar'?item.calmar:item.metrics[e.objective]))issues.push('Selected ranking measure is unavailable.');}
+ try{V.validate(run);if(run.id!==t.runId||run.experiment?.id!==e.id||run.experiment?.trialId!==t.id||run.experiment?.phase!==t.phase)throw Error('Result does not belong to this experiment trial.');const planned=readExpected();verifySettings(planned,run);if((run.demo===true)!==e.demo)throw Error('Real and fictional results cannot be mixed.');if(!e.demo)verifyEvidence(e,t,run);item=I.inspect(run);issues.push(...item.errors);if(item.metrics.drawdown>e.ceiling)issues.push('Drawdown exceeds '+e.ceiling+'%.');if(item.metrics.trades===null||item.metrics.trades<e.minTrades)issues.push('Below '+e.minTrades+' reported trades.');if(!Number.isFinite(e.objective==='calmar'?item.calmar:item.metrics[e.objective]))issues.push('Selected ranking measure is unavailable.');}
  catch(error){issues.push(error.message);}
  const value=item?(e.objective==='calmar'?item.calmar:item.metrics[e.objective]):null;
  return {trial:t,run,item,value,eligible:issues.length===0,reasons:issues};
 }
 function validatedSetupFields(e,t){
+ // Auxiliary filters may change the native layout as well as its values.
+ // Their exact model projection is required; fixed field indices apply only
+ // to the original three-stage setup layout.
+ if(auxiliarySetup(e.baseline))return expected(e,t);
  // Only used synchronously after validate(e). Ranking needs the source fields,
  // not a new copy of thousands of unchanged dropdown choices for every row.
  // verify() compares values/checkboxes and labels; UI disabled flags are not
@@ -239,14 +255,14 @@ function decisions(e,runs,phase='discovery'){
  const evidence=new Set();for(const x of items.filter(x=>x.eligible).sort((a,b)=>(e.objective==='drawdown'?a.value-b.value:b.value-a.value)||a.trial.ordinal-b.trial.ordinal)){const sig=signature([x.run.quickStats,x.run.statistics,x.run.trades]);if(evidence.has(sig)){x.eligible=false;x.reasons.push('Repeated report evidence.');}else evidence.add(sig);}
  const pending=e.trials.filter(t=>t.phase===phase&&!['saved','skipped'].includes(t.status)).length,scopes=new Map();
  for(const item of items){if(!item.item)continue;const controls=item.item.controls,key=signature(Object.fromEntries(Object.entries(controls).map(([name,value])=>[name,typeof value==='string'?V.clean(value).toLowerCase():value])));item.groupKey=key;if(!scopes.has(key))scopes.set(key,{key,controls,items:[]});scopes.get(key).items.push(item);}
- const scopeDimension=/^(?:execution\.(?:period|from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
+ const scopeDimension=/^(?:momentum\.(?:group|timeframe)|execution\.(?:period|from|to)|portfolio\.(?:allocation|capital|max-open|daily-limit(?:\.enabled)?))$/;
  // A partly finished mixed-scope plan must not name a universal leader just
  // because its first returned trials happen to share one set of controls.
  const grouped=scopes.size>1||phase==='discovery'&&e.dimensions.some(d=>scopeDimension.test(d.key)&&d.values.length>1);
  const groups=[...scopes.values()].map(group=>({...group,...summarizeDecision(e,group.items,pending)}));
  if(!grouped)return {...summarizeDecision(e,items,pending),groups,grouped:false};
- for(const group of groups)if(group.items.length===1){group.leader=null;group.leaders=[];group.neighbors=[];if(group.eligible.length)group.headline='One trial · no matched peer';group.next=pending?'Finish the planned trials before selecting a candidate.':'Test another strategy with these same dates and portfolio settings.';}
- return {items,eligible:groups.flatMap(g=>g.eligible),leaders:[],leader:null,neighbors:[],pending,complete:pending===0,groups,grouped:true,headline:!items.length?'Ready to collect evidence':'Compare matched test conditions',next:pending?'Finish the planned trials; results are compared within matching dates and portfolio settings.':'Choose a matched group to review its candidates. Different test conditions have separate comparisons.'};
+ for(const group of groups)if(group.items.length===1){group.leader=null;group.leaders=[];group.neighbors=[];if(group.eligible.length)group.headline='One trial · no matched peer';group.next=pending?'Finish the planned trials before selecting a candidate.':'Test another strategy with these same universe, timeframe, dates and portfolio settings.';}
+ return {items,eligible:groups.flatMap(g=>g.eligible),leaders:[],leader:null,neighbors:[],pending,complete:pending===0,groups,grouped:true,headline:!items.length?'Ready to collect evidence':'Compare matched test conditions',next:pending?'Finish the planned trials; results are compared within matching universes, timeframes, dates and portfolio settings.':'Choose a matched group to review its candidates. Different test conditions have separate comparisons.'};
 }
 function nextTrial(e,runs){
  const queued=e.trials.filter(t=>t.status==='queued');if(e.mode!=='adaptive'||!queued.length||queued[0].phase!=='discovery')return queued[0];
@@ -266,6 +282,6 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
  const n=e.trials.length+1;e.trials.push({id:e.id+'-t'+n,runId:e.id+'-t'+n,ordinal:n,patch:clone(t.patch),status:'queued',phase,period:clone(period),parentTrialId:t.id,events:[]});e.status='paused';journal(e,'Frozen '+phase+' candidate: trial '+t.ordinal,now);return e;
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
-const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,clone};
+const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,clone};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);

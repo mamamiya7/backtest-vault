@@ -144,3 +144,17 @@ for(const file of ['core.js','storage.js','presentation.js','dashboard.js'])w.ev
  await d.getElementById('backup').onclick();assert.deepEqual(JSON.parse(await downloads.at(-1).text()).runs,[run]);
  console.log('PASS: signed/decimal/unit formatting, arrow semantics, numbered periods/EMA, consolidated strategies, exact field coverage, safe unknown-layout fallback, aligned cells, readable CSV and unchanged JSON archives.');
  }finally{dom.window.close();}})().catch(e=>{console.error(e);process.exitCode=1;});
+
+// Every observed optional filter control keeps one readable presentation path.
+{
+ const S=require('../dist/setup.js'),L=require('../dist/source-layouts.js'),F=require('./fixtures/filter-setup.cjs'),D=require('../dist/demo.js');
+ for(const chart of L.charts)for(const mode of ['Index','RS'])for(const action of L.marketActions)for(const exitPrices of [false,true]){
+  const t=S.template(F({chart,mode,action,exitPrices})),b=S.configToBaseline({...S.defaults(t),'momentum.rs':true,'momentum.market-filter':true},t),saved={...D.create()[0],parameters:b.parameters},stage=P.settings(saved).find(stage=>stage.key==='marketFilter');
+  assert.ok(stage);assert.ok(stage.groups.every(group=>group.name!=='Captured settings'));
+  const covered=stage.groups.flatMap(group=>group.rows.flatMap(row=>row.sourceIndices));assert.deepEqual([...covered].sort((a,b)=>a-b),stage.snapshot.fields.map(field=>field.index),'Optional market trend fields are represented exactly once');
+  const map=P.parameterMap(saved);assert.equal(map.get('marketFilter.mode').text,mode);assert.equal(map.get('marketFilter.action').text,action);assert.ok(map.get('marketFilter.index').text.includes('Demo index'));assert.ok(map.get('marketFilter.method').text.includes('EMA'));
+  for(const category of ['My','Public']){const copied=structuredClone(saved),fields=copied.parameters.strategy.main.fields,layout=L.stage('momentum',fields),row=layout.rows.at(-1);fields[row.parentIndex].value=category;fields[row.childIndex].type='text';fields[row.childIndex].value='Fictional searched RS rule';const main=P.settings(copied).find(stage=>stage.key==='momentum');assert.ok(main.groups.every(group=>group.name!=='Captured settings'));assert.match(P.parameterMap(copied).get('momentum.rs.rule').text,/Fictional searched RS rule/);}
+  if(L.marketActions.slice(2).includes(action)){const copied=structuredClone(saved),fields=copied.parameters.strategy.marketTrend.fields,row=L.marketFilter(fields).rows[0];fields[row.parentIndex].value='Public';fields[row.childIndex].type='text';fields[row.childIndex].value='Fictional searched market exit';assert.ok(P.settings(copied).find(stage=>stage.key==='marketFilter').groups.every(group=>group.name!=='Captured settings'));}
+ }
+}
+console.log('PASS: complete optional market trend layouts and private/public Relative Strength rules are readable with exact field coverage.');

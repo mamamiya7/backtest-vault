@@ -84,6 +84,7 @@
     // My/Public strategy rules use a search input in the observed
     // source layout. Other control positions retain the exact type signature.
     if(['Candle','P&F','Renko'].includes(chart))for(const parent of [39+shift,43+shift,47+shift])if(['My','Public'].includes(fields[parent]?.value)&&fields[parent+1]?.type==='text')signature=signature.slice(0,parent+1)+'t'+signature.slice(parent+2);
+    if(extended&&['My','Public'].includes(fields.at(-2)?.value)&&fields.at(-1)?.type==='text')signature=signature.slice(0,-1)+'t';
     const anchors=[[0,/Chart Type/i],[1,/Group/i],[4,/Retracement/i],[11,/^Period/i],[22,/Weight/i],[26,/EMA/i],[33,/Timeframe/i],[34+shift,/Radar/i],[39+shift,/Str 1/i],[43+shift,/Str 2/i],[47+shift,/Str 3/i],[rs,/Relative Strength/i]];
     if(variant)anchors.push([34,/Running.*Fresh/i],[chartStart,chart==='Renko'?/Brick Size/i:/Box Size/i]);
     if (!['Candle','P&F','Renko'].includes(chart) || !matches(fields,signature,anchors)) return null;
@@ -117,7 +118,7 @@
   function executionGroups(fields) {
     const chart=fields[3]?.value,variant=['P&F','Renko'].includes(chart),selection=variant?8:4,mode=fields[selection]?.value,benchmark=['RS','Both'].includes(mode),exit=selection+1+(benchmark?2:0);
     let signature='sdds'+(variant?'tsrr':'')+'s'+(benchmark?'st':'')+'cssctct';
-    if(['Candle','P&F','Renko'].includes(chart)&&mode==='Price'&&['My','Public'].includes(fields[exit+1]?.value)&&fields[exit+2]?.type==='text')signature=signature.slice(0,exit+2)+'t'+signature.slice(exit+3);
+    if(['Candle','P&F','Renko'].includes(chart)&&['My','Public'].includes(fields[exit+1]?.value)&&fields[exit+2]?.type==='text')signature=signature.slice(0,exit+2)+'t'+signature.slice(exit+3);
     const anchors=[[0,/Rank/i],[1,/From/i],[2,/To/i],[3,/Chart/i],[selection,/Selection/i],[exit,/Exit/i],[exit+3,/Target/i],[exit+5,/Stop Loss/i]];
     if(variant)anchors.push([4,chart==='Renko'?/Brick Size/i:/Box Size/i]);
     if(benchmark)anchors.push([selection+1,/Exit Denominator/i]);
@@ -138,6 +139,25 @@
     ]}];
   }
 
+  function marketFilterGroups(fields) {
+    // Resolve only observed shapes. Unknown layouts retain every original field.
+    const L=typeof module!=='undefined'?require('./source-layouts.js'):root.VaultSourceLayouts;
+    let layout;try{layout=L?.stage('marketFilter',fields);}catch(_){return null;}if(!layout)return null;
+    const row=(key,label,index,kind='text',checked=null,indices=[index])=>({key,label,value:fields[index].value,kind,checked,disabled:fields[index].disabled,sourceIndices:indices});
+    const mode=fields[layout.indexModeIndex].checked?'Index':'RS',methodNames=['EMA','D Smart','MAST','KTQP'];
+    const groups=[{name:'Filter setup',rows:[row('chart','Chart type',layout.chartIndex),choice(fields,'mode','Filter mode',[layout.indexModeIndex,layout.rsModeIndex],['Index','RS']),row('action','When trend changes',layout.actionIndex)]}];
+    groups.push({name:'Benchmarks',rows:[
+      row('index','Index',layout.indexSymbolIndex,'text',mode==='Index',[layout.indexMarketIndex,layout.indexSymbolIndex]),
+      row('numerator','RS numerator',layout.numeratorSymbolIndex,'text',mode==='RS',[layout.numeratorMarketIndex,layout.numeratorSymbolIndex]),
+      row('denominator','RS denominator',layout.denominatorSymbolIndex,'text',mode==='RS',[layout.denominatorMarketIndex,layout.denominatorSymbolIndex])
+    ].map((entry,n)=>({...entry,detail:fields[[layout.indexMarketIndex,layout.numeratorMarketIndex,layout.denominatorMarketIndex][n]].value}))});
+    groups.push({name:'Trend method',rows:[choice(fields,'method','Trend method',layout.methodIndices,methodNames),...layout.methodValueIndices.map((index,n)=>row(['ema','dsmart','mast','ktqp'][n],methodNames[n]+' period',index,'count',fields[layout.methodIndices[n]].checked))]});
+    const chartGroup=(prefix,size,mode,prices)=>({name:prefix?'Exit chart settings':'Chart settings',rows:[row(prefix+(layout.chart==='Renko'?'brick.size':'box.size'),layout.chart==='Renko'?'Brick size input':'Box size',size,layout.chart==='Renko'&&fields[mode].value==='Percent'?'percent':'number'),row(prefix+(layout.chart==='Renko'?'brick.mode':'box.reversal'),layout.chart==='Renko'?'Brick size mode':'Reversal size',mode,layout.chart==='Renko'?'text':'count'),...(prices.length?[choice(fields,prefix+'price-mode','Price mode',prices,['Close Only','High & Low'])]:[])]});
+    if(layout.variant)groups.push(chartGroup('',layout.sizeIndex,layout.modeIndex,layout.priceIndices));
+    if(layout.hasExit){const exit=layout.rows[0];groups.push({name:'Exits',rows:[{...row('exit','Exit strategy',exit.childIndex,'text',fields[exit.gateIndex].checked,[exit.gateIndex,exit.parentIndex,exit.childIndex]),value:ruleName(fields[exit.childIndex].value),detail:sourceName(fields[exit.parentIndex].value)},row('target','Profit target',layout.targetValueIndex,'percent',fields[layout.targetGateIndex].checked,[layout.targetGateIndex,layout.targetValueIndex]),row('stop','Stop loss',layout.stopValueIndex,'percent',fields[layout.stopGateIndex].checked,[layout.stopGateIndex,layout.stopValueIndex])]});if(layout.variant)groups.push(chartGroup('exit.',layout.exitSizeIndex,layout.exitModeIndex,layout.exitPriceIndices));}
+    return groups;
+  }
+
   function fallbackGroups(fields) {
     return [{name:'Captured settings',rows:fields.map(f=>{
       // Remove the known tooltip spill, but keep unknown field context intact.
@@ -151,6 +171,7 @@
     return [
       ['momentum','Momentum',run.parameters?.strategy?.main,mainGroups],
       ['execution','Execution',run.parameters?.strategy?.execution,executionGroups],
+      ['marketFilter','Market trend filter',run.parameters?.strategy?.marketTrend,marketFilterGroups],
       ['portfolio','Portfolio',run.parameters?.settings,portfolioGroups],
       ['observed','Current inputs (unverified)',run.observedMain,mainGroups]
     ].filter(([, ,snapshot])=>snapshot).map(([key,title,snapshot,adapt])=>({key,title,snapshot,groups:adapt(snapshot.fields)||fallbackGroups(snapshot.fields)}));

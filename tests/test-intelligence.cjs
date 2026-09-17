@@ -71,3 +71,18 @@ const shortened={...complete,points:complete.points.filter(p=>p.date<='2025-12-2
 custom.to='2026-02-01';assert.equal(I.benchmarkFor(custom,complete).available,false);
 assert.equal(JSON.stringify(runs),original);
 console.log('PASS: strict cohorts, source consistency, Calmar definitions, ties, dominance, risk ceilings, duplicate evidence, benchmark CSV validation, return/drawdown math, sparse/edge coverage and source immutability.');
+
+// Filters are strategy variables inside the same universe/date/capital cohort.
+{
+ const S=require('../dist/setup.js'),L=require('../dist/source-layouts.js'),F=require('./fixtures/filter-setup.cjs'),t=S.template(F()),config={...S.defaults(t),'momentum.market-filter':true,'momentum.rs':true},baseline=S.configToBaseline(config,t),base={...copy(runs[0]),parameters:baseline.parameters};
+ assert.deepEqual(I.inspect(base).errors,[]);
+ const changed={...copy(base),id:'different-filter',name:'Different filter'},fields=changed.parameters.strategy.marketTrend.fields,layout=L.marketFilter(fields);fields[layout.methodValueIndices[0]].value='80';const analysis=I.analyze([base,changed]);assert.equal(analysis.groups.length,1);assert.equal(analysis.groups[0].items.length,2);assert.ok(analysis.groups[0].differences.some(difference=>difference.key==='marketFilter.ema'));
+ const inactive=copy(base);inactive.id='inactive-filter';inactive.parameters.strategy.marketTrend.fields[layout.methodValueIndices[2]].value='90';assert.equal(I.analyze([base,inactive]).duplicates.length,1,'An inactive trend method does not create independent evidence');
+ const without=copy(base);without.id='filter-off';without.parameters.strategy.main.fields[2].checked=false;delete without.parameters.strategy.marketTrend;assert.equal(I.analyze([base,without]).groups.length,1,'Filter on/off remains an intentional strategy variation');
+ const differentChartTemplate=S.template(F({marketChart:'Renko'})),differentChart={...copy(base),id:'different-filter-chart',parameters:S.configToBaseline({...S.defaults(differentChartTemplate),'momentum.market-filter':true,'momentum.rs':true},differentChartTemplate).parameters};const mixed=I.analyze([base,differentChart]);assert.equal(mixed.groups.length,1,'The auxiliary signal chart does not change execution conditions');assert.ok(mixed.groups[0].differences.some(difference=>difference.key==='marketFilter.chart'));
+ const missing=copy(base);delete missing.parameters.strategy.marketTrend;assert.match(I.analyze([missing]).blocked[0].errors.join(' '),/market trend filter settings were not captured/);
+ const mismatch=copy(base);mismatch.parameters.strategy.main.fields[2].checked=false;assert.match(I.analyze([mismatch]).blocked[0].errors.join(' '),/do not match/);
+ const malformed=copy(base);malformed.parameters.strategy.marketTrend.fields.pop();assert.match(I.analyze([malformed]).blocked[0].errors.join(' '),/unknown setting layout/);
+ const oldMissing=copy(base);oldMissing.parameters.strategy.auxiliarySettingsUncaptured=true;assert.match(I.analyze([oldMissing]).blocked[0].errors.join(' '),/Additional enabled strategy/);
+}
+console.log('PASS: captured filter strategies compare within matched conditions; missing or inconsistent enabled filters remain unranked.');

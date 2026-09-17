@@ -79,7 +79,7 @@ const malformed=clone(source);malformed.stages.momentum.fields[12].index=11;asse
 const wrongLabel=clone(source);wrongLabel.stages.execution.fields[9].label='Wrong target label'; // Non-anchor source labels are retained verbatim.
 assert.equal(S.template(wrongLabel).stages.execution.fields[9].label,'Wrong target label');
 wrongLabel.stages.execution.fields[8].label='Unknown threshold';assert.throws(()=>S.template(wrongLabel),/controls changed/);
-const unsupported=clone(source);unsupported.stages.momentum.fields=clone(D.create()[1].parameters.strategy.main.fields);assert.throws(()=>S.template(unsupported),/Relative Strength off/);
+const unsupported=clone(source);unsupported.stages.momentum.fields=clone(D.create()[1].parameters.strategy.main.fields);assert.throws(()=>S.template(unsupported),/Relative Strength (?:off|settings)|controls changed/);
 const invalidOption=clone(source);invalidOption.stages.momentum.options[3]=['Other market'];assert.throws(()=>S.template(invalidOption),/absent/);
 for(const [stage,index,gate,key] of [['momentum',36,34,'momentum.radar'],['momentum',40,42,'momentum.strategy.1'],['momentum',44,46,'momentum.strategy.2'],['momentum',48,50,'momentum.strategy.3'],['execution',7,5,'execution.exit']]){
  const empty=clone(source);empty.stages[stage].fields[index].value='';empty.stages[stage].fields[gate].checked=false;empty.stages[stage].options[index]=[];
@@ -293,7 +293,7 @@ for(const initial2 of ['Pre','Public'])for(const initial3 of ['Pre','My']){
    const conflict=clone(t);for(const index of layout.priceIndices)conflict.stages[stage].fields[index].checked=true;const read=S.template(conflict);assert.deepEqual(layout.priceIndices.map(i=>read.stages[stage].fields[i].checked),[true,true]);assert.throws(()=>S.configToBaseline(S.defaults(read),read),/exactly one.*price mode/,'Conflicting source flags are preserved and blocked, not normalized');
   }
   for(let n=1;n<=3;n++){const input=fields.find(f=>f.key===`momentum.strategy.${n}.input`),timeframe=fields.find(f=>f.key===`momentum.strategy.${n}.timeframe`);if(momentumChart==='Candle')assert.ok(timeframe&&!input);else{assert.ok(input&&!timeframe);assert.equal(input.type,'number');assert.equal(input.index,39+n*4);assert.doesNotMatch(input.label,/timeframe/i);}}
-  const bad=clone(t);bad.stages.execution.fields[0].type='text';assert.throws(()=>S.template(bad),/controls changed/);const blocked=clone(t);blocked.stages.momentum.fields[L.main(momentumChart).rsIndex].checked=true;assert.throws(()=>S.template(blocked),/Relative Strength off/);
+  const bad=clone(t);bad.stages.execution.fields[0].type='text';assert.throws(()=>S.template(bad),/controls changed/);const blocked=clone(t);blocked.stages.momentum.fields[L.main(momentumChart).rsIndex].checked=true;assert.throws(()=>S.template(blocked),/Relative Strength (?:off|settings)|controls changed/);
  }
  for(const stage of ['momentum','execution'])for(const mode of ['Absolute','Percent','ATR','ATR %']){const t=S.demoTemplate({momentumChart:'Renko',executionChart:'Renko'}),layout=L.stage(stage,t.stages[stage].fields);t.stages[stage].fields[layout.modeIndex].value=mode;t.stages[stage].fields[layout.sizeIndex].value=mode.startsWith('ATR')?'14':mode==='Absolute'?'10':'1';const loaded=S.template(t),config=S.defaults(loaded),f=S.fieldsForUI(loaded).flatMap(g=>g.fields).find(f=>f.key===stage+'.brick.size');assert.equal(f.integer,mode.startsWith('ATR'));S.validateBaseline(S.configToBaseline(config,loaded));if(mode.startsWith('ATR'))assert.throws(()=>S.validateConfig({...config,[stage+'.brick.size']:1.5},loaded),/whole number/);assert.throws(()=>S.validateConfig({...config,[stage+'.brick.mode']:mode==='Percent'?'Absolute':'Percent'},loaded),/Refresh choices/);}
  // Text search children and observed nested labels use the chart's own rows.
@@ -333,3 +333,38 @@ for(const initial2 of ['Pre','Public'])for(const initial3 of ['Pre','My']){
  assert.equal(context.config['momentum.brick.mode'],'ATR');assert.equal(context.config['execution.brick.mode'],'Absolute');assert.deepEqual(context.changes.slice(-2),[{momentum:{55:'ATR'}},{execution:{5:'Absolute'}}]);assert.throws(()=>S.configFromRun(record,S.demoTemplate({momentumChart:'Renko',executionChart:'Renko'})),/Load the saved/,'ATR periods cannot hydrate into Percent sizes');
 }
 console.log('PASS: exact saved-run re-use with current-menu validation, independent chart contexts, chart-scoped main/execution layouts, exact field coverage, numeric strategy inputs, mode-specific sizing, conflicting price-state preservation, native/search catalogues and label dependencies, immutable reconstruction and legacy archives.');
+
+// Optional filters use independent, observed forms; edits never invent hidden source fields.
+{
+ const F=require('./fixtures/filter-setup.cjs'),L=require('../dist/source-layouts.js');
+ for(const chart of L.charts)for(const marketChart of L.charts)for(const exitPrices of [false,true]){
+  const source=F({chart,marketChart,exitPrices}),before=clone(source),t=S.template(source),initial=S.defaults(t);
+  assert.equal(initial['momentum.rs'],false);assert.equal(initial['momentum.market-filter'],false);assert.equal(initial['marketFilter.action'],L.marketActions[0],'Defaults use original action rather than the temporary expanded form');
+  assert.equal(initial['marketFilter.chart'],marketChart);assert.equal(initial['momentum.chart'],chart);
+  const off=S.configToBaseline(initial,t);assert.equal(off.parameters.strategy.main.fields.length,L.main(chart).count);assert.ok(!off.parameters.strategy.marketTrend);assert.deepEqual(source,before);
+  for(const rs of [false,true])for(const mode of ['Index','RS'])for(const action of L.marketActions){
+   const config={...initial,'momentum.rs':rs,'momentum.market-filter':true,'momentum.period.1':321,'marketFilter.mode':mode,'marketFilter.method':'MAST','marketFilter.mast':34,'marketFilter.action':action,'marketFilter.exit.enabled':true,'marketFilter.exit.rule':'Demo market alternative','marketFilter.target.enabled':true,'marketFilter.target':7,'marketFilter.stop.enabled':true,'marketFilter.stop':4};
+   const b=S.configToBaseline(config,t),main=L.stage('momentum',b.parameters.strategy.main.fields),fields=b.parameters.strategy.marketTrend.fields,layout=L.stage('marketFilter',fields);
+   assert.equal(main.relativeStrength,rs);assert.equal(b.parameters.strategy.main.fields[12].value,'321','Fresh common settings survive merging optional RS controls');assert.equal(layout.chart,marketChart);assert.equal(layout.hasExit,L.marketActions.slice(2).includes(action));assert.equal(fields[layout.indexModeIndex].checked,mode==='Index');assert.equal(fields[layout.rsModeIndex].checked,mode==='RS');assert.equal(fields[layout.methodValueIndices[2]].value,'34');
+   if(layout.hasExit){assert.equal(fields[layout.rows[0].childIndex].value,'Demo market alternative');assert.equal(fields[layout.targetValueIndex].value,'7');}
+   assert.equal(S.validateBaseline(clone(b)).id,b.id);
+   for(const stage of ['momentum','marketFilter']){const expected=E.fields(b,stage),descriptor=S.descriptorForFields(t,stage,expected),resolved=L.stage(stage,descriptor.fields);assert.equal(descriptor.fields.length,expected.length);assert.deepEqual(descriptor.fields.map(f=>f.type),expected.map(f=>f.type));for(const [index,catalogue]of Object.entries(descriptor.ruleCatalogues||{})){assert.ok(resolved.rows.some(row=>row.childIndex===Number(index)&&row.parentIndex===catalogue.parentIndex&&row.gateIndex===catalogue.gateIndex));}}
+
+   const run={...clone(fixture),parameters:clone(b.parameters)},copied=S.configFromRun(run,t),rebuilt=S.configToBaseline(copied,t);
+   for(const stage of ['momentum','execution','portfolio','marketFilter'])assert.deepEqual(E.fields(rebuilt,stage).map(f=>[f.type,f.value,f.checked]),E.fields(b,stage).map(f=>[f.type,f.value,f.checked]),'Saved filter values and visible radio states return to the editor');
+   if(rs)assert.ok(S.savedRunContext(run).loadFilters.includes('relativeStrength'));assert.ok(S.savedRunContext(run).loadFilters.includes('marketFilter'));
+  }
+ }
+ const source=F(),t=S.template(source),config={...S.defaults(t),'momentum.rs':true,'momentum.market-filter':true};
+ assert.throws(()=>S.configToBaseline({...config,'momentum.rs.benchmark':'Unknown'},t),/available benchmark|choose benchmark/i);
+ assert.throws(()=>S.configToBaseline({...config,'marketFilter.index.symbol':'Unknown'},t),/available index|choose index/i);
+ assert.throws(()=>S.configToBaseline({...config,'marketFilter.action':L.marketActions[2],'marketFilter.exit.enabled':true,'marketFilter.exit.rule':'-- Select system --'},t),/exit strategy rule/i);
+ const discovered=clone(source);delete discovered.stages.momentum.relativeStrength;delete discovered.stages.momentum.withoutRelativeStrength;delete discovered.stages.marketFilter;
+ const pending=S.template(discovered),pendingConfig=S.defaults(pending);assert.equal(S.fieldsForUI(pending).flatMap(g=>g.fields).find(f=>f.key==='momentum.rs').needsDiscovery,true);assert.throws(()=>S.configToBaseline({...pendingConfig,'momentum.rs':true},pending),/Load Relative Strength/);assert.throws(()=>S.configToBaseline({...pendingConfig,'momentum.market-filter':true},pending),/Load Market trend filter/);
+ const missing=clone(discovered);missing.stages.momentum.fields[2].checked=true;assert.equal(S.defaults(S.template(missing))['momentum.market-filter'],true,'An already-enabled unscanned filter remains explicit pending discovery');assert.throws(()=>S.configToBaseline(S.defaults(missing),missing),/Load Market trend filter/);
+ const identity=clone(source),ri=L.main('Candle',true).benchmarkIndex;delete identity.stages.momentum.relativeStrength.options[ri][0].sourceValue;assert.throws(()=>S.configToBaseline({...S.defaults(identity),'momentum.rs':true},identity),/benchmark choices|available benchmark/,'Labels alone do not authorize a benchmark selection');
+ const all=clone(source),mi=L.main('Candle',true).benchmarkMarketIndex;all.stages.momentum.relativeStrength.fields[mi].value='All';const allConfig={...S.defaults(all),'momentum.rs':true};assert.doesNotThrow(()=>S.configToBaseline(allConfig,all),'All market searches can commit a source-identified NSE result');
+ const malformed=clone(source);malformed.stages.marketFilter.current.fields[1].checked='true';assert.throws(()=>S.template(malformed),/controls changed|current market trend/);
+ const mutation=clone(S.configToBaseline(config,t));mutation.parameters.strategy.marketTrend.fields[3].value='Changed';assert.throws(()=>S.validateBaseline(mutation),/altered/,'Auxiliary submission evidence is part of immutable setup reconstruction');
+}
+console.log('PASS: Relative Strength and independent market trend chart/mode/action projections, source identities, on-demand gates, current defaults and saved-run restoration.');

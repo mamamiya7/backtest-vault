@@ -1,17 +1,17 @@
-# Backtest Vault 0.16.1 — installable preview
+# Backtest Vault 0.17.0 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
 
-- **Use these settings** on a saved trial or report returns to the full Step 1 form with its strategy, dates, exits and portfolio inputs. Edit and run to save a new study; original evidence stays intact.
-- Show every study's own **Created** date and time, separate from its baseline name.
-- Reuse daily shared Pre/Popular native dropdown menus across RZone refreshes and new tabs. Current settings, Group and private choices are checked afresh; **Recheck all choices** still forces a complete scan.
-- Preserve copied edits through reconnects, current-menu validation, single paired date controls, comparison rules and execution safeguards. Removed or unsearched choices need review; unsupported chart execution remains gated.
+- Radar's enable control is beside its rule dropdown.
+- Universe × Timeframe Test values produce every selected combination, with results grouped by matching conditions.
+- Relative Strength and Market Trend Filter now have dedicated settings and Test values, including their source-specific rule lists and benchmark searches.
+- Automated trials apply and verify complete filter settings before saving results. Discovery restores the source form, and saved runs retain the full filter configuration.
 
 ## Install
 
-Download **backtest-vault-0.16.1.zip**, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.17.0.zip**, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.
@@ -29,4 +29,4 @@ Setup uses built-in Windows commands or standard Linux utilities, validates the 
 
 Release publication waits for the complete application suites plus extracted-package installation checks on Windows and Linux. These exercise a new install, repeat install, update, path handling, file preservation, invalid targets and damaged downloads. Every package contains file checksums; the attached SHA256SUMS verifies the ZIP.
 
-Strategy execution behavior is unchanged from v0.10.0. P&F/Renko setup and dropdown discovery are available; automatic execution remains gated pending separate live acceptance. This release does not broaden that validation claim.
+Relative Strength and Market Trend Filter extend the Candle/Price runner. P&F/Renko main and execution charts remain available for setup and dropdown discovery; automatic execution remains gated pending separate live acceptance. Automated fixture checks do not establish installed Chrome or live RZone acceptance.

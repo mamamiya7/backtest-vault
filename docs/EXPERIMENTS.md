@@ -99,8 +99,8 @@ A consolidated live source inspection on 2026-09-16 covered the parent branches 
 | Main chart and Group | Candle / P&F / Renko × four markets | NSE editor for all three charts; Candle execution |
 | STR1–3 | Three rows × four rule sources × three charts | Three chart-specific editors and My/Public search; Candle execution |
 | Radar | Pre / My under all three charts | NSE editor for all three charts; an empty native menu stays empty |
-| Relative Strength | Separate chart rule families, five benchmark markets, exact benchmark selection | Still gated |
-| Market Trend Filter | Three charts × Index/RS × four actions; four methods; exit categories; both Renko construction blocks | Still gated; requires complete capture and replay support |
+| Relative Strength | Separate chart rule families, five benchmark markets, exact benchmark selection | Full editor, Test values and Candle/Price runner |
+| Market Trend Filter | Three charts × Index/RS × four actions; four methods; exit categories; both Renko construction blocks | Full editor, Test values and complete capture/replay with the Candle/Price runner |
 | Backtest / exits | Three execution charts × Price/RS/Both × four rule sources; cross-check under all three main charts | All three Price editors, including exit My/Public search; Candle execution |
 | Portfolio | Fixed / Reinvestment × portfolio switch × daily-limit switch | Existing verified six-control template |
 
@@ -149,15 +149,16 @@ For example, Period 3 at **90**, with **Test both**, compares including and excl
 | Radar, Strategy 1–3, exit rule | Enable controls, source menus and loaded rule choices | Switches and rules within the selected source catalogue; Strategy rule timeframe |
 | Test period | One complete date-range control | Additional complete ranges; each start stays paired with its end |
 | Rank criteria | Offered RZone choices | Select one or more criteria |
-| Group, market, timeframe | Selected in Vault | Fixed within discovery |
+| Universe / Group and Timeframe | Select current RZone choices | Every selected Universe × Timeframe combination |
+| Market | NSE setup | Fixed within a batch |
 | Target and stop loss | Values and enable checkboxes | Numeric values and On/Off choices; every combination needs an exit |
 | Allocation | Offered RZone choices | Select Fixed / Reinvestment when offered |
 | Capital and maximum open trades | Numeric inputs | Explicit values or From / To / Step ranges |
 | Daily stock limit | State and numeric input | Off / On / Test both, plus numeric values or a range |
-| Relative Strength and Market Trend Filter | Must remain off for this adapter | Unavailable |
+| Relative Strength and Market Trend Filter | Off / On / Test both, benchmarks, rules and filter parameters | Supported with complete source readback and capture |
 | P&F and Renko | Chart-specific editors and choice discovery available | Existing saved runs can still prepare plans; automatic execution remains gated |
 
-The current new-test adapter is **Candle with Price selection**. Other source choices remain visibly unavailable where their dependent controls need a separate adapter. Universe, market, timeframe, chart/selection and source-menu parents stay fixed during a batch. Dates and portfolio assumptions may vary; results with different comparison conditions remain in separate groups. Choose a strategy category from its loaded choices, then select the rules to test. In the saved-run route, inactive fields remain excluded from that baseline's sweep picker. Named rules are recorded as names; hidden rule definitions are never inferred.
+The current new-test adapter is **Candle with Price selection**. Other source choices remain visibly unavailable where their dependent controls need a separate adapter. Market, chart/selection and source-menu parents stay fixed during a batch. Universe and Timeframe support every selected combination. Dates and portfolio assumptions may vary; results with different comparison conditions remain in separate groups. Choose a strategy category from its loaded choices, then select the rules to test. In the saved-run route, inactive fields remain excluded from that baseline's sweep picker. Named rules are recorded as names; hidden rule definitions are never inferred.
 
 ### Dates and portfolio variations
 
@@ -264,3 +265,14 @@ Live acceptance on 2026-09-16 separately verified three sequential Candle period
 5. **Optional language planning:** translate a trader's brief to the same bounded schema, show its ranges for review, and let the deterministic executor operate it. A local model/optimizer remains optional; no LLM runtime or broad network access has been added.
 
 The technical design follows Chrome's [content-script model](https://developer.chrome.com/docs/extensions/develop/concepts/content-scripts) and [service-worker lifecycle](https://developer.chrome.com/docs/extensions/develop/concepts/service-workers/lifecycle). The split between discovery and later testing addresses the repeated-search concerns discussed in [The Probability of Backtest Overfitting](https://www.davidhbailey.com/dhbpapers/backtest-prob.pdf); it does not remove those risks by itself.
+
+
+### Optional filter controls
+
+Radar's Off / On / Test both control is beside its source and rule. Relative Strength and Market Trend Filter each open their own settings. Their rule families stay separate from Strategy 1–3.
+
+Relative Strength captures its benchmark market and exact symbol plus the selected source/rule. Market Trend Filter captures its independent chart, Index/RS mode, benchmark(s), EMA/D Smart/MAST/KTQP method and period, action, exit rule, target, stop and applicable chart construction inputs. Eligible values have Test values; mutually exclusive price modes vary as one choice. Chart construction and source categories stay fixed within a batch.
+
+Turning an optional filter on reads its available controls without submitting a backtest. Native optional-filter menus are reused within that source document for the local day; reconnects still read current settings. Their private symbol/rule query results are not shared across source documents. Recheck all choices clears the optional-menu cache as well as the ordinary menus.
+
+Every automatic filter trial saves the complete source settings. A Market Trend Filter Save receipt must belong to the same current main settings and trial, precede the strategy submission, and survive no source error. Missing or mismatched filter settings stop capture. The analysis keeps incomplete filter evidence unranked and shows complete filter differences within otherwise matching test conditions.
