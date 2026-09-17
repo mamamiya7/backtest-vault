@@ -148,15 +148,32 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
   if(!experiments.length){const empty=el('div',undefined,'experiment-empty');empty.append(el('h3','One setup. All your test results together.'),el('p','Start with one test or try several values. Vault keeps the settings, progress and results in one study.'));content.append(empty);}
 
-  else{const cards=el('div',undefined,'experiment-cards');for(const e of [...experiments].reverse()){const card=el('article',undefined,'study-card'),b=button('',()=>detail(e.id),'experiment-card');b.append(el('small',(e.demo?'Sample · ':'')+stateName(e.status)),el('strong',e.name),el('span',e.trials.filter(t=>t.status==='saved').length+' / '+e.trials.length+(e.demo?' sample results':' saved')+' · '+e.baseline.name));card.append(b,deleteControl(e,true));cards.append(card);}content.append(cards);}
+  else{const cards=el('div',undefined,'experiment-cards');for(const e of [...experiments].reverse()){const card=el('article',undefined,'study-card'),b=button('',()=>detail(e.id),'experiment-card'),created=el('time');created.dateTime=e.createdAt;created.textContent='Created '+new Date(e.createdAt).toLocaleString('en-IN',{day:'numeric',month:'short',year:'numeric',hour:'2-digit',minute:'2-digit'});b.append(el('small',(e.demo?'Sample · ':'')+stateName(e.status)),el('strong',e.name),el('span',e.trials.filter(t=>t.status==='saved').length+' / '+e.trials.length+(e.demo?' sample results':' saved')),created);card.append(b,deleteControl(e,true));cards.append(card);}content.append(cards);}
 
  }
 
- function newTest(){
-  const draft=setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid())setupPage();return;}
+ function newTest(initial=null){
+  const savedContext=initial?S.savedRunContext(initial):null;
+  if(initial&&(initial.demo===true)!==store.demo)throw Error('Real and fictional saved settings cannot be mixed.');
+  const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid())setupPage();return;}
   selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),contextDrafts:new Map(),choiceCache:null,warmingChart:null,ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
-  if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');wizard.template=S.demoTemplate();wizard.config=S.defaults(wizard.template);wizard.step=1;}
+  if(initial){setupDrafts.delete(store);wizard.reuseRun=structuredClone(initial);wizard.reuseApplied=false;wizard.name=((initial.name||'Saved run').slice(0,110)+' · copy');}
+  if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');const c=savedContext?.config;wizard.template=S.demoTemplate(c?{momentumChart:c['momentum.chart'],executionChart:c['execution.chart'],momentumBrickMode:c['momentum.brick.mode'],executionBrickMode:c['execution.brick.mode']}:{});wizard.config=initial?S.configFromRun(initial,wizard.template):S.defaults(wizard.template);wizard.reuseApplied=!!initial;wizard.step=1;}
   setupPage();
+ }
+
+ async function prepareSavedContext(state,source,generation){
+  if(!state.reuseRun)return source;
+  const desired=state.reuseApplied?state.config:S.savedRunContext(state.reuseRun).config,session=source.session;
+  for(const key of ['momentum.chart','momentum.market','execution.chart','momentum.brick.mode','execution.brick.mode']){
+   if(!Object.hasOwn(desired,key))continue;
+   const fields=S.fieldsForUI(S.template(source)).flatMap(group=>group.fields),field=fields.find(f=>f.key===key);
+   if(!field||field.value===desired[key])continue;
+   const response=await command('configure',{tabId:Number(state.sourceId),changes:{[field.stage]:{[field.index]:desired[key]}}});
+   if(!alive()||wizard!==state||generation!==state.generation)return null;
+   if(response.source?.session!==session)throw Error('RZone changed while loading the saved settings. Connect again.');source=response.source;
+  }
+  return source;
  }
 
  function setupSourceValid(){
@@ -175,7 +192,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  const chartSpecific=key=>/\.(?:chart|signal-mode|box|brick|price|radar|strategy|exit)(?:\.|$)/.test(key);
  function cacheReceipt(state,source){
   const cache=source?.choiceCache;if(!cache||!['live','cache'].includes(cache.source)||!Array.isArray(cache.charts)||cache.charts.some(c=>!choiceCharts.includes(c))||!(Number.isFinite(Date.parse(cache.checkedAt))||cache.checkedAt===null&&!cache.charts.length))return false;
-  state.choiceCache={checkedAt:cache.checkedAt,source:cache.source,charts:[...new Set(cache.charts)],pendingCharts:choiceCharts.filter(c=>!cache.charts.includes(c))};
+  state.choiceCache={checkedAt:cache.checkedAt,source:cache.source,scope:cache.scope,charts:[...new Set(cache.charts)],pendingCharts:choiceCharts.filter(c=>!cache.charts.includes(c))};
   return true;
  }
  function acceptSetupSource(state,source){
@@ -193,7 +210,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    state.ruleSearchDrafts=new Map(merge([...state.ruleSearchDrafts],[...(saved?.ruleSearchDrafts||[])],item=>item[0].split('|')[0]));
    state.editorOpen=null;
   }
-  if(draft)for(const group of S.fieldsForUI(template))for(const field of group.fields)if(!field.disabled&&!field.chartContext&&Object.hasOwn(draft,field.key))config[field.key]=draft[field.key];
+  if(draft)for(const group of S.fieldsForUI(template))for(const field of group.fields)if((!field.disabled||state.reuseRun)&&!field.chartContext&&Object.hasOwn(draft,field.key))config[field.key]=draft[field.key];
   state.template=template;state.sourceSession=source.session;state.config=config;state.stale=false;state.choiceCache=null;cacheReceipt(state,source);
  }
 
@@ -253,6 +270,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   clearCalendars();motion?.enter(content,'setup');
   if(!wizard)return;const state=wizard;selected=null;panel.classList.add('is-setup');const globalDemo=document.getElementById('demo-banner');environment.hidden=!!(store.demo&&globalDemo&&!globalDemo.hidden)||extension;panel.classList.toggle('has-workbench',state.step>0);content.replaceChildren(heading('Set up your test',true),journey('setup'));
   const shell=el('div',undefined,'experiment-builder setup-builder');content.append(shell);
+  if(state.reuseRun){const from=el('div',undefined,'setup-reuse-context');from.append(el('strong','Based on '+(state.reuseRun.name||'saved run')),el('span','Edit the settings below. Running saves a new study.'));shell.append(from);}
   if(!store.demo&&!extension){shell.append(el('h3','Open your installed Vault'),el('p','New tests use the settings and available choices from your RZone session. Open Backtest Vault from Chrome’s extensions to connect it.','muted'),button('Use a saved run',()=>builder(),'quiet'));return;}
   if(state.step===0){
    shell.append(el('h3','Connect to RZone'),el('p','Vault collects the available settings from your signed-in RZone tab. No backtest starts yet.','muted'));
@@ -262,7 +280,8 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
     const generation=++state.generation;state.autoConnectAttempted=true;state.connecting=true;state.connectionError='';sync();
     try{
      const response=await command('configure',{tabId:tab.id});if(!alive()||wizard!==state||generation!==state.generation)return;
-     acceptSetupSource(state,response.source);state.step=1;state.connecting=false;notice.textContent='';setupPage();await warmSetupChoices(state,generation);
+     const source=await prepareSavedContext(state,response.source,generation);if(!source||!alive()||wizard!==state||generation!==state.generation)return;
+     acceptSetupSource(state,source);if(state.reuseRun&&!state.reuseApplied){state.config=S.configFromRun(state.reuseRun,state.template);state.reuseApplied=true;}state.step=1;state.connecting=false;notice.textContent='';setupPage();await warmSetupChoices(state,generation);
     }catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;if(state.step!==0){state.step=0;state.template=null;state.sourceSession=null;state.connecting=false;setupPage();}throw error;}
     finally{state.connecting=false;if(wizard===state&&state.step===0)sync();}
    }),'primary');picker.dataset.rzone='setup';picker.setAttribute('aria-label','RZone tab');connectionError.setAttribute('role','alert');
@@ -280,14 +299,14 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    actions.append(connect,button('Open RZone',()=>action(async()=>{await command('open-source');await load();sync();}),'quiet'));shell.append(label('Source',picker),hint,connectionError,actions);return;
   }
   if(!state.template){state.step=0;setupPage();return;}
-  if(extension){const sourceBar=el('div',undefined,'setup-source-bar'),cache=state.choiceCache;let status='Connected to RZone';if(state.warmingChart)status='Checking '+state.warmingChart+' choices… ('+Math.min(3,(cache?.charts.length||0)+1)+' of 3)';else if(cache&&!cache.pendingCharts.length){const when=new Date(cache.checkedAt);status='Choices checked '+(when.toDateString()===new Date().toDateString()?'today':when.toLocaleDateString('en-IN'));}else if(cache?.charts.length)status='Choices ready: '+cache.charts.join(' · ');const refresh=button('Recheck all choices',()=>action(()=>refreshSetupChoices(undefined,{recheckAllChoices:true})),'quiet');refresh.disabled=state.connecting||!!state.ruleLookup;const receipt=el('span',status,'mini');receipt.setAttribute('role','status');receipt.setAttribute('aria-live','polite');if(cache?.checkedAt)receipt.title='Last checked '+new Date(cache.checkedAt).toLocaleString('en-IN');sourceBar.append(receipt,refresh);shell.append(sourceBar);}
+  if(extension){const sourceBar=el('div',undefined,'setup-source-bar'),cache=state.choiceCache;let status='Connected to RZone';if(state.warmingChart)status='Checking '+state.warmingChart+' choices… ('+Math.min(3,(cache?.charts.length||0)+1)+' of 3)';else if(cache&&!cache.pendingCharts.length){const when=new Date(cache.checkedAt);status=cache.source==='cache'||cache.scope==='shared-native'?'Using today’s dropdown choices':'Choices checked '+(when.toDateString()===new Date().toDateString()?'today':when.toLocaleDateString('en-IN'));}else if(cache?.charts.length)status='Choices ready: '+cache.charts.join(' · ');const refresh=button('Recheck all choices',()=>action(()=>refreshSetupChoices(undefined,{recheckAllChoices:true})),'quiet');refresh.disabled=state.connecting||!!state.ruleLookup;const receipt=el('span',status,'mini');receipt.setAttribute('role','status');receipt.setAttribute('aria-live','polite');if(cache?.checkedAt)receipt.title='Last checked '+new Date(cache.checkedAt).toLocaleString('en-IN');sourceBar.append(receipt,refresh);shell.append(sourceBar);}
   if(state.connectionError){const error=el('p',state.connectionError,'notice error setup-connection-error');error.setAttribute('role','alert');shell.append(error);}
   shell.classList.add('source-workbench');
   buildWorkbench(shell,state);
  }
 
  function setupPlan(state){
-  return {id:'preview',name:state.name,baseline:S.configToBaseline(state.config,state.template,{id:'setup-preview',name:state.name,demo:store.demo}),dimensions:state.dimensions.map(d=>({key:d.key,values:d.values})),mode:state.mode,budget:state.budget,objective:state.objective,ceiling:state.ceiling,minTrades:state.minTrades,seed:state.seed,timeoutMinutes:state.timeout};
+  return {id:'preview',name:state.name,baseline:S.configToBaseline(state.config,state.template,{id:state.reuseRun?.id||'setup-preview',name:state.name,demo:store.demo}),dimensions:state.dimensions.map(d=>({key:d.key,values:d.values})),mode:state.mode,budget:state.budget,objective:state.objective,ceiling:state.ceiling,minTrades:state.minTrades,seed:state.seed,timeoutMinutes:state.timeout};
  }
 
  const setupEnabled=(state,key)=>!key||!!state.config[key]||state.dimensions.some(d=>d.key===key&&Array.isArray(d.values)&&d.values.includes(true));
@@ -544,6 +563,13 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  }
 
  function builder(initial=baselineRun){
+  if(extension||store.demo){
+   if(initial){newTest(initial);return;}
+   keepSetup();clearCalendars();selected=null;wizard=null;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('Use a saved run',true),journey('setup'));
+   const shell=el('div',undefined,'experiment-builder'),usable=runs.filter(r=>{try{S.savedRunContext(r);return (r.demo===true)===store.demo;}catch{return false;}});content.append(shell);
+   if(!usable.length){shell.append(el('p','No saved run has a complete supported setup yet.'),button('New test',()=>newTest(),'primary'));return;}
+   const picker=select(usable.map(r=>[r.id,(r.name||r.id)+' · '+new Date(r.savedAt).toLocaleDateString('en-IN')]));shell.append(label('Saved run',picker),button('Use these settings',()=>action(()=>newTest(usable.find(r=>r.id===picker.value))),'primary'));return;
+  }
   keepSetup();clearCalendars();motion?.enter(content,'builder');
 
   selected=null;wizard=null;environment.hidden=extension;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('Test variations from a saved run',true),journey('setup'));const form=el('form',undefined,'experiment-builder');content.append(form);
@@ -685,7 +711,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   actions.append(button('Export study',()=>download('experiment-'+id+'.json',JSON.stringify({format:'definedge-backtest-vault',version:2,exportedAt:new Date().toISOString(),experiments:[e],runs:runs.filter(r=>r.id===e.baseline.id||e.trials.some(t=>t.runId===r.id))},null,2)),'quiet'),deleteControl(e));content.append(actions);
 
   const uncertainty=e.trials.filter(t=>t.status==='uncertain');for(const t of uncertainty){const n=el('div',undefined,'experiment-review');n.append(el('strong','Trial '+t.ordinal+' needs review'),el('p',t.error));if(extension&&!sample)n.append(button('Check saved result',()=>action(async()=>{await command('reconcile',{id,trialId:t.id});await load();detail(id);})),button('Skip this trial',()=>action(async()=>{await command('skip',{id,trialId:t.id});await load();detail(id);}), 'quiet'));content.append(n);}
-  const recent=motion?.results(e,runs,onOpen);if(recent)content.append(recent);
+  const recent=motion?.results(e,runs,onOpen,(extension||store.demo)?run=>action(()=>newTest(run)):null);if(recent)content.append(recent);
 
   const evidence=el('section',undefined,'experiment-evidence');evidence.tabIndex=-1;evidence.append(el('h3',sample?'Sample ranking':'Results'),el('p',e.trials.some(t=>t.phase!=='discovery')?'The candidate is frozen. Review validation and holdout separately from the discovery ranking.':d.next,'muted'));
   if(allDecisions.grouped){

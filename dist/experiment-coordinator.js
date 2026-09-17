@@ -11,16 +11,44 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
  const put=e=>storage.set({['experiment:'+e.id]:e});
  const collection=async prefix=>Object.entries(await storage.get(null)).filter(([k])=>k.startsWith(prefix)).map(([,v])=>v);
  const localDay=(time=clock())=>{const d=new Date(time);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
- const validChoicePayload=(p,tab)=>{
-  try{return p&&p.schemaVersion===1&&p.adapterVersion===L.version&&p.session===tab.session&&p.stages&&['momentum','execution'].every(stage=>L.charts.includes(p.stages[stage]?.context?.chart)&&Array.isArray(p.stages[stage]?.signature))&&JSON.stringify(p).length<=2000000;}catch{return false;}
+ const choiceText=value=>typeof value==='string'&&value.length<=4000&&!/[\u0000-\u001f\u007f]/.test(value);
+ const sharedOptions=values=>{
+  if(!Array.isArray(values)||values.length>3000)throw Error('Invalid cached menu.');
+  return values.map(option=>{
+   if(!option||!choiceText(option.label)||!option.label||option.value!==option.label||option.sourceValue!==undefined&&!choiceText(option.sourceValue)||option.disabled!==undefined&&typeof option.disabled!=='boolean')throw Error('Invalid cached option.');
+   return {value:option.value,label:option.label,...(option.sourceValue!==undefined?{sourceValue:option.sourceValue}:{}),...(option.disabled!==undefined?{disabled:option.disabled}:{})};
+  });
+ };
+ const publicChoices=p=>({schemaVersion:1,adapterVersion:L.version,publicOnly:true,stages:Object.fromEntries(['momentum','execution'].map(stage=>{
+  const source=p.stages[stage],layout=stage==='momentum'?L.main(source.context.chart):L.execution(source.context.chart),children=new Set(layout.rows.map(row=>row.childIndex)),raw=source.context;
+  if(stage==='momentum'?raw.market!=='NSE':raw.selection!=='Price')throw Error('Unsupported cached context.');
+  if(!Array.isArray(raw.categories)||raw.categories.length!==layout.rows.length)throw Error('Invalid cached categories.');
+  const categories=layout.rows.map((row,i)=>{const pair=raw.categories[i];if(!Array.isArray(pair)||pair.length!==2||pair[0]!==row.parentIndex||!(row.name==='Radar'?['Pre','My']:['Pre','My','Public','Popular']).includes(pair[1]))throw Error('Invalid cached category context.');return [row.parentIndex,pair[1]];});
+  const context={chart:layout.chart,...(stage==='momentum'?{market:'NSE'}:{selection:'Price'}),...(Number.isInteger(layout.modeIndex)?{mode:raw.mode}:{}),categories};
+  if(Number.isInteger(layout.modeIndex)&&(layout.chart==='Renko'?!['Absolute','Percent','ATR','ATR %'].includes(raw.mode):typeof raw.mode!=='string'||!/^\d{1,3}$/.test(raw.mode)||Number(raw.mode)<1))throw Error('Invalid cached chart mode.');
+  if(!Array.isArray(source.signature)||source.signature.length!==layout.count)throw Error('Invalid cached signature.');
+  const signature=source.signature.map(pair=>{if(!Array.isArray(pair)||pair.length!==2||!['select-one','text','date','checkbox','radio'].includes(pair[0])||!choiceText(pair[1])||!pair[1])throw Error('Invalid cached control.');return [pair[0],pair[1]];});
+  const fields=signature.map(([type,label],index)=>({index,type,label,value:'',checked:['checkbox','radio'].includes(type)?false:null,disabled:false}));fields[layout.chartIndex].value=layout.chart;fields[stage==='momentum'?layout.marketIndex:layout.selectionIndex].value=stage==='momentum'?'NSE':'Price';for(const [index,category]of categories)fields[index].value=category;L.stage(stage,fields);
+  const nativeOptions=Object.fromEntries(signature.flatMap(([type],index)=>type==='select-one'&&!children.has(index)?[[index,sharedOptions(source.nativeOptions?.[index])]]:[]));
+  return [stage,{context,signature,nativeOptions,ruleCatalogues:Object.fromEntries(layout.rows.map(row=>{
+   const catalogue=source.ruleCatalogues?.[row.childIndex]||{},names=Object.keys(catalogue.categories||{}).filter(category=>['Pre','Popular'].includes(category)&&catalogue.controlTypes?.[category]==='select-one'),indices=[row.parentIndex,row.childIndex,...(Number.isInteger(row.valueIndex)?[row.valueIndex]:[]),row.gateIndex];
+   const fieldLabels=Object.fromEntries(names.filter(category=>catalogue.fieldLabels?.[category]).map(category=>{const labels=catalogue.fieldLabels[category];if(!Array.isArray(labels)||labels.length!==indices.length||labels.some(label=>!choiceText(label)||!label))throw Error('Invalid cached rule labels.');return [category,[...labels]];}));
+   if(catalogue.labelDependents&&JSON.stringify(catalogue.labelDependents)!==JSON.stringify(layout.labelDependents[row.childIndex]||[]))throw Error('Invalid cached label relationships.');
+   return [row.childIndex,{parentIndex:row.parentIndex,gateIndex:row.gateIndex,categories:Object.fromEntries(names.map(category=>[category,sharedOptions(catalogue.categories[category])])),controlTypes:Object.fromEntries(names.map(category=>[category,'select-one'])),fieldLabels,...(catalogue.labelDependents?{labelDependents:[...catalogue.labelDependents]}:{})}];
+  }))}];
+ }))});
+ const validChoicePayload=(p,tab,shared=false)=>{
+  try{return p&&p.schemaVersion===1&&p.adapterVersion===L.version&&(shared?p.publicOnly===true&&JSON.stringify(p)===JSON.stringify(publicChoices(p)):p.publicOnly!==true&&p.session===tab.session&&!!publicChoices(p))&&JSON.stringify(p).length<=2000000;}catch{return false;}
  };
  const choiceKey=p=>JSON.stringify(['momentum','execution'].map(stage=>p.stages[stage].context));
  async function readChoiceCache(tab,force){
-  const key='runner:choices:'+tab.id;
-  if(force){await storage.set({[key]:null});return {key,day:localDay(),records:[]};}
-  const saved=await get(key),day=localDay();
-  const records=saved?.version===L.version&&saved.session===tab.session&&saved.day===day&&Array.isArray(saved.records)?saved.records.filter(r=>validChoicePayload(r?.payload,tab)&&typeof r.checkedAt==='string'&&Number.isFinite(Date.parse(r.checkedAt))&&Date.parse(r.checkedAt)<=clock()&&localDay(Date.parse(r.checkedAt))===day).slice(-9):[];
-  return {key,day,records};
+  const key='runner:choices:'+tab.id,sharedKey='runner:choices:shared-native';
+  if(force){await storage.set({[key]:null,[sharedKey]:null});return {key,sharedKey,day:localDay(),records:[]};}
+  const saved=await get(key),shared=await get(sharedKey),day=localDay();
+  const validRecord=(r,publicOnly)=>validChoicePayload(r?.payload,tab,publicOnly)&&typeof r.checkedAt==='string'&&Number.isFinite(Date.parse(r.checkedAt))&&Date.parse(r.checkedAt)<=clock()&&localDay(Date.parse(r.checkedAt))===day;
+  const own=saved?.version===L.version&&saved.session===tab.session&&saved.day===day&&Array.isArray(saved.records)?saved.records.filter(r=>validRecord(r,false)).slice(-9):[];
+  const known=new Set(own.map(r=>choiceKey(r.payload))),publicRecords=shared?.version===L.version&&shared.day===day&&Array.isArray(shared.records)?shared.records.filter(r=>validRecord(r,true)&&!known.has(choiceKey(r.payload))).slice(-9):[];
+  return {key,sharedKey,day,records:[...own,...publicRecords]};
  }
  async function retainChoices(tab,cache,response){
   const day=localDay(),rolledOver=cache.day!==day;
@@ -29,13 +57,17 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
   const oldChoicesUsed=response.hasCachedChoices===true||response.choicesFromCache===true||cache.records.length>0&&response.hasCachedChoices!==false;
   if(validChoicePayload(response.choiceCache,tab)&&!(rolledOver&&oldChoicesUsed)){
    const payload=response.choiceCache,key=choiceKey(payload),existing=records.find(r=>choiceKey(r.payload)===key);
-   const checkedAt=response.choicesFromCache===true&&existing?existing.checkedAt:new Date(clock()).toISOString();
-   records=[...records.filter(r=>choiceKey(r.payload)!==key),{payload,checkedAt}].slice(-9);
-   try{await storage.set({[cache.key]:{version:L.version,session:tab.session,day,records}});}catch{writeFailed=true;}
+   const checkedAt=(response.choicesFromCache===true||response.sharedChoicesUsed===true)&&existing?existing.checkedAt:new Date(clock()).toISOString();
+   records=[...records.filter(r=>choiceKey(r.payload)!==key),{payload,checkedAt}].slice(-18);
+   // RZone exposes no stable account identifier. Only shared Pre/Popular
+   // menus cross document boundaries. Group, My and keyword-search results
+   // remain document-scoped and are read again after reconnecting.
+   const privateRecords=records.filter(r=>r.payload.publicOnly!==true).slice(-9),sharedRecords=records.slice(-9).map(r=>({checkedAt:r.checkedAt,payload:publicChoices(r.payload)}));
+   try{await storage.set({[cache.key]:{version:L.version,session:tab.session,day,records:privateRecords},[cache.sharedKey]:{version:L.version,day,records:sharedRecords}});}catch{writeFailed=true;}
   }
   const covered=stage=>new Set(records.map(r=>r.payload.stages[stage].context.chart));
   const main=covered('momentum'),execution=covered('execution'),charts=L.charts.filter(chart=>main.has(chart)&&execution.has(chart));
-  return {checkedAt:records.map(r=>r.checkedAt).sort().at(-1)||null,source:response.choicesFromCache===true?'cache':'live',charts,pendingCharts:L.charts.filter(chart=>!charts.includes(chart)),...(writeFailed?{notSaved:true}:{})};
+  return {checkedAt:records.map(r=>r.checkedAt).sort().at(-1)||null,source:response.choicesFromCache===true?'cache':'live',scope:response.sharedChoicesUsed===true?'shared-native':'document',charts,pendingCharts:L.charts.filter(chart=>!charts.includes(chart)),...(writeFailed?{notSaved:true}:{})};
  }
 
  async function sourceStatus(tab){
@@ -115,8 +147,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    if(r.session!==tab.session||r.config?.session!==tab.session)throw Error('RZone reloaded while connecting. Connect again.');
    S.template(r.config);
    // Choice caches are deliberately outside run/experiment archives. They are
-   // scoped to this document, day and adapter; current settings always came
-   // from the fresh source response above, never from these stored menus.
+   // split into document-private and daily shared native choices. Current
+   // settings always came from the fresh response, never from stored menus.
    const choiceCache=await retainChoices(tab,cache,r);
    return {ok:true,source:{...r.config,choiceCache}};
   }

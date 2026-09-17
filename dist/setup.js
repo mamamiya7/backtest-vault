@@ -229,6 +229,45 @@ function fieldsForUI(input,config={}){
  return groups;
 }
 function defaults(input){return Object.fromEntries(fieldsForUI(input).flatMap(g=>g.fields.map(f=>[f.key,f.value])));}
+function savedRunFields(run){
+ V.validate(run);
+ if(run.provenance!=='recorded-at-submit')throw Error('Choose a saved run with both submissions recorded.');
+ if(run.parameters?.strategy?.auxiliarySettingsUncaptured)throw Error('This saved run has additional settings that were not captured.');
+ const snapshots={momentum:run.parameters?.strategy?.main,execution:run.parameters?.strategy?.execution,portfolio:run.parameters?.settings},out={};
+ for(const stage of stages){
+  const fields=snapshots[stage]?.fields;
+  if(!Array.isArray(fields)||!fields.length||fields.length>100||fields.some((f,index)=>!f||f.index!==index||!['text','date','checkbox','radio','select-one'].includes(f.type)||typeof f.label!=='string'||!f.label.trim()||f.label.length>2000||typeof f.value!=='string'||f.value.length>2000||typeof f.disabled!=='boolean'||(['checkbox','radio'].includes(f.type)?typeof f.checked!=='boolean':f.checked!==null)))throw Error('This saved run does not contain a complete '+stage+' settings layout.');
+  out[stage]=fields;
+ }
+ L.validate('momentum',out.momentum);L.validate('execution',out.execution);
+ const presented=P.settings(run).filter(s=>stages.includes(s.key));
+ if(presented.length!==3||presented.some(s=>s.groups.some(g=>g.name==='Captured settings')))throw Error('This saved settings layout is not supported for a new test yet.');
+ return out;
+}
+function savedRunContext(run){
+ const fields=savedRunFields(run),config={'momentum.chart':fields.momentum[0].value,'momentum.market':fields.momentum[3].value,'execution.chart':fields.execution[3].value};
+ // The source reader accepts one parent change at a time. Callers skip entries
+ // already matching the current source before loading any dependent choices.
+ const changes=[{momentum:{0:config['momentum.chart']}},{momentum:{3:config['momentum.market']}},{execution:{3:config['execution.chart']}}];
+ for(const stage of ['momentum','execution']){const layout=L.stage(stage,fields[stage]);if(layout.chart==='Renko'){config[stage+'.brick.mode']=fields[stage][layout.modeIndex].value;changes.push({[stage]:{[layout.modeIndex]:config[stage+'.brick.mode']}});}}
+ return {config,changes};
+}
+function configFromRun(run,input){
+ const fields=savedRunFields(run),t=template(input),context=savedRunContext(run).config,current=defaults(t);
+ if((run.demo===true)!==t.demo)throw Error('Real and fictional saved settings cannot be mixed.');
+ for(const key of ['momentum.chart','execution.chart','momentum.brick.mode','execution.brick.mode'])if(owns(context,key)&&context[key]!==current[key])throw Error('Load the saved '+(key.startsWith('momentum.')?'Momentum':'Backtest')+' chart settings before using this run.');
+ const config={},covered=Object.fromEntries(stages.map(stage=>[stage,new Set()]));
+ for(const descriptor of fieldsForUI(t).flatMap(g=>g.fields)){
+  const captured=fields[descriptor.stage],indices=descriptor.indices||[descriptor.index];
+  for(const index of indices){if(!captured[index]||covered[descriptor.stage].has(index))throw Error('This saved settings layout cannot be copied safely.');covered[descriptor.stage].add(index);}
+  if(descriptor.indices){const selected=descriptor.indices.filter(index=>captured[index].checked);if(selected.length!==1)throw Error('Choose a saved run with exactly one '+descriptor.label.toLowerCase()+'.');config[descriptor.key]=String(selected[0]);}
+  else{const field=captured[descriptor.index];config[descriptor.key]=descriptor.type==='boolean'?field.checked:descriptor.type==='number'?(V.number(field.value)??field.value):field.value;}
+ }
+ if(stages.some(stage=>covered[stage].size!==fields[stage].length))throw Error('Some saved settings are not supported by the current form.');
+ // Menus always remain current source evidence. Keep a removed or unsearched
+ // saved choice visible in the draft; validateConfig must block its submission.
+ return config;
+}
 function validDate(value){return typeof value==='string'&&/^\d{4}-\d{2}-\d{2}$/.test(value)&&Number.isFinite(Date.parse(value))&&new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;}
 function validateConfig(config,input){
  if(!config||typeof config!=='object'||Array.isArray(config))throw Error('Check the backtest setup.');
@@ -290,6 +329,6 @@ function demoTemplate({momentumChart='Candle',executionChart=momentumChart,momen
  Object.assign(source.stages.momentum.options,{1:[r.parameters.strategy.main.fields[1].value,'Demo universe 20','Demo universe 60'],3:['NSE'].map(value=>({value,label:value})),33:['Daily','Weekly'].map(value=>({value,label:value}))});
  return template(source);
 }
-const api={template,portfolioTemplate,fieldsForUI,defaults,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,executionCapability,demoTemplate};
+const api={template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,executionCapability,demoTemplate};
 if(typeof module!=='undefined')module.exports=api;root.VaultSetup=api;
 })(typeof window!=='undefined'?window:globalThis);

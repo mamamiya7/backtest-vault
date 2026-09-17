@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.16.0 preview - 2026-09-17
+
+- Add Use these settings beside saved trials and on reports. Reopen the full Step 1 form with exact recorded strategy, dates, exits and portfolio inputs; edit and run as a new study while preserving original evidence.
+- Validate copied choices against current RZone menus, retain removed/unsearched choices for review and keep all execution gates. Preserve copied edits when reconnecting.
+- Show every study's actual creation date/time, separate from its baseline name.
+- Reuse daily shared Pre/Popular native menus across RZone refreshes and new tabs. Refresh Group/private choices and current settings, retain daily all-chart coverage and keep explicit Recheck all choices.
+- Continue complete Windows/Linux ZIP distribution and same-folder updates.
+
 ## 0.15.0 preview - 2026-09-17
 
 - Replace duplicate date-entry routes with one control showing each complete test range. Click a range to edit it; Test values adds another, and × removes an unwanted range.

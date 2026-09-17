@@ -43,9 +43,9 @@ Sign in to RZone as usual, then open Vault using the extension toolbar. **You do
 
 **My studies** keeps your saved work available. An unfinished setup can also be reopened with **Continue setup** while you navigate in the same open Vault tab. That unsaved draft does not survive a tab refresh or close.
 
-The editor supports NSE and Price selection under Candle, P&F and Renko, with separate main/execution chart controls. The first connection checks all three chart menus; subsequent connections reuse those menus within the same local day and RZone document session. Recheck all choices forces a fresh scan. Refreshing RZone starts a new document session and requires another check. Current settings are read fresh every time. P&F/Renko automatic execution remains gated pending its own live write acceptance. The user reports normal Candle tests working; this does not prove every combination.
+The editor supports NSE and Price selection under Candle, P&F and Renko, with separate main/execution chart controls. The first connection checks all three chart menus. Shared Pre/Popular choices are reused for the same local day even after RZone refreshes; current settings, Group and private choices are checked afresh. Recheck all choices forces a full fresh scan. P&F/Renko automatic execution remains gated pending its own live write acceptance. The user reports normal Candle tests working; this does not prove every combination.
 
-To continue an existing saved baseline, use **My studies → Use a saved run**, or **Test variations** on the run. That workflow requires the RZone tab's fixed settings to match the saved baseline. You can also work manually in RZone: submit the momentum and portfolio tests, wait for the report and all trade rows, then click **Save backtest**.
+To change a saved test, open its study and choose **Use these settings** beside the trial or on its report. Its full recorded setup opens in Step 1. Edit it, review and run to create a new study. You can also choose **My studies → Use a saved run**. RZone receives the edited setup when you explicitly Run; opening a copy does not start calculations. You can still work manually in RZone: submit the momentum and portfolio tests, wait for the report and all trade rows, then click **Save backtest**.
 
 ## Standalone viewer
 

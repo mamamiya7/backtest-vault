@@ -12,6 +12,14 @@ The installed Vault opens **My studies**. A study's journey shows **Set up → R
 
 The journey is a noninteractive progress indicator; it cannot submit or restart a test. An unsaved setup is retained while navigating within the same open Vault tab; choose **Continue setup** from My studies. Refreshing or closing the tab clears that unsaved draft. Saved studies persist in the archive.
 
+## Start again from a saved trial
+
+Choose **Use these settings** beside a saved trial or on its report. Vault opens **Set up your test** with that exact run's three recorded stages: strategy, execution dates/exits and portfolio. The copy begins with one test; add Test values if you want variations. Review and Run creates a separate study. The original report and study remain unchanged, and opening a copy never submits a calculation.
+
+The editor connects to current RZone menus and loads the saved chart contexts before copying values. Removed choices remain visible and block submission until resolved. Saved My/Public rule names need a current matching search. Reconnecting preserves edits to the copied draft. Older unsupported or incomplete settings are rejected rather than filled with current defaults. The standalone archive viewer retains its legacy plan-only builder; the installed extension provides the full editable setup.
+
+Every study card displays its own creation timestamp, separate from the names of its baseline and saved runs.
+
 ## Dates and progress
 
 **Test period** has one control showing the complete date range. Click the range to edit it, or use **Test values** to add another complete range alongside it. The calendar supports typed dates, month/year jumps and 1/3/5-year presets. Apply commits the pair; Cancel or Escape leaves the plan unchanged. Remove an unwanted range with ×; one remaining range becomes the fixed test period. Validation and holdout use the same range control and respect the unseen-period boundary.
@@ -51,9 +59,9 @@ flowchart LR
 
 ### Refresh the available choices
 
-Native dropdown choices are cached for the **local calendar day and current RZone document session**. The initial connection checks Candle, P&F and Renko in separate bounded steps, for both the main and execution forms, restoring original source settings after each step. Reopening Vault can reuse those menus. Current fields, dates and settings are always read again; a menu cache never substitutes for source read-back before submission.
+Native dropdown choices are cached for the **local calendar day**. The initial connection checks Candle, P&F and Renko in separate bounded steps and restores original source settings. Full menus can be reused in the same document. After a refresh or a new RZone tab, only shared **Pre/Popular** native menus cross the document boundary; Group, Radar My and keyword-search results do not. Current fields and private choices are read again, and exact source context/control checks guard shared reuse. Existing all-chart shared coverage prevents a repeated automatic scan of all three charts. Selecting another chart refreshes that context's private choices. A cache never substitutes for source read-back before submission.
 
-Use **Recheck all choices** to discard the cache and rescan after a source change. A new day, RZone reload, adapter update or changed form/menu context also requires a fresh check. A failed chart scan leaves your current editable form available and names the incomplete chart. The source must remain unchanged while discovery works. Some nonempty uncommitted searches and ambiguous price flags need review before a temporary chart switch can be restored exactly. Search-based My/Public categories still require an explicit keyword; the daily check does not invent a complete list for them.
+Use **Recheck all choices** to discard both the current connection's cache and shared daily menus, then rescan. A new day, adapter update or changed form/menu context also requires a fresh check. RZone does not expose a stable account identifier on the backtesting page, so account-specific choices are deliberately not shared between documents. A failed chart scan leaves your current editable form available and names the incomplete chart. Keep source controls unchanged while discovery works. Search-based My/Public categories still require a keyword; the daily check does not invent a complete list for them.
 
 The editor exposes P&F box/reversal controls, Renko brick size/mode, Running/Fresh and the observed numeric strategy inputs. Main chart and execution chart remain independent; switching one does not silently switch the other. Chart and Renko mode remain fixed within a batch, with separate drafts for each context. **P&F/Renko execution is still gated pending a real submitted-result comparison for the new adapter.**
 
@@ -63,7 +71,7 @@ In Vault, choose **On** or **Test both** beside Radar, a strategy or Exit Strate
 
 Fresh connected setups currently support **NSE**. Other markets remain visible as unavailable because their form removes Radar and needs a separate adapter. Older templates retain their original archive behavior. Filtering the loaded Group list and switching cached categories make no additional source request. Strategy/exit **My / Public → Search** sends the entered query through RZone's own search UI, bound to its stage and row. Execution commits the exact unique returned choice; typing a strategy name alone is not treated as a selection. There is no separate catalogue download to manage.
 
-Group discovery opens only its own search menu, clears the query to read the exposed full list, restores the original text and closes that menu before reading execution settings. It verifies that the main settings stayed unchanged and rejects ambiguous, missing or oversized lists. Existing reports/menus are never dismissed to make connection succeed. A refreshed source session requires reconnection; choices are not shared between accounts or silently reused from another session. Older saved setups without a Group catalogue retain their original validation behavior.
+Group discovery opens only its own search menu, clears the query to read the exposed full list, restores the original text and closes that menu before reading execution settings. It verifies that the main settings stayed unchanged and rejects ambiguous, missing or oversized lists. Existing reports/menus are never dismissed to make connection succeed. A refreshed source session requires reconnection. Group and private choices are read again; only validated shared native menus can be reused from the daily cache. Older saved setups without a Group catalogue retain their original validation behavior.
 
 Refreshing brings RZone forward while it reads the strategy menus and opens and closes its own setup dialog. Leave the source controls alone during this brief read; manual changes interrupt discovery. Vault returns to its initiating tab afterward if you have not switched away yourself. An explicit legacy Radar/exit source refresh may retain that chosen source, while the category scan restores the source form. This is separate from **Run**.
 

@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.15.0 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.16.0 preview** · Chrome · Local storage · MIT · No cloud account
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -63,18 +63,18 @@ All source settings stay on one page. The journey shows progress through the wor
 
 **Candle, P&F and Renko have separate settings and choices.** Select the main and execution charts independently. P&F exposes box size and reversal; Renko exposes brick size and its construction mode. Each chart keeps its own rule selections and Test values. P&F/Renko settings are available to inspect and prepare; their automatic execution remains unavailable until separate live write tests pass.
 
-**Choices are checked once per local calendar day, per RZone connection.** The first connection reads Group and native menus for all three charts, then restores the original source settings. Reopening Vault reuses those menus for that day while reading current settings afresh. **Recheck all choices** forces a new scan after rules change. Refreshing RZone, signing in again, changing an unsupported context or detecting changed controls can require another scan. No backtest starts during a choice check.
+**Shared Pre/Popular dropdown choices are reused for the local calendar day, including after RZone refreshes.** The first connection checks all three charts. Reconnecting reads current settings, Group and private choices afresh, while reusing compatible shared menus and avoiding another full all-chart scan. My/Public keyword-search results stay in their original connection. **Recheck all choices** forces a fresh scan after rules change. A new day, changed adapter or incompatible controls requires new choices. No backtest starts during a choice check.
 
 Radar currently offers native **Pre / My** menus. Strategy and exit **Pre / Popular** are dropdowns; **My / Public** are keyword searches. Choose the category, enter a name and click **Search**, then select a returned rule. RZone does not expose an all-rules list for an empty keyword. An untouched search is not an empty account; no matches refers only to the entered query. Identical names are unavailable for automatic selection because their identity would be ambiguous. Fresh connected setups support NSE; other markets require a separate form adapter.
 
 ```mermaid
 flowchart LR
-    A[Open New test] --> B{Choices checked today<br/>for this RZone connection?}
+    A[Open New test] --> B{Shared choices checked today?}
     B -->|Yes| C[Reuse chart-specific menus]
     B -->|No| D[Check Candle · P&F · Renko]
     R[Recheck all choices] --> D
     D --> E[Restore source settings]
-    C --> F[Read current settings fresh]
+    C --> F[Read current settings and private choices]
     E --> F
     F --> G[Edit setup in Vault]
 ```
@@ -100,7 +100,19 @@ The study page shows a circular saved-trial count and the latest saved reports. 
 
 ![Completed fictional study with saved-result progress and report links](docs/images/13-study-progress.png)
 
-Keep RZone open during execution and leave its settings alone until the batch finishes. **Use a saved run** remains available in **My studies** for an existing research baseline; a saved run also offers **Test variations**.
+Keep RZone open during execution and leave its settings alone until the batch finishes. To change an earlier test, open **My studies → your study → Use these settings** beside the desired trial. The same action appears on its saved report. It returns to **Set up your test** with that trial's recorded strategy, dates, exits and portfolio inputs. Edit any supported setting, optionally add **Test values**, then review and run. This creates a new study; the original evidence stays intact. My studies also offers **Use a saved run** to choose from the library. Every study card shows its own **Created** date and time.
+
+```mermaid
+flowchart LR
+    A[Saved trial or report] -->|Use these settings| B[1 · Set up · copied inputs]
+    B --> C[Edit settings or add Test values]
+    C --> D[Review → Run]
+    D --> E[RZone applies settings and calculates]
+    E --> F[New study with saved results]
+    A -. remains unchanged .-> G[Original evidence]
+```
+
+Current RZone menus validate the copied choices. A removed rule or an unsearched My/Public rule stays visible for review instead of silently becoming a default. Unsupported saved layouts give a clear error; the existing chart execution limits still apply.
 
 ```mermaid
 flowchart LR
@@ -110,7 +122,7 @@ flowchart LR
     D --> E["Rank by Return, Drawdown or Calmar"]
 ```
 
-Use **Test values** on start/end dates and rank criteria too. Portfolio allocation, initial capital, maximum open trades and daily limits have their own variation controls. Different dates or portfolio assumptions form separate comparison groups; a highlighted setting leads only within its matched group. Universe, market, chart model and rule-source categories stay fixed in the current adapter.
+Use **Test values** for complete date ranges and rank criteria too. Portfolio allocation, initial capital, maximum open trades and daily limits have their own variation controls. Different dates or portfolio assumptions form separate comparison groups; a highlighted setting leads only within its matched group. Universe, market, chart model and rule-source categories stay fixed in the current adapter.
 
 ```mermaid
 flowchart LR
@@ -222,7 +234,7 @@ Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, not
 
 ## Install the extension
 
-**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.15.0.zip** asset; do not download a setup script by itself.
+**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.16.0.zip** asset; do not download a setup script by itself.
 
 ```mermaid
 flowchart LR

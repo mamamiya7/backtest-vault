@@ -1,18 +1,17 @@
-# Backtest Vault 0.15.0 — installable preview
+# Backtest Vault 0.16.0 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
 
-- Use one date-range control: click the displayed range to edit it. Typed From/To dates live inside its calendar, with Apply and Cancel.
-- **Test values** adds complete ranges in the same control. Two ranges mean two date cases; their start/end dates are never cross-combined. Each range can be edited or removed.
-- Keep numeric test values as the source of truth when returning to a single value or switching between equivalent Values and Range editors.
-- Use the same compact date control for validation and holdout, with existing unseen-period limits.
-- Preserve older studies, same-tab setup drafts, comparison groups, saved-only progress, reduced motion and execution safeguards. Source automation support has not expanded.
+- **Use these settings** on a saved trial or report returns to the full Step 1 form with its strategy, dates, exits and portfolio inputs. Edit and run to save a new study; original evidence stays intact.
+- Show every study's own **Created** date and time, separate from its baseline name.
+- Reuse daily shared Pre/Popular native dropdown menus across RZone refreshes and new tabs. Current settings, Group and private choices are checked afresh; **Recheck all choices** still forces a complete scan.
+- Preserve copied edits through reconnects, current-menu validation, single paired date controls, comparison rules and execution safeguards. Removed or unsearched choices need review; unsupported chart execution remains gated.
 
 ## Install
 
-Download **backtest-vault-0.15.0.zip**, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.16.0.zip**, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.

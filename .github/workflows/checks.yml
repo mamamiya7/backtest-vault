@@ -24,7 +24,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        cases: ['--from-case=1 --to-case=20', '--from-case=21 --to-case=40', '--from-case=41 --to-case=59']
+        cases: ['--from-case=1 --to-case=20', '--from-case=21 --to-case=40', '--from-case=41 --to-case=60']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

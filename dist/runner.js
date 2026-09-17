@@ -335,7 +335,7 @@ async function restoreStrategyRow(main,row,snapshot,original){
  if(JSON.stringify(restored)!==JSON.stringify(snapshot))throw Error('RZone strategy settings changed during discovery. Review the source before reconnecting.');
  return restored;
 }
-async function strategyCatalogues(main,deadline,stage='momentum'){
+async function strategyCatalogues(main,deadline,stage='momentum',shared=null){
  const catalogues={};let snapshot=C.fields(main);const layout=L.stage(stage,snapshot);
  for(const row of layout.rows){
   check();if(Date.now()>=deadline)throw Error('RZone strategy choices took too long to load. Refresh choices and try again.');
@@ -349,12 +349,23 @@ async function strategyCatalogues(main,deadline,stage='momentum'){
   // On the observed source STR3 sits inside STR2's table row. Prove that
   // exact ancestor prefix for every offered category before publishing it.
   const possible=layout.labelDependents?.[row.childIndex]||[],dependents=possible.every(i=>snapshot[i].label.startsWith(snapshot[row.parentIndex].label+' → '))?possible:[];
+  // Shared menus contain only source-wide native Pre/Popular choices. Private
+  // Radar My menus and My/Public search shapes are always freshly observed in
+  // a new document; no account identity is inferred from the avatar or group.
+  const seed=shared?.ruleCatalogues?.[row.childIndex],reused=new Set();
+  if(seed&&jsonSame(seed.labelDependents||[],dependents))for(const category of ['Pre','Popular']){
+   if(offered.some(o=>o.value===category)&&Array.isArray(seed.categories?.[category])&&seed.controlTypes?.[category]==='select-one'&&Array.isArray(seed.fieldLabels?.[category])){
+    categories[category]=structuredClone(seed.categories[category]);controlTypes[category]='select-one';fieldLabels[category]=structuredClone(seed.fieldLabels[category]);reused.add(category);
+   }
+  }
   try{
    if(!gate.checked){ownClick(gate);await delay(150);await enabledRule(main,row,deadline);await settledOptions(main,row.childIndex,()=>true,deadline);}
    if(inputs(main)[row.parentIndex].value!==original.parentValue)await selectValue(main,inputs(main)[row.parentIndex],original.parentValue,{gate:row.gateIndex,child:row.childIndex},deadline);
    const initialChild=inputs(main)[row.childIndex],initialAnchor=initialChild.tagName==='SELECT'&&initialChild.options.length?offered.find(o=>o.value===selected):null;
+   if(categories[selected]&&(!jsonSame(categories[selected],strategyOptions(initialChild))||!jsonSame(fieldLabels[selected],ruleFieldLabels(main,row)))){for(const category of Object.keys(categories)){delete categories[category];delete controlTypes[category];delete fieldLabels[category];}reused.clear();}
    const ordered=['Pre','Popular','My','Public'].map(name=>offered.find(option=>option.value===name)).filter(Boolean);
    for(const category of [...ordered.filter(o=>o.value!==selected),...ordered.filter(o=>o.value===selected)]){
+    if(reused.has(category.value))continue;
     reading=category.value;
     check();unchangedOutsideRow(main,snapshot,row);
     if(Date.now()>=deadline)throw Error('RZone strategy choices took too long to load. Refresh choices and try again.');
@@ -402,14 +413,15 @@ function cachedStage(stage,descriptor,records,force){
  if(force||!Array.isArray(records))return null;
  const layout=L.stage(stage,descriptor.fields);
  if(layout.rows.some(row=>descriptor.fields[row.childIndex].type==='text'&&descriptor.fields[row.childIndex].value.trim()))return null;
- for(const record of records.slice(0,9)){
-  const cached=record?.stages?.[stage];if(record?.schemaVersion!==1||record.adapterVersion!==L.version||record.session!==session||!cached||!jsonSame(cached.context,choiceContext(stage,descriptor))||!jsonSame(cached.signature,choiceSignature(descriptor)))continue;
-  if(!jsonSame(cached.nativeOptions,Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one'))))continue;
-  if(stage==='momentum'&&(!Array.isArray(cached.groupOptions)||descriptor.fields[1].value&&!cached.groupOptions.some(option=>!option.disabled&&option.label===descriptor.fields[1].value)))continue;
+ for(const record of records.slice(0,18)){
+  const shared=record?.publicOnly===true,cached=record?.stages?.[stage];if(record?.schemaVersion!==1||record.adapterVersion!==L.version||(!shared&&record.session!==session)||shared&&Object.hasOwn(record,'session')||!cached||!jsonSame(cached.context,choiceContext(stage,descriptor))||!jsonSame(cached.signature,choiceSignature(descriptor)))continue;
+  const childIndices=new Set(layout.rows.map(row=>String(row.childIndex)));
+  if(!jsonSame(cached.nativeOptions,Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one'&&(!shared||!childIndices.has(index))))))continue;
+  if(stage==='momentum'&&(shared?Object.hasOwn(cached,'groupOptions'):!Array.isArray(cached.groupOptions)||descriptor.fields[1].value&&!cached.groupOptions.some(option=>!option.disabled&&option.label===descriptor.fields[1].value)))continue;
   const rows=Object.keys(cached.ruleCatalogues||{});if(!jsonSame(rows.sort(),layout.rows.map(row=>String(row.childIndex)).sort()))continue;
   try{
-   for(const row of layout.rows){const catalogue=cached.ruleCatalogues[row.childIndex],category=descriptor.fields[row.parentIndex].value;if(catalogue.parentIndex!==row.parentIndex||catalogue.gateIndex!==row.gateIndex||!Array.isArray(catalogue.categories?.[category])||catalogue.controlTypes?.[category]!==descriptor.fields[row.childIndex].type)throw Error('Invalid cached category.');if(catalogue.fieldLabels?.[category]&&!jsonSame(catalogue.fieldLabels[category],ruleRowIndices(row).map(index=>descriptor.fields[index].label)))throw Error('Cached labels changed.');}
-   return structuredClone(cached);
+   for(const row of layout.rows){const catalogue=cached.ruleCatalogues[row.childIndex],category=descriptor.fields[row.parentIndex].value;if(catalogue.parentIndex!==row.parentIndex||catalogue.gateIndex!==row.gateIndex)throw Error('Invalid cached category.');if(shared){if(Object.hasOwn(catalogue,'searchQueries')||Object.keys(catalogue.categories||{}).some(key=>!['Pre','Popular'].includes(key)||catalogue.controlTypes?.[key]!=='select-one'||!Array.isArray(catalogue.categories[key])))throw Error('Private choices cannot cross documents.');if(catalogue.categories?.[category]&&!jsonSame(catalogue.categories[category],compactRuleChoices(structuredClone(descriptor.options[row.childIndex]||[]))))throw Error('Shared choices changed.');}else if(!Array.isArray(catalogue.categories?.[category])||catalogue.controlTypes?.[category]!==descriptor.fields[row.childIndex].type)throw Error('Invalid cached category.');if(catalogue.fieldLabels?.[category]&&!jsonSame(catalogue.fieldLabels[category],ruleRowIndices(row).map(index=>descriptor.fields[index].label)))throw Error('Cached labels changed.');}
+   return {...structuredClone(cached),publicOnly:shared};
   }catch{/* A cache mismatch falls back to current source discovery. */}
  }
  return null;
@@ -448,14 +460,14 @@ async function configuration(requestedChanges,request={}){
  if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
  const changes=configChanges(requestedChanges),warm=request.warmChart;
  if(warm!==undefined&&(!['Candle','P&F','Renko'].includes(warm)||Object.keys(changes).length))throw Error('Load one supported chart context at a time.');
- configuring=true;interrupted=false;const started=Date.now();let setup=null,config,warmMain,warmExecution,restoreMain=false,restoreExecution=false;const hits=[];
+ configuring=true;interrupted=false;const started=Date.now();let setup=null,config,warmMain,warmExecution,restoreMain=false,restoreExecution=false,sharedChoicesUsed=false;const hits=[];
  try{
   try{
   C.status('Connecting to Vault: opening Momentum settings…');
   await prepare();
   await settledMain();
   for(const row of stageRows('momentum',C.main()))restorableRule(C.main(),row);
-  C.status('Connecting to Vault: reading strategy choices…');
+  C.status('Connecting to Vault: checking current settings…');
   const original=C.fields(C.main());L.stage('momentum',original);if(original[3]?.value!=='NSE')throw Error('Automatic setup currently supports NSE. Other markets use a different source layout.');
   if(warm){
    warmMain=restorableStage(C.main(),'momentum');
@@ -467,13 +479,15 @@ async function configuration(requestedChanges,request={}){
   await changeParents(C.main(),warm?{0:warm}:changes.momentum,'momentum',started+(warm?25000:35000));const momentum={...descriptor(C.main()),supportedMarkets:['NSE']};
   L.stage('momentum',momentum.fields);
   const mainCache=cachedStage('momentum',momentum,request.cachedChoices,request.forceChoices===true);hits.push(!!mainCache);
-  momentum.options[1]=mainCache?mainCache.groupOptions:await groupCatalogue(C.main());
+  sharedChoicesUsed=!!mainCache?.publicOnly;
+  if(mainCache)C.status('Reusing today’s dropdown choices; checking current settings…');
+  momentum.options[1]=mainCache&&!mainCache.publicOnly?mainCache.groupOptions:await groupCatalogue(C.main());
   // Discovery shares a bounded request budget. Main scanning keeps its 35 s
   // cap; execution must be open/refreshed by 43 s, and its scan ends at 48 s.
   // Reserve 5 s each for exact exit restoration and owned-dialog closure,
   // keeping the complete operation within the worker's unchanged 60 s.
   const scanDeadline=Math.min(Date.now()+35000,started+(warm?30000:Object.keys(changes.execution||{}).length?28000:38000));
-  momentum.ruleCatalogues=mainCache?mainCache.ruleCatalogues:await strategyCatalogues(C.main(),scanDeadline);
+  momentum.ruleCatalogues=mainCache&&!mainCache.publicOnly?mainCache.ruleCatalogues:await strategyCatalogues(C.main(),scanDeadline,'momentum',mainCache);
   for(const [child,catalogue]of Object.entries(momentum.ruleCatalogues))momentum.options[child]=catalogue.categories[momentum.fields[catalogue.parentIndex].value];
   C.status('Connecting to Vault: reading backtest settings…');
   const openUntil=started+(warm?33000:43000)-(Object.keys(changes.execution||{}).length?10000:0);
@@ -484,7 +498,8 @@ async function configuration(requestedChanges,request={}){
   await changeParents(setup,warm?{3:warm}:changes.execution,'execution',started+(warm?37000:43000));const execution=descriptor(setup);
   L.stage('execution',execution.fields);
   const executionCache=cachedStage('execution',execution,request.cachedChoices,request.forceChoices===true);hits.push(!!executionCache);
-  execution.ruleCatalogues=executionCache?executionCache.ruleCatalogues:await strategyCatalogues(setup,started+(warm?40000:48000),'execution');
+  sharedChoicesUsed=sharedChoicesUsed||!!executionCache?.publicOnly;
+  execution.ruleCatalogues=executionCache&&!executionCache.publicOnly?executionCache.ruleCatalogues:await strategyCatalogues(setup,started+(warm?40000:48000),'execution',executionCache);
   for(const [child,catalogue]of Object.entries(execution.ruleCatalogues))execution.options[child]=catalogue.categories[execution.fields[catalogue.parentIndex].value];
   if(JSON.stringify(C.fields(C.main()))!==JSON.stringify(momentum.fields))throw Error('RZone momentum settings changed while reading backtest choices. Review the source.');
   const portfolio=window.VaultSetup?.portfolioTemplate();if(!portfolio)throw Error('Vault setup template is unavailable. Reload the extension and RZone.');
@@ -494,7 +509,7 @@ async function configuration(requestedChanges,request={}){
    catch(error){failed=true;throw error;}
    finally{if(restoreMain&&!interrupted){try{await restoreStage(C.main(),'momentum',warmMain,started+59000);}catch(error){failed=true;throw error;}}}
   }
-  C.status('RZone settings read. Return to Vault to finish setup.');return {config,choiceCache:{schemaVersion:1,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',config.stages.momentum),execution:choiceStageCache('execution',config.stages.execution)}},choicesFromCache:hits.every(Boolean),hasCachedChoices:hits.some(Boolean)};
+  C.status('RZone settings read. Return to Vault to finish setup.');return {config,choiceCache:{schemaVersion:1,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',config.stages.momentum),execution:choiceStageCache('execution',config.stages.execution)}},choicesFromCache:hits.every(Boolean),hasCachedChoices:hits.some(Boolean),sharedChoicesUsed};
  }catch(error){C.status('Vault connection failed: '+error.message);throw error;}
  finally{configuring=false;}
 }
