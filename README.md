@@ -5,7 +5,9 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.10.0 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.11.0 preview** · Chrome · Local storage · MIT · No cloud account
+
+**[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
 ![Visual strategy leaderboard with a leading run, ranking table and return-versus-drawdown plot; all data is fictional](docs/images/08-leaderboard.png)
 
@@ -142,7 +144,9 @@ Definedge calculates the backtest. Vault records the completed report and the se
 
 ## Try the demo
 
-Requires **Node.js 24 or newer**. The demo needs no dependency installation or Definedge login.
+After installing the extension, click **Explore demo** for fictional sample runs—no RZone login required.
+
+For developers who prefer a standalone localhost preview, **Node.js 24 or newer** is required:
 
 ```sh
 git clone https://github.com/mamamiya7/backtest-vault.git
@@ -162,24 +166,31 @@ Six synthetic records demonstrate Candle, P&F, Renko, comparisons, settings, not
 
 ## Install the extension
 
-```text
-backtest-vault/
-├── dist/                 ← Select THIS folder in Chrome
-│   ├── manifest.json
-│   ├── index.html
-│   └── capture.js
-├── docs/
-└── README.md
+**[Download the complete release ZIP](https://github.com/mamamiya7/backtest-vault/releases/latest)**. Use the named **backtest-vault-0.11.0.zip** asset; do not download a setup script by itself.
+
+```mermaid
+flowchart LR
+    A["Download and extract ZIP"] --> B["Windows: Setup.cmd<br/>Linux: bash setup.sh"]
+    B --> C["Chrome: Load unpacked<br/>Choose the printed folder"]
+    C --> D["Sign in to RZone"]
+    D --> E["Vault → New test"]
 ```
 
-1. Clone the repository, or download and extract its ZIP.
-2. Open Chrome's Extensions page and enable **Developer mode**.
-3. Choose **Load unpacked → dist**. The manifest is inside that folder.
-4. Sign in to RZone and refresh its page so the extension can connect.
-5. Open Vault from the extension toolbar and choose **New test**. Connect your RZone tab and configure the test in Vault.
-6. Review and run. Use **Export experiment** for that test or **Back up all** on the library page when you want a backup.
+| Windows 10/11 | Linux desktop |
+| --- | --- |
+| Extract everything, open **BacktestVault**, double-click **Setup.cmd**. | Extract everything, open a terminal in **BacktestVault**, run **bash setup.sh**. |
+| Installs to your local application-data folder. | Installs to your user data folder. |
+| No PowerShell script, administrator rights, or runtime download. | No sudo, runtime download, or executable-bit setup. |
 
-For a dashboard-only update, refresh or reopen Vault. When capture code changes, reload the same extension and refresh Definedge before submitting new runs. Back up any pending recovery before refreshing. Keep the existing extension installed to preserve its local archive. [Setup and troubleshooting](docs/INSTALL.md)
+1. In Chrome, enter **chrome://extensions** and enable **Developer mode**.
+2. Choose **Load unpacked** and select the permanent **extension** folder printed by setup. It contains **manifest.json**.
+3. Pin Vault in the extensions menu. Sign in to RZone, refresh it, then open Vault → **New test**.
+
+The package includes an offline **START-HERE.html** guide. A manual route is also available: keep the extracted folder in a permanent location and load its **extension** folder directly. There is no server to start on later visits. Chrome's one-time approval remains required; this release is not a Web Store listing. [Chrome distribution rules](https://developer.chrome.com/docs/extensions/how-to/distribute)
+
+**Already installed:** back up the library and use **Update.cmd** or **bash update.sh** with the **same folder Chrome already loads**. For earlier source installations, this is your existing **dist** folder. Then reload the existing extension and refresh RZone/Vault. Do not uninstall it or load a second copy. [Update and recovery instructions](docs/INSTALL.md#update-an-existing-installation)
+
+Every future tagged release builds the complete ZIP and checks installation on Windows and Linux before publishing. App behavior remains subject to the [current validation limits](docs/LIMITATIONS.md).
 
 ## How the ranking works
 

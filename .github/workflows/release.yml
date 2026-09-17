@@ -1,0 +1,32 @@
+name: Publish installable release
+on:
+  push:
+    tags: ['v*']
+permissions:
+  contents: read
+jobs:
+  checks:
+    uses: ./.github/workflows/checks.yml
+  publish:
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Check tag matches application
+        run: node -e "if(process.env.GITHUB_REF_NAME!=='v'+require('./package.json').version)process.exit(1)"
+      - uses: actions/download-artifact@v4
+        with:
+          name: backtest-vault-download
+          path: release-download
+      - name: Publish verified ZIP and checksum
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cd release-download
+          sha256sum --check SHA256SUMS
+          gh release create "$GITHUB_REF_NAME" *.zip SHA256SUMS --verify-tag --title "Backtest Vault $GITHUB_REF_NAME (preview)" --notes-file "$GITHUB_WORKSPACE/docs/RELEASE-NOTES.md" --latest

@@ -1,0 +1,41 @@
+name: Installation help
+description: Report a problem installing or updating Backtest Vault.
+title: 'Install: '
+body:
+  - type: input
+    id: version
+    attributes:
+      label: Vault version
+      placeholder: '0.11.0'
+    validations:
+      required: true
+  - type: dropdown
+    id: system
+    attributes:
+      label: Operating system
+      options:
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Chrome version
+  - type: dropdown
+    id: stage
+    attributes:
+      label: Where did it stop?
+      options:
+        - Download or extraction
+        - Setup helper
+        - Update helper
+        - Load unpacked in Chrome
+        - Opening Vault or connecting RZone
+  - type: textarea
+    id: error
+    attributes:
+      label: Error and steps
+      description: Paste the message and what you clicked. Remove personal paths. Do not attach browser profiles, private runs, credentials, or research archives.
+    validations:
+      required: true

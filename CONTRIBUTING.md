@@ -2,6 +2,8 @@
 
 Use Node.js 24+, install the locked dependencies with `npm ci`, and run `npm test` plus `npm run check` before submitting a change. Start the synthetic workspace with `npm run preview`.
 
+Every release must remain installable on Windows and Linux. Run `npm run test:install` for the actual ZIP journey and `npm run package:release` to build the download. Keep setup dependency-free for end users, preserve the existing extension path on updates, and do not change device/browser policies. Follow [the release process](docs/PUBLICATION.md) for the public allowlist and tagged publication checks.
+
 ## Preserve the archive contract
 
 - Capture submitted settings, never later visible settings assigned to an older report.

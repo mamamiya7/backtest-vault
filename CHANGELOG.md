@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.11.0 preview - 2026-09-17
+
+- Complete Windows/Linux ZIP with dependency-free setup/update helpers and an offline start guide.
+- Stable per-user installation folder and existing-folder updates that preserve extension identity without accessing browser storage.
+- Payload checksums, staged installation, replacement verification, and failure recovery.
+- Reproducible release packaging, extracted-package checks on both platforms, and tagged publication gated on application and installation checks.
+- Application logic and live-execution scope unchanged from 0.10.0.
+
 ## 0.10.0 preview - 2026-09-16
 
 - Make Candle, P&F and Renko selectable in the setup editor, with independent main/execution charts, their own rule menus, box/brick controls, strategy inputs and retained drafts. P&F/Renko automatic execution remains gated pending separate live write acceptance.

@@ -7,10 +7,11 @@ const files=[
  'dist/source-layouts.js','dist/setup.js','dist/experiments.js','dist/experiment-coordinator.js','dist/runner.js','dist/experiments-ui.js','dist/experiments.css',
  'tests/test-setup.cjs','tests/test-experiments.cjs','tests/test-experiments-ui.cjs','tests/test-runner.cjs','tests/test-choice-cache.cjs','docs/EXPERIMENTS.md','docs/images/10-experiments.png','docs/images/11-test-setup.png',
  'tests/test-vault.cjs','tests/test-dashboard.cjs','tests/test-presentation.cjs','tests/test-demo.cjs','tests/test-intelligence.cjs','tests/test-intelligence-ui.cjs',
- 'scripts/serve.cjs','scripts/check.cjs','scripts/package-public.cjs',
+ 'scripts/serve.cjs','scripts/check.cjs','scripts/package-public.cjs','scripts/build-release.cjs','tests/test-install.cjs',
+ 'installer/Setup.cmd','installer/Update.cmd','installer/setup.sh','installer/update.sh','installer/START-HERE.html',
  'docs/DEMO.md','docs/INSTALL.md','docs/LIMITATIONS.md','docs/PUBLICATION.md','docs/UI-AUDIT.md','docs/INTELLIGENCE.md',
  'docs/images/01-overview.png','docs/images/02-settings.png','docs/images/03-compare.png','docs/images/04-mobile.png','docs/images/05-warning.png','docs/images/06-empty.png','docs/images/07-guide.png','docs/images/08-leaderboard.png','docs/images/09-leaderboard-mobile.png',
- '.github/workflows/checks.yml','.github/ISSUE_TEMPLATE/bug_report.md','.github/pull_request_template.md'
+ '.github/workflows/checks.yml','.github/workflows/release.yml','.github/ISSUE_TEMPLATE/bug_report.md','.github/ISSUE_TEMPLATE/installation.yml','.github/pull_request_template.md','.gitattributes','docs/RELEASE-NOTES.md'
 ];
 function verify(name){
  const source=path.join(root,name);if(!fs.existsSync(source))throw Error('Missing public file: '+name);
