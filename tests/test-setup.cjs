@@ -2,6 +2,20 @@
 const assert=require('node:assert/strict');
 const S=require('../dist/setup.js'),E=require('../dist/experiments.js'),D=require('../dist/demo.js');
 const clone=x=>JSON.parse(JSON.stringify(x));
+{
+ const choice=(label,id,market='NSE',disabled=false)=>({value:label,label,sourceValue:id,market,disabled});
+ const seed=[choice('Nifty 50','nifty50'),choice('Shared name','bse-only','BSE'),choice('Recovered','recovered','NSE',true)];
+ const found=Array.from({length:146},(_,i)=>choice('Nifty match '+i,'nifty-'+i));
+ const merged=S.mergeSymbolChoices(seed,[...found,choice('Recovered','recovered'),choice('Shared name','nse-only')],'NSE');
+ assert.equal(merged.length,149,'All returned matches and earlier native choices remain available');
+ assert.equal(merged.find(o=>o.label==='Shared name').disabled,false,'Another exchange cannot make a same-name result ambiguous');
+ assert.equal(merged.find(o=>o.label==='Recovered').disabled,false,'A fresh source observation can restore an identical previously unavailable identity');
+ assert.deepEqual(S.mergeSymbolChoices(merged,[],'NSE'),merged,'An empty search does not erase discovered symbols');
+ assert.ok(S.mergeSymbolChoices(seed,[choice('Shared name','nse-only')],'All').find(o=>o.label==='Shared name').disabled,'Ambiguous all-market labels stay unselectable');
+ assert.ok(S.mergeSymbolChoices([choice('Duplicate','id-1')],[choice('Duplicate','id-2')],'NSE')[0].disabled,'Different native IDs sharing a label cannot be selected by guesswork');
+ assert.equal(seed[2].disabled,true,'Merging does not mutate saved source choices');
+ assert.deepEqual(S.mergeSymbolChoices([choice('Old name','same-id')],[choice('New name','same-id')],'NSE').map(o=>o.label),['New name'],'The latest name wins only for the same native identity');
+}
 const fixture=D.create()[0],source={schemaVersion:1,session:'source-session',capturedAt:'2026-09-16T08:00:00.000Z',stages:{
  momentum:{fields:clone(fixture.parameters.strategy.main.fields),options:{
   0:[{value:'candle-token',label:'Candle'},{value:'pnf-token',label:'P&F'}],

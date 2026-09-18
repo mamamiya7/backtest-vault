@@ -12,7 +12,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
  const collection=async prefix=>Object.entries(await storage.get(null)).filter(([k])=>k.startsWith(prefix)).map(([,v])=>v);
  const localDay=(time=clock())=>{const d=new Date(time);return [d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('-');};
  const choiceText=value=>typeof value==='string'&&value.length<=4000&&!/[\u0000-\u001f\u007f]/.test(value);
- const cacheSchema=2,dailyKey='runner:choices:daily';
+ const cacheSchema=2,dailyKey='runner:choices:daily',symbolKey='runner:choices:symbols';
+ const symbolMarkets=['NSE','BSE','MF','EQW'],symbolLimit=3000,symbolCacheLimit=2000000;
  const cacheStages=['momentum','execution','marketFilter'];
  const onlyKeys=(value,allowed)=>{if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!allowed.includes(key)))throw Error('Invalid cached metadata.');};
  const menuOptions=(values,symbol=false)=>{
@@ -79,6 +80,66 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
   return {session,rules,symbols};
  }
  const queryValid=query=>typeof query==='string'&&query.length>0&&query.length<=200&&query===query.trim()&&!/[\u0000-\u001f\u007f]/.test(query);
+ const symbolQueryKey=entry=>JSON.stringify([entry.market,entry.query]);
+ function symbolResultOptions(options,market){
+  if(!['All',...symbolMarkets].includes(market))throw Error('Invalid cached symbol market.');
+  const out=menuOptions(options,true);if(out.some(option=>!symbolMarkets.includes(option.market)||market!=='All'&&option.market!==market))throw Error('Invalid cached symbol exchange.');return out;
+ }
+ async function readSymbolQueries(){
+  const day=localDay(),records=[],saved=await get(symbolKey);
+  try{
+   onlyKeys(saved,['version','cacheVersion','day','records']);
+   if(saved.version!==L.version||saved.cacheVersion!==1||saved.day!==day||!Array.isArray(saved.records)||JSON.stringify(saved).length>symbolCacheLimit)return {day,records};
+   for(const record of saved.records.slice(-128))try{
+    onlyKeys(record,['market','query','checkedAt','options']);const at=Date.parse(record.checkedAt);
+    if(!queryValid(record.query)||typeof record.checkedAt!=='string'||!Number.isFinite(at)||at>clock()||localDay(at)!==day)continue;
+    records.push({market:record.market,query:record.query,checkedAt:record.checkedAt,options:symbolResultOptions(record.options,record.market)});
+   }catch{/* Only validated query results can satisfy another field's search. */}
+  }catch{/* Missing or malformed receipts require a fresh source search. */}
+  return {day,records};
+ }
+ async function retainSymbolQuery(cache,market,query,options){
+  // A query started on yesterday's cache cannot mark those choices fresh today.
+  if(cache.day!==localDay())return {day:localDay(),records:[]};
+  const record={market,query,checkedAt:new Date(clock()).toISOString(),options},key=symbolQueryKey(record);
+  if(JSON.stringify(record).length>symbolCacheLimit-200)return cache;
+  let records=[...cache.records.filter(entry=>symbolQueryKey(entry)!==key),record].slice(-128);
+  const payload=()=>({version:L.version,cacheVersion:1,day:cache.day,records});
+  while(records.length&&JSON.stringify(payload()).length>symbolCacheLimit)records.shift();
+  try{await storage.set({[symbolKey]:payload()});}catch{/* A live search remains usable when local storage is unavailable. */}
+  return {day:cache.day,records};
+ }
+ function cachedSymbolChoices(queries){
+  const identities=new Map();if(queries.day===localDay())for(const record of queries.records)for(const option of record.options){const key=JSON.stringify([option.market,option.sourceValue]);identities.delete(key);identities.set(key,option);}
+  // Preserve exchange identities here. Label ambiguity is resolved only after
+  // the receiving field's market is known.
+  return [...identities.values()].slice(-symbolLimit);
+ }
+ function knownSymbolChoices(choices,queries,market,current=[],allowedMarkets=symbolMarkets){
+  const previous=[];
+  if(choices.day===localDay())for(const record of choices.records)for(const stage of Object.values(record.payload.stages))for(const options of Object.values(stage.symbolOptions||{}))previous.push(...options);
+  if(queries.day===localDay())for(const record of queries.records)previous.push(...record.options);
+  const permitted=option=>allowedMarkets.includes(option.market),all=S.mergeSymbolChoices(previous.filter(permitted),current.filter(permitted),market),identities=new Set(current.map(option=>JSON.stringify([option.market,option.sourceValue])));
+  // Keep current source/query choices first in importance when bounding a
+  // large discovered pool. Resolve ambiguity before dropping older entries.
+  const ordered=[...all.filter(option=>!identities.has(JSON.stringify([option.market,option.sourceValue]))),...all.filter(option=>identities.has(JSON.stringify([option.market,option.sourceValue])))];
+  return {knownOptions:ordered.slice(-symbolLimit),...(ordered.length>symbolLimit?{knownOptionsTruncated:true}:{})};
+ }
+ function enrichSymbolChoices(config,choices,queries){
+  const source=structuredClone(config);
+  for(const stage of ['momentum','execution','marketFilter']){
+   const main=source.stages[stage],descriptors=stage==='momentum'?[main,main?.relativeStrength,main?.withoutRelativeStrength]:[main];
+   for(const descriptor of descriptors.filter(Boolean)){
+    const layout=L.stage(stage,descriptor.fields);
+    for(const role of ['benchmarkIndex','indexSymbolIndex','numeratorSymbolIndex','denominatorSymbolIndex']){
+     const index=layout[role];if(!Number.isInteger(index))continue;
+     const market=descriptor.fields[index-1].value,markets=(descriptor.options?.[index-1]||[]).filter(option=>!option.disabled).map(option=>typeof option==='string'?option:option.value),known=knownSymbolChoices(choices,queries,market,descriptor.options?.[index]||[],markets);
+     (descriptor.options||={})[index]=known.knownOptions;
+    }
+   }
+  }
+  S.template(source);return source;
+ }
  async function readChoiceCache(tab,force){
   const day=localDay();
   if(force){const old=await storage.get(null);await storage.set({...Object.fromEntries(Object.keys(old).filter(key=>key.startsWith('runner:choices:')).map(key=>[key,null])),[dailyKey]:null});return {key:dailyKey,day,records:[]};}
@@ -178,20 +239,23 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
     if(m.session!==tab.session)throw Error('RZone changed or reloaded. Reconnect before searching for symbols.');
     const routes=await get(lookupKey(tab)),route=routes?.session===tab.session&&routes.symbols?.find(route=>route.stage===m.stage&&route.fieldIndex===m.fieldIndex);
     if(!route||!route.markets.includes(m.market)||!queryValid(m.query))throw Error('Enter a symbol search of 1–200 characters after loading this filter\'s choices.');
-    const request={kind:'symbol',stage:m.stage,fieldIndex:m.fieldIndex,market:m.market,query:m.query,session:tab.session},lookupCache=await readChoiceCache(tab,false),r=await configure(tab.id,{},request);
+    const request={kind:'symbol',stage:m.stage,fieldIndex:m.fieldIndex,market:m.market,query:m.query,session:tab.session},lookupCache=await readChoiceCache(tab,false),symbolCache=await readSymbolQueries(),cached=symbolCache.records.slice().reverse().find(record=>record.market===m.market&&record.query===m.query&&record.options.every(option=>route.markets.includes(option.market)));
+    if(cached)return {ok:true,result:{stage:m.stage,fieldIndex:m.fieldIndex,market:m.market,query:m.query,controlType:'text',options:structuredClone(cached.options),...knownSymbolChoices(lookupCache,symbolCache,m.market,cached.options,route.markets),cached:true}};
+    const r=await configure(tab.id,{},request);
     if(!r?.ok)throw Error(r?.error||'RZone symbol search could not be read.');
     if(r.session!==tab.session)throw Error('RZone reloaded during the search. Reconnect and try again.');
     const result=r.result;
     if(!result||result.stage!==m.stage||result.fieldIndex!==m.fieldIndex||result.market!==m.market||result.query!==m.query||result.controlType!=='text'||!Array.isArray(result.options)||result.options.length>3000||result.options.some(option=>!option||!choiceText(option.label)||!option.label||option.value!==option.label||!choiceText(option.sourceValue)||!option.sourceValue||!(option.market===m.market||m.market==='All'&&option.market!=='All'&&route.markets.includes(option.market))||option.disabled!==undefined&&typeof option.disabled!=='boolean'))throw Error('RZone returned a different symbol search. Search again.');
-    const metadata=r.choiceCache||result.choiceCache;if(metadata)await retainChoices(tab,lookupCache,{choiceCache:metadata,hasCachedChoices:true});
-    const visible={...result};delete visible.choiceCache;return {ok:true,result:visible};
+    const exact=symbolResultOptions(result.options,m.market),metadata=r.choiceCache||result.choiceCache;if(metadata)await retainChoices(tab,lookupCache,{choiceCache:metadata,hasCachedChoices:true});
+    const queries=await retainSymbolQuery(symbolCache,m.market,m.query,exact),current=await readChoiceCache(tab,false);
+    return {ok:true,result:{stage:m.stage,fieldIndex:m.fieldIndex,market:m.market,query:m.query,controlType:'text',options:exact,...knownSymbolChoices(current,queries,m.market,exact,route.markets),cached:false}};
    }
    const changes=m.changes??{};
    if(!changes||typeof changes!=='object'||Array.isArray(changes)||Object.keys(changes).some(k=>!['momentum','execution','marketFilter'].includes(k)))throw Error('Invalid source choices request.');
    for(const values of Object.values(changes))if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>10||Object.entries(values).some(([index,value])=>!/^\d{1,2}$/.test(index)||typeof value!=='string'||value.length>2000))throw Error('Invalid source choices request.');
    if(m.recheckAllChoices!==undefined&&typeof m.recheckAllChoices!=='boolean'||m.warmChart!==undefined&&!L.charts.includes(m.warmChart)||m.loadFilter!==undefined&&!['relativeStrength','marketFilter'].includes(m.loadFilter)||m.warmChart&&(Object.keys(changes).length||m.loadFilter))throw Error('Invalid source choice refresh.');
-   const cache=await readChoiceCache(tab,m.recheckAllChoices===true);
-   const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(m.warmChart?{warmChart:m.warmChart}:{}),...(m.loadFilter?{loadFilter:m.loadFilter}:{})};
+   const cache=await readChoiceCache(tab,m.recheckAllChoices===true),symbols=cachedSymbolChoices(await readSymbolQueries());
+   const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(symbols.length?{cachedSymbols:symbols}:{}),...(m.warmChart?{warmChart:m.warmChart}:{}),...(m.loadFilter?{loadFilter:m.loadFilter}:{})};
    const r=await configure(tab.id,changes,undefined,options);
    if(!r?.ok)throw Error(r?.error||'RZone setup could not be read.');
    if(r.session!==tab.session||r.config?.session!==tab.session)throw Error('RZone reloaded while connecting. Connect again.');
@@ -199,7 +263,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    // All menu metadata stays local for this calendar day, across source tabs.
    // Current settings come from this fresh response, never from stored menus.
    const choiceCache=await retainChoices(tab,cache,r);
-   return {ok:true,source:{...r.config,choiceCache}};
+   const source=enrichSymbolChoices(r.config,await readChoiceCache(tab,false),await readSymbolQueries());
+   return {ok:true,source:{...source,choiceCache}};
   }
   if(m.action==='delete'){
    if(!dashboard)throw Error('Only Vault can delete a study.');

@@ -14,6 +14,19 @@ const owns=(o,key)=>!!o&&Object.prototype.hasOwnProperty.call(o,key);
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const blocked='This dynamic rule is not available in automatic setup yet.';
 const symbolMarketMatches=(requested,actual)=>requested===actual||requested==='All'&&['NSE','BSE','MF','EQW'].includes(actual);
+function mergeSymbolChoices(previous,current,market){
+ const identities=new Map();
+ for(const option of [...(previous||[]),...(current||[])]){
+  if(!option||typeof option.label!=='string'||!option.label||typeof option.sourceValue!=='string'||!option.sourceValue||!symbolMarketMatches(market,option.market))continue;
+  identities.set(JSON.stringify([option.market,option.sourceValue]),{value:option.label,label:option.label,disabled:option.disabled===true,sourceValue:option.sourceValue,market:option.market});
+ }
+ const labels=new Map();
+ for(const option of identities.values()){
+  const prior=labels.get(option.label);
+  if(prior)prior.disabled=true;else labels.set(option.label,option);
+ }
+ return [...labels.values()];
+}
 const ruleCategories=['Pre','My','Public','Popular'];
 const searchRule=(shape,category)=>shape?.name!=='Radar'&&['My','Public'].includes(category);
 const ruleRowIndices=(stage,key,shape)=>[shape.parentIndex,Number(key),...(shape.valueIndex!==undefined?[shape.valueIndex]:[]),shape.gateIndex];
@@ -431,6 +444,6 @@ function demoTemplate({momentumChart='Candle',executionChart=momentumChart,momen
  Object.assign(source.stages.momentum.options,{1:[r.parameters.strategy.main.fields[1].value,'Demo universe 20','Demo universe 60'],3:['NSE'].map(value=>({value,label:value})),33:['Daily','Weekly'].map(value=>({value,label:value}))});
  return template(source);
 }
-const api={descriptorForFields,activeField,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,executionCapability,demoTemplate};
+const api={descriptorForFields,activeField,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,executionCapability,demoTemplate,mergeSymbolChoices};
 if(typeof module!=='undefined')module.exports=api;root.VaultSetup=api;
 })(typeof window!=='undefined'?window:globalThis);

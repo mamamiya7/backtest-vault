@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.17.4 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.17.5 preview** · Chrome · Local storage · MIT · No cloud account
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -51,7 +51,7 @@ flowchart LR
 
 **Universe and Timeframe can vary too.** Select their Test values to test every combination. Three universes × two timeframes create six tests. Results with different universes or timeframes are compared in separate matching groups.
 
-**Radar, Relative Strength and Market Trend Filter:** their Off / On / Test both control sits with the settings it enables. Turning a filter on loads its own choices when needed. Benchmark symbols must be selected from RZone search results. Market Trend Filter includes its chart, Index/RS mode, benchmarks, method, action, exits and Test values. A result is saved only after the planned settings match the source capture.
+**Radar, Relative Strength and Market Trend Filter:** their Off / On / Test both control sits with the settings it enables. Turning a filter on loads its own choices when needed. Type a symbol name in the benchmark field and press Enter or **Search RZone**. Choose a returned match; the field keeps earlier choices for Test values. Market Trend Filter includes its chart, Index/RS mode, benchmarks, method, action, exits and Test values. A result is saved only after the planned settings match the source capture.
 
 ```mermaid
 flowchart LR
@@ -78,6 +78,19 @@ All source settings stay on one page. The journey shows progress through the wor
 **Candle, P&F and Renko have separate settings and choices.** Select the main and execution charts independently. P&F exposes box size and reversal; Renko exposes brick size and its construction mode. Each chart keeps its own rule selections and Test values. P&F/Renko settings are available to inspect and prepare; their automatic execution remains unavailable until separate live write tests pass.
 
 **Dropdown choices are saved for the local calendar day, including after RZone refreshes or opening another RZone tab.** This includes Group, Radar, strategy categories and already-read filter choices and symbol searches. The first connection checks all three charts; later connections read current settings without walking those menus again. A newly used filter context or search needs its first lookup. **Recheck all choices** refreshes the menus immediately, for example after changing rules or switching RZone accounts. A new day or adapter update starts a fresh check. No backtest starts during a choice check.
+
+Symbol searches use the same field for Relative Strength and Market Trend Filter. Results for the same market and search text are reused today, including between the two filters. These are **search matches**, not a downloaded list of every instrument; use a more specific name when a broad search does not show the symbol you need.
+
+```mermaid
+flowchart LR
+    A["Type a symbol name"] --> B{"Searched today?"}
+    B -->|Yes| C["Show saved matches"]
+    B -->|No| D["Search RZone"]
+    D --> E["Keep every returned match"]
+    C --> F["Select a symbol or add Test values"]
+    E --> F
+```
+
 
 Radar currently offers native **Pre / My** menus. Strategy and exit **Pre / Popular** are dropdowns; **My / Public** are keyword searches. Choose the category, enter a name and click **Search**, then select a returned rule. RZone does not expose an all-rules list for an empty keyword. An untouched search is not an empty account; no matches refers only to the entered query. Identical names are unavailable for automatic selection because their identity would be ambiguous. Fresh connected setups support NSE; other markets require a separate form adapter.
 

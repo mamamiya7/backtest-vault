@@ -276,3 +276,11 @@ Relative Strength captures its benchmark market and exact symbol plus the select
 Turning an optional filter on reads its available controls without submitting a backtest. Matching optional-filter menus and previously read symbol/rule results are reused for the local day across source documents; reconnects still read current settings. New contexts and new search terms need their first lookup. Recheck all choices clears the optional-menu cache as well as the ordinary menus.
 
 Every automatic filter trial saves the complete source settings. A Market Trend Filter Save receipt must belong to the same current main settings and trial, precede the strategy submission, and survive no source error. Missing or mismatched filter settings stop capture. The analysis keeps incomplete filter evidence unranked and shows complete filter differences within otherwise matching test conditions.
+
+### Symbol search in filter settings
+
+Relative Strength and Market Trend Filter use one symbol field. Type a name, then press Enter or choose **Search RZone** to read matching source choices. Arrow keys and Enter select a highlighted match. The list reports the number of matches returned for the query; previously discovered symbols remain available, including selected Test values.
+
+Search receipts are shared by exchange and exact search text for the local calendar day, across filter roles and page refreshes. A repeat query uses saved results and does not initiate another dropdown scan. **Recheck all choices** clears these receipts. Current settings and exact native instrument identities are still checked before execution.
+
+RZone exposes a search menu, not an observed complete-instrument download. A broad query may return only part of the market; narrow the name to retrieve other matches. An empty result for one query does not remove previously found symbols. Local symbol metadata is bounded; it is not a full-market database.

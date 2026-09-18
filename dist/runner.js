@@ -429,6 +429,23 @@ function choiceStageCache(stage,descriptor){
  return {context:choiceContext(stage,descriptor),signature:choiceSignature(descriptor),nativeOptions:Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one')),ruleCatalogues:catalogues,...(stage==='momentum'?{groupOptions:descriptor.options[1]}:{}),...(symbols.size?{symbolOptions:Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>symbols.has(index))),symbolQueries:structuredClone(descriptor.symbolQueries||{})}:{})};
 }
 const rememberedChoices=(previous,current)=>compactRuleChoices([...new Map([...(previous||[]),...current].map(option=>[JSON.stringify([option.label,option.sourceValue,option.market]),structuredClone(option)])).values()]);
+function rememberedSymbols(previous,current,market){
+ const choices=window.VaultSetup.mergeSymbolChoices(previous,current,market),fresh=new Set(current.map(option=>JSON.stringify([option.market,option.sourceValue])));
+ // Resolve same-name ambiguity within the selected market before bounding
+ // accumulated history, keeping every choice from the current native read.
+ return [...choices.filter(option=>!fresh.has(JSON.stringify([option.market,option.sourceValue]))),...choices.filter(option=>fresh.has(JSON.stringify([option.market,option.sourceValue])))].slice(-3000);
+}
+function symbolsForControl(p,index,choices){
+ const markets=new Set([...inputs(p)[index-1].options].filter(option=>!option.disabled).map(option=>V.clean(option.textContent)));
+ return choices.filter(option=>markets.has(option.market));
+}
+function knownSymbols(records=[],extra=[],force=false){
+ if(force)return [];
+ const choices=[];
+ for(const record of records)if(record?.schemaVersion===2&&record.adapterVersion===L.version&&(record.daily===true&&!Object.hasOwn(record,'session')||record.session===session))for(const stage of Object.values(record.stages||{}))for(const options of Object.values(stage.symbolOptions||{}))if(Array.isArray(options))choices.push(...options);
+ if(currentChoiceDay())for(const stage of ['momentum','execution','marketFilter']){const base=lastConfig.stages[stage];if(base)for(const descriptor of stage==='momentum'?[base,base.relativeStrength,base.withoutRelativeStrength]:[base])if(descriptor)for(const index of symbolIndices(L.stage(stage,descriptor.fields)))choices.push(...(descriptor.options[index]||[]));}
+ return [...choices,...extra];
+}
 function dailyStage(stage,descriptor,cached){
  const layout=L.stage(stage,descriptor.fields),context=choiceContext(stage,descriptor),withoutCategories=value=>Object.fromEntries(Object.entries(value).filter(([key])=>key!=='categories').sort(([a],[b])=>a.localeCompare(b)));
  if(!jsonSame(withoutCategories(cached.context),withoutCategories(context)))return null;
@@ -519,10 +536,10 @@ async function openMarketFilter(until){
  const layout=L.stage('momentum',C.fields(C.main()));if(!inputs(C.main())[layout.mtfIndex].checked){ownClick(inputs(C.main())[layout.mtfIndex]);await delay(150);}
  ownClick(button(C.main(),/^Market Trend Filter$/i));return C.popup('Market Trend Filter')||await wait(()=>C.popup('Market Trend Filter'),Math.min(Date.now()+10000,until),'Market Trend Filter did not open.');
 }
-async function benchmarkChoices(p,stage,until,cached,cachedLayout){
+async function benchmarkChoices(p,stage,until,cached,cachedLayout,known=[]){
  const out={options:{},symbolQueries:{}},layout=L.stage(stage,C.fields(p));
- for(const index of symbolIndices(layout)){const node=inputs(p)[index];if(node.disabled||!node.value.trim())continue;const query=node.value,market=V.clean(inputs(p)[index-1].selectedOptions[0]?.textContent),role=['benchmarkIndex','indexSymbolIndex','numeratorSymbolIndex','denominatorSymbolIndex'].find(key=>layout[key]===index),cachedIndex=cachedLayout?cachedLayout[role]:index,prior=cached?.symbolQueries?.[cachedIndex],choices=cached?.symbolOptions?.[cachedIndex];
-  out.options[index]=Array.isArray(choices)&&choices.some(option=>!option.disabled&&option.sourceValue&&option.label===query&&(market==='All'||option.market===market))?structuredClone(choices):await searchSymbols(p,index,query,{market,until});out.symbolQueries[index]={market,query};}
+ for(const index of symbolIndices(layout)){const node=inputs(p)[index];if(node.disabled)continue;const query=node.value,market=V.clean(inputs(p)[index-1].selectedOptions[0]?.textContent),role=['benchmarkIndex','indexSymbolIndex','numeratorSymbolIndex','denominatorSymbolIndex'].find(key=>layout[key]===index),cachedIndex=cachedLayout?cachedLayout[role]:index,choices=rememberedSymbols(symbolsForControl(p,index,[...known,...Object.values(out.options).flat()]),symbolsForControl(p,index,cached?.symbolOptions?.[cachedIndex]||[]),market);
+  const fresh=!query.trim()||choices.some(option=>!option.disabled&&option.sourceValue&&option.label===query)?[]:await searchSymbols(p,index,query,{market,until});out.options[index]=rememberedSymbols(choices,fresh,market);if(query.trim())out.symbolQueries[index]={market,query};}
  return out;
 }
 function mergeBenchmarks(d,proof){d.options={...d.options,...proof.options};d.symbolQueries={...d.symbolQueries,...proof.symbolQueries};return d;}
@@ -532,7 +549,7 @@ async function filterConfiguration(requestedChanges,request={}){
  if(!['relativeStrength','marketFilter'].includes(feature)||Object.keys(changes).some(key=>key!=='marketFilter'&&key!=='momentum')||Object.values(changes).reduce((n,v)=>n+Object.keys(v).length,0)>1)throw Error('Load one optional filter at a time.');
  if(!lastConfig)throw Error('Connect RZone before loading filter choices.');
  if(!currentChoiceDay())throw Error('A new day has started. Connect RZone again to update today’s choices.');
- checkOptionalDay(request.forceChoices===true);const records=request.forceChoices?[]:[...optionalMenus,...(request.cachedChoices||[])];configuring=true;interrupted=false;const started=Date.now(),until=started+42000;let p,snapshot,relativeSnapshot,originalMain,result,reusedChoices=false,choiceCache;
+ checkOptionalDay(request.forceChoices===true);const records=request.forceChoices?[]:[...optionalMenus,...(request.cachedChoices||[])],symbols=knownSymbols(records,request.cachedSymbols||[],request.forceChoices===true);configuring=true;interrupted=false;const started=Date.now(),until=started+42000;let p,snapshot,relativeSnapshot,originalMain,result,reusedChoices=false,choiceCache;
  try{
   await prepare();await settledMain();originalMain=restorableStage(C.main(),'momentum');
   const base=lastConfig.stages.momentum;if(!jsonSame(originalMain.fields,base.fields))throw Error('RZone settings changed. Connect again before loading this filter.');
@@ -546,7 +563,7 @@ async function filterConfiguration(requestedChanges,request={}){
    for(const [raw,value]of Object.entries(changes.momentum||{})){const index=Number(raw),layout=L.stage('momentum',C.fields(C.main()));if(![layout.benchmarkMarketIndex,layout.rows.at(-1).parentIndex].includes(index)||typeof value!=='string'||!value||value.length>200)throw Error('This Relative Strength selector cannot refresh the source.');await setField(C.main(),index,{...C.fields(C.main())[index],value},'momentum',until);}
    const relative={...descriptor(C.main()),supportedMarkets:['NSE']};relative.options[1]=structuredClone(base.options[1]);const previous=cachedStage('momentum',relative,records,request.forceChoices===true);reusedChoices=!!previous;relative.ruleCatalogues=previous?previous.ruleCatalogues:{...without.ruleCatalogues,...await strategyCatalogues(C.main(),until,'momentum',null,['Relative Strength'])};
    for(const [child,c]of Object.entries(relative.ruleCatalogues))relative.options[child]=c.categories[relative.fields[c.parentIndex].value];
-   mergeBenchmarks(relative,await benchmarkChoices(C.main(),'momentum',until,previous));
+   mergeBenchmarks(relative,await benchmarkChoices(C.main(),'momentum',until,previous,undefined,symbols));
    choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',relative)}};optionalMenus.push(choiceCache);if(optionalMenus.length>128)optionalMenus.shift();
    config.stages.momentum.relativeStrength=relative;config.stages.momentum.withoutRelativeStrength=without;
   }else{
@@ -571,11 +588,11 @@ async function filterConfiguration(requestedChanges,request={}){
    if(!current.fields[layout.indexModeIndex].checked){await setField(p,layout.indexModeIndex,{...current.fields[layout.indexModeIndex],checked:true},'marketFilter',until);layout=L.stage('marketFilter',C.fields(p));}
    if(!layout.hasExit){await setField(p,layout.actionIndex,{...C.fields(p)[layout.actionIndex],value:L.marketActions[2]},'marketFilter',until);await settledStage(p,'marketFilter',layout.chart,until);layout=L.stage('marketFilter',C.fields(p));}
    const full=descriptor(p);full.current=current;const previous=cachedStage('marketFilter',full,records,request.forceChoices===true);reusedChoices=!!previous;full.ruleCatalogues=previous?previous.ruleCatalogues:await strategyCatalogues(p,until,'marketFilter');for(const [child,c]of Object.entries(full.ruleCatalogues))full.options[child]=c.categories[full.fields[c.parentIndex].value];
-   mergeBenchmarks(full,await benchmarkChoices(p,'marketFilter',until,previous));
+   mergeBenchmarks(full,await benchmarkChoices(p,'marketFilter',until,previous,undefined,symbols));
    // Read both benchmark branches; map the observed RS indices back to the
    // full Index descriptor instead of assuming non-Candle positions match.
    const expanded=L.stage('marketFilter',full.fields);await setField(p,expanded.rsModeIndex,{...C.fields(p)[expanded.rsModeIndex],checked:true},'marketFilter',until);
-   const rs=L.stage('marketFilter',C.fields(p)),proof=await benchmarkChoices(p,'marketFilter',until,previous,expanded);
+   const rs=L.stage('marketFilter',C.fields(p)),proof=await benchmarkChoices(p,'marketFilter',until,previous,expanded,[...symbols,...symbolIndices(expanded).flatMap(index=>full.options[index]||[])]);
    for(const key of ['numeratorSymbolIndex','denominatorSymbolIndex']){if(proof.options[rs[key]]){full.options[expanded[key]]=proof.options[rs[key]];full.symbolQueries[expanded[key]]=proof.symbolQueries[rs[key]];}}
    config.stages.marketFilter=full;
    choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{marketFilter:choiceStageCache('marketFilter',full)}};optionalMenus.push(choiceCache);if(optionalMenus.length>128)optionalMenus.shift();
@@ -692,7 +709,7 @@ async function symbolLookup(request){
   const options=await searchSymbols(p,index,request.query,{market:request.market,until:started+45000});
   const result={stage,fieldIndex:request.fieldIndex,market:request.market,query:request.query,controlType:'text',options};
   const descriptor=stage==='momentum'&&lastConfig.stages.momentum.relativeStrength&&request.fieldIndex===L.stage('momentum',lastConfig.stages.momentum.relativeStrength.fields).benchmarkIndex?lastConfig.stages.momentum.relativeStrength:lastConfig.stages[stage];
-  if(descriptor){descriptor.options[request.fieldIndex]=rememberedChoices(descriptor.options[request.fieldIndex],options);descriptor.symbolQueries={...descriptor.symbolQueries,[request.fieldIndex]:{market:request.market,query:request.query}};if(currentChoiceDay())result.choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{[stage]:choiceStageCache(stage,descriptor)}};}
+  if(descriptor){descriptor.options[request.fieldIndex]=rememberedSymbols(symbolsForControl(p,index,knownSymbols(currentChoiceDay()?optionalMenus:[])),options,request.market);descriptor.symbolQueries={...descriptor.symbolQueries,[request.fieldIndex]:{market:request.market,query:request.query}};if(currentChoiceDay())result.choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{[stage]:choiceStageCache(stage,descriptor)}};}
   return result;
  }finally{try{if(context)await context.restore();}catch(error){failed=true;throw error;}finally{configuring=false;}}
 }

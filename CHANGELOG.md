@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.17.5 preview - 2026-09-18
+
+- Search RZone from the symbol dropdown itself in Relative Strength and Market Trend Filter. Show all returned matches and keep selected symbols and Test values when another search is made.
+- Share discovered symbols and exact search results for the local day across filter roles and RZone refreshes. Recheck all choices and the next local day invalidate those results.
+- Keep exchange and native symbol identity attached to every choice. Ambiguous names remain unavailable rather than selecting a different instrument.
+- Search matches are not a complete exchange catalogue. Broad source searches can be limited; enter a more specific name to find additional symbols.
+- Download publication and installed-extension acceptance remain separate from source tests.
+
+
 ## 0.17.4 preview - 2026-09-18
 
 - Compare cached dropdown objects by their contents, ignoring storage property order while preserving native option order, labels and identities. This fixes a reproduced false “RZone choices changed” rejection.
