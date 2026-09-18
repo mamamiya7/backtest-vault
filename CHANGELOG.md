@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.17.4 preview - 2026-09-18
+
+- Compare cached dropdown objects by their contents, ignoring storage property order while preserving native option order, labels and identities. This fixes a reproduced false “RZone choices changed” rejection.
+- Prevent an interrupted or failed full choice scan from restarting on chart changes, filter loading, polling or same-day draft resume. Recheck all choices explicitly retries; the next local day allows a new pass.
+- Keep partial coverage visible and current edits intact. Successful daily metadata remains shared across source refreshes and tabs.
+- Focused regressions reproduce both defects against the prior code. Installed/live acceptance is still required; download publication remains held.
+
 ## 0.17.3 preview - 2026-09-17
 
 - Retain complete daily dropdown metadata across RZone refreshes and tabs: Group, private Radar choices, strategy categories, keyword results and loaded filter symbols. Recheck all choices refreshes it manually; a new local day expires it.

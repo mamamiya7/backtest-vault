@@ -17,7 +17,9 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
  const onlyKeys=(value,allowed)=>{if(!value||typeof value!=='object'||Array.isArray(value)||Object.keys(value).some(key=>!allowed.includes(key)))throw Error('Invalid cached metadata.');};
  const menuOptions=(values,symbol=false)=>{
   if(!Array.isArray(values)||values.length>3000)throw Error('Invalid cached menu.');
-  return values.map(option=>{onlyKeys(option,['value','label','sourceValue','disabled','market']);if(!choiceText(option.label)||!option.label||option.value!==option.label||option.sourceValue!==undefined&&!choiceText(option.sourceValue)||option.disabled!==undefined&&typeof option.disabled!=='boolean'||option.market!==undefined&&(!choiceText(option.market)||!option.market)||symbol&&(!option.sourceValue||!option.market))throw Error('Invalid cached option.');return {...option};});
+  // Storage may reorder object properties. Rebuild known metadata while
+  // preserving the native option array order and exact source identities.
+  return values.map(option=>{onlyKeys(option,['value','label','sourceValue','disabled','market']);if(!choiceText(option.label)||!option.label||option.value!==option.label||option.sourceValue!==undefined&&!choiceText(option.sourceValue)||option.disabled!==undefined&&typeof option.disabled!=='boolean'||option.market!==undefined&&(!choiceText(option.market)||!option.market)||symbol&&(!option.sourceValue||!option.market))throw Error('Invalid cached option.');return {value:option.value,label:option.label,...(option.sourceValue!==undefined?{sourceValue:option.sourceValue}:{}),...(option.disabled!==undefined?{disabled:option.disabled}:{}),...(option.market!==undefined?{market:option.market}:{})};});
  };
  const categoryNames=['Pre','My','Public','Popular'];
  function menuStage(stage,source){

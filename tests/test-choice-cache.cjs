@@ -3,6 +3,7 @@ const assert=require('node:assert/strict');
 const {createCoordinator}=require('../dist/experiment-coordinator.js');
 const S=require('../dist/setup.js'),L=require('../dist/source-layouts.js'),F=require('./fixtures/filter-setup.cjs');
 const clone=x=>structuredClone(x),session='fictional-source-session',tabId=42,key='runner:choices:daily';
+const orderedStorage=x=>Array.isArray(x)?x.map(orderedStorage):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(key=>[key,orderedStorage(x[key])])):x;
 const runtime={id:'cache-tests',getURL:p=>'chrome-extension://cache-tests/'+p};
 const dashboard={id:runtime.id,url:runtime.getURL('index.html')};
 const source={id:runtime.id,url:'https://zone.definedgesecurities.com/index.html#research',tab:{id:tabId}};
@@ -25,9 +26,9 @@ function metadata(stage,descriptor){
 }
 function payload(chart='Candle',execution=chart){const template=S.demoTemplate({momentumChart:chart,executionChart:execution});return {schemaVersion:2,adapterVersion:L.version,session,stages:Object.fromEntries(['momentum','execution'].map(stage=>[stage,metadata(stage,template.stages[stage])]))};}
 function optionalPayload(stage,chart='Candle',marketChart=chart){const template=S.template(F({chart,marketChart})),descriptor=stage==='momentum'?template.stages.momentum.relativeStrength:template.stages[stage];return {schemaVersion:2,adapterVersion:L.version,session,stages:{[stage]:metadata(stage,descriptor)}};}
-async function harness(){
+async function harness({reorderStorage=false}={}){
  let now=new Date(2026,8,16,12,0,0).getTime(),replySession=session,sourceSession=session,failWrite=false,respond=null;const memory={},calls=[];
- const storage={get:async k=>clone(k?{[k]:memory[k]}:memory),set:async values=>{if(failWrite&&Object.hasOwn(values,key))throw Error('Storage unavailable');Object.assign(memory,clone(values));}};
+ const storage={get:async k=>(reorderStorage?orderedStorage:clone)(k?{[k]:memory[k]}:memory),set:async values=>{if(failWrite&&Object.hasOwn(values,key))throw Error('Storage unavailable');Object.assign(memory,clone(values));}};
  const freshConfig=()=>{const config=S.template(F());config.demo=false;config.session=replySession;config.capturedAt=new Date(now).toISOString();config.stages.momentum.fields[12].value=String(252+calls.length);return config;};
  const c=createCoordinator({storage,runtime,clock:()=>now,probe:async()=>({session:sourceSession,capable:true,ready:true,chart:'Candle'}),configure:async(id,changes,lookup,choiceOptions)=>{
   calls.push(clone({id,changes,lookup,options:choiceOptions}));if(respond)return respond(calls.at(-1));
@@ -49,6 +50,14 @@ async function optional(h,stage,chart='Candle'){
  // Registered reload/new tab gets complete metadata; fresh form keeps new session.
  const at=complete.source.choiceCache.checkedAt;await h.reload('reloaded-source');const reload=await h.call();assert.equal(h.calls.at(-1).options.cachedChoices.length,6);assert.ok(h.calls.at(-1).options.cachedChoices.every(p=>p.daily===true&&!Object.hasOwn(p,'session')));assert.match(JSON.stringify(h.calls.at(-1).options.cachedChoices),/Fictional private group/);assert.deepEqual(reload.source.choiceCache.charts,L.charts);assert.equal(reload.source.choiceCache.checkedAt,at);assert.equal(reload.source.session,'reloaded-source');
  await h.reload('new-tab-document',99);await h.call({tabId:99});assert.equal(h.calls.at(-1).options.cachedChoices.length,6);assert.equal(h.memory[key].records.length,6);
+ // Chrome storage is not required to preserve object insertion order. Model
+ // that persistence boundary while preserving every array and option value.
+ const reordered=await harness({reorderStorage:true});for(const chart of L.charts)await reordered.call(chart==='Candle'?{}:{warmChart:chart});
+ const beforeReload=clone(reordered.memory[key]);await reordered.reload('ordered-storage-reload');const sameDay=await reordered.call();assert.deepEqual(sameDay.source.choiceCache.charts,L.charts);assert.equal(sameDay.source.choiceCache.source,'cache');assert.equal(reordered.calls.at(-1).options.cachedChoices.length,6);assert.equal(reordered.memory[key].records.length,6,'Property reordering cannot create new logical cache contexts');
+ const cached=reordered.calls.at(-1).options.cachedChoices.find(p=>p.stages.momentum?.context.chart==='Candle').stages.momentum;
+ const fresh=payload().stages.momentum;assert.equal(JSON.stringify(cached.nativeOptions),JSON.stringify(fresh.nativeOptions),'Stored native options rehydrate with the same canonical metadata as fresh options');
+ assert.deepEqual(cached.nativeOptions[0].map(option=>[option.value,option.sourceValue]),fresh.nativeOptions[0].map(option=>[option.value,option.sourceValue]),'Option order and exact source IDs are unchanged');
+ assert.deepEqual(reordered.memory[key].records.map(record=>record.checkedAt).sort(),beforeReload.records.map(record=>record.checkedAt).sort(),'Storage property order cannot make saved menus look freshly downloaded');assert.equal(sameDay.source.session,'ordered-storage-reload');assert.notEqual(sameDay.source.stages.momentum.fields[12].value,'252','Source settings are still read fresh');
  // Force clears all menu generations, not saved runs or studies.
  h.memory['runner:choices:42']={old:true};h.memory['runner:choices:shared-native']={old:true};h.memory['runner:choices:999']={old:true};h.memory['run:kept']={id:'kept'};await h.call({tabId:99,recheckAllChoices:true});assert.deepEqual(h.calls.at(-1).options.cachedChoices,[]);assert.equal(h.calls.at(-1).options.forceChoices,true);assert.equal(h.memory[key].records.length,2);for(const legacy of ['runner:choices:42','runner:choices:shared-native','runner:choices:999'])assert.equal(h.memory[legacy],null);assert.deepEqual(h.memory['run:kept'],{id:'kept'});
  h.setTime(new Date(2026,8,17,0,0,1).getTime());await h.call({tabId:99});assert.deepEqual(h.calls.at(-1).options.cachedChoices,[],'Next local date checks menus again');

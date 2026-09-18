@@ -155,7 +155,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  function newTest(initial=null){
   const savedContext=initial?S.savedRunContext(initial):null;
   if(initial&&(initial.demo===true)!==store.demo)throw Error('Real and fictional saved settings cannot be mixed.');
-  const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid()){setupPage();if(extension&&wizard.choiceCache?.checkedAt&&!choicesFromToday(wizard.choiceCache))void action(()=>refreshSetupChoices());}return;}
+  const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid()){setupPage();if(extension&&(wizard.choiceCache?.checkedAt&&!choicesFromToday(wizard.choiceCache)||wizard.choiceWarmAttempt&&wizard.choiceWarmAttempt.day!==localChoiceDay()))void action(()=>refreshSetupChoices());}return;}
   selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),contextDrafts:new Map(),choiceCache:null,warmingChart:null,ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(initial){setupDrafts.delete(store);wizard.reuseRun=structuredClone(initial);wizard.reuseApplied=false;wizard.name=((initial.name||'Saved run').slice(0,110)+' · copy');}
   if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');const c=savedContext?.config;wizard.template=S.demoTemplate(c?{momentumChart:c['momentum.chart'],executionChart:c['execution.chart'],momentumBrickMode:c['momentum.brick.mode'],executionBrickMode:c['execution.brick.mode']}:{});wizard.config=initial?S.configFromRun(initial,wizard.template):S.defaults(wizard.template);wizard.reuseApplied=!!initial;wizard.step=1;}
@@ -196,6 +196,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  }
 
  const choiceCharts=['Candle','P&F','Renko'];
+ const localChoiceDay=()=>new Date().toDateString();
  const choicesFromToday=cache=>!!cache?.checkedAt&&new Date(cache.checkedAt).toDateString()===new Date().toDateString();
  const stageContext=(config,stage)=>config?[config[stage+'.chart'],config[stage+'.brick.mode']||'',...(stage==='marketFilter'?[config[stage+'.exit.brick.mode']||'']:[])].join(':'):null;
  const contextStages=['momentum','execution','marketFilter'];
@@ -238,9 +239,15 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   state.template=template;state.sourceSession=source.session;state.config=config;state.stale=false;state.choiceCache=null;cacheReceipt(state,source);
  }
 
- async function warmSetupChoices(state,generation){
+ async function warmSetupChoices(state,generation,{force=false}={}){
   if(!state.choiceCache||store.demo)return;
-  const pending=[...state.choiceCache.pendingCharts];if(!pending.length)return;state.connecting=true;
+  const day=localChoiceDay(),prior=state.choiceWarmAttempt;
+  const warmError=failed=>'Could not check '+failed.chart+' choices. '+failed.message+' Your current '+state.config['momentum.chart']+' settings are kept. Use Recheck all choices to retry.';
+  if(!force&&prior?.day===day&&prior.sourceId===state.sourceId&&prior.session===state.sourceSession){if(prior.failed&&state.choiceCache.pendingCharts.includes(prior.failed.chart))state.connectionError=warmError(prior.failed);return;}
+  // Reserve the whole pass before its first request. A failed or interrupted
+  // pass must not resume through an unrelated chart/filter edit the same day.
+  const pending=[...state.choiceCache.pendingCharts],attempt={day,sourceId:state.sourceId,session:state.sourceSession,charts:pending};state.choiceWarmAttempt=attempt;
+  if(!pending.length)return;state.connecting=true;
   try{
    for(const chart of pending){
     if(!alive()||wizard!==state||generation!==state.generation)return;if(!state.choiceCache.pendingCharts.includes(chart))continue;state.warmingChart=chart;setupPage();
@@ -248,7 +255,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
     if(!alive()||wizard!==state||generation!==state.generation)return;if(response.source?.session!==state.sourceSession){state.template=null;state.sourceSession=null;state.choiceCache=null;state.step=0;state.stale=true;throw Error('RZone changed while checking choices. Reconnect before continuing.');}
     if(!cacheReceipt(state,response.source)||!state.choiceCache.charts.includes(chart))throw Error('RZone did not finish checking '+chart+' choices.');
    }
-  }catch(error){if(alive()&&wizard===state&&generation===state.generation){state.connectionError='Could not check '+state.warmingChart+' choices. '+error.message+' Your current '+state.config['momentum.chart']+' settings are kept.';}}
+  }catch(error){if(alive()&&wizard===state&&generation===state.generation){attempt.failed={chart:state.warmingChart,message:error.message};state.connectionError=warmError(attempt.failed);}}
   finally{state.connecting=false;state.warmingChart=null;if(alive()&&wizard===state&&generation===state.generation)setupPage();}
  }
 
@@ -270,7 +277,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   const state=wizard;if(!state||state.connecting||store.demo)return;if(!setupSourceValid())return;
   const generation=++state.generation;state.connecting=true;state.connectionError='';for(const control of content.querySelectorAll('.setup-form input,.setup-form select,.setup-form button,.setup-builder button'))control.disabled=true;
   notice.textContent=recheckAllChoices?'Rechecking all choices from RZone…':loadFilter?'Loading '+(loadFilter==='relativeStrength'?'Relative Strength':'Market Trend Filter')+' settings…':chartSwitch?'Loading '+chartSwitch.value+' settings…':'Refreshing the choices from RZone…';
-  try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{}),...(recheckAllChoices?{recheckAllChoices:true}:{}),...(loadFilter?{loadFilter}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;if(chartSwitch){const config=S.defaults(S.template(response.source));if(config[chartSwitch.key]!==chartSwitch.value)throw Error('RZone did not switch to '+chartSwitch.value+'. Your previous settings are kept.');}acceptSetupSource(state,response.source);if(loadFilter&&S.fieldsForUI(state.template,state.config).flatMap(g=>g.fields).find(f=>f.key===(loadFilter==='relativeStrength'?'momentum.rs':'momentum.market-filter'))?.needsDiscovery)throw Error('RZone did not finish loading these filter settings. Try loading them again.');notice.textContent='';if(await loadEnabledFilters(state,generation))await warmSetupChoices(state,generation);}
+  try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{}),...(recheckAllChoices?{recheckAllChoices:true}:{}),...(loadFilter?{loadFilter}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;if(chartSwitch){const config=S.defaults(S.template(response.source));if(config[chartSwitch.key]!==chartSwitch.value)throw Error('RZone did not switch to '+chartSwitch.value+'. Your previous settings are kept.');}acceptSetupSource(state,response.source);if(loadFilter&&S.fieldsForUI(state.template,state.config).flatMap(g=>g.fields).find(f=>f.key===(loadFilter==='relativeStrength'?'momentum.rs':'momentum.market-filter'))?.needsDiscovery)throw Error('RZone did not finish loading these filter settings. Try loading them again.');notice.textContent='';if(await loadEnabledFilters(state,generation))await warmSetupChoices(state,generation,{force:recheckAllChoices});}
   catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;throw error;}
   finally{state.connecting=false;if(alive()&&wizard===state)setupPage();}
  }

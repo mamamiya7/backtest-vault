@@ -420,7 +420,9 @@ function choiceContext(stage,descriptor){
  return {chart:layout.chart,...(stage==='momentum'?{market:fields[layout.marketIndex].value,relativeStrength:layout.relativeStrength}:{selection:fields[layout.selectionIndex].value}),...(Number.isInteger(layout.modeIndex)?{mode:fields[layout.modeIndex].value}:{}),categories:layout.rows.map(row=>[row.parentIndex,fields[row.parentIndex].value]),...(benchmarkMarkets.length?{benchmarkMarkets}:{})};
 }
 const choiceSignature=descriptor=>descriptor.fields.map(field=>[field.type,field.label]);
-const jsonSame=(a,b)=>JSON.stringify(a)===JSON.stringify(b);
+// Storage and extension messages may reorder object keys; array order and values remain significant.
+const canonicalJson=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item);
+const jsonSame=(a,b)=>canonicalJson(a)===canonicalJson(b);
 function choiceStageCache(stage,descriptor){
  const catalogues=structuredClone(descriptor.ruleCatalogues);
  const symbols=new Set(symbolIndices(L.stage(stage,descriptor.fields)).map(String));

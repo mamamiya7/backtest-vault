@@ -445,12 +445,13 @@ async function backgroundFocusChecks(){
 }
 // Complete fictional native forms exercise independent chart contexts without
 // granting the still-closed live execution capability for P&F or Renko.
-async function persistedMenus(responses){
- const memory={},runtime={id:'daily-reader-boundary',getURL:p=>'chrome-extension://daily-reader-boundary/'+p},session=responses[0].session,storage={get:async key=>structuredClone(key?{[key]:memory[key]}:memory),set:async values=>Object.assign(memory,structuredClone(values))};let response;
+async function persistedMenus(responses,{reorderStorage=false}={}){
+ const read=value=>reorderStorage?reordered(structuredClone(value)):structuredClone(value);
+ const memory={},runtime={id:'daily-reader-boundary',getURL:p=>'chrome-extension://daily-reader-boundary/'+p},session=responses[0].session,storage={get:async key=>read(key?{[key]:memory[key]}:memory),set:async values=>Object.assign(memory,structuredClone(values))};let response;
  const coordinator=createCoordinator({storage,runtime,probe:async()=>({session,ready:true,capable:true}),configure:async()=>response}),source={id:runtime.id,url:'https://zone.definedgesecurities.com/index.html#research',tab:{id:12}},dashboard={id:runtime.id,url:runtime.getURL('index.html')};
  await coordinator.handle({action:'hello',session,ready:true,capable:true},source);
  for(response of responses){const saved=await coordinator.handle({action:'configure',tabId:12},dashboard);assert.equal(saved.ok,true,saved.error);}
- const records=memory['runner:choices:daily']?.records;assert.ok(records?.length,'The coordinator must retain the real source reader metadata.');return records.map(record=>{assert.equal(record.payload.daily,true);assert.equal(record.payload.session,undefined);assert.equal(JSON.stringify(record.payload).includes('"fields"'),false,'Daily metadata never contains source field snapshots.');return record.payload;});
+ const records=(await storage.get('runner:choices:daily'))['runner:choices:daily']?.records;assert.ok(records?.length,'The coordinator must retain the real source reader metadata.');return records.map(record=>{assert.equal(record.payload.daily,true);assert.equal(record.payload.session,undefined);assert.equal(JSON.stringify(record.payload).includes('"fields"'),false,'Daily metadata never contains source field snapshots.');return record.payload;});
 }
 async function chartScenario(chartCase,dailySeed){
  const L=require('../dist/source-layouts.js'),dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document,main=d.querySelector('.account-right'),listeners=[],counts={categories:0,groups:0,submissions:0},menus=new Set();
@@ -490,6 +491,19 @@ async function chartScenario(chartCase,dailySeed){
  try{
   if(dailySeed)nodes(main)[12].value='444';
   const before=JSON.stringify(w.VaultCapture.fields(main)),first=await request(dailySeed?{cachedChoices:dailySeed.records}:{});assert.equal(first.ok,true,first.error);assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before);assert.equal(first.choicesFromCache,!!dailySeed);assert.equal(first.choiceCache.adapterVersion,L.version);assert.equal(first.choiceCache.stages.momentum.context.chart,initial);assert.equal(JSON.stringify(first.choiceCache).includes('capturedAt'),false);assert.equal(Object.hasOwn(first.choiceCache.stages.momentum,'fields'),false);
+  if(chartCase==='daily-storage-order'){
+   // Browser storage/message objects need not retain property insertion order.
+   // Exercise real reader metadata through the coordinator, preserving every
+   // array, label, native identity and value while sorting object keys only.
+   const records=await persistedMenus([first],{reorderStorage:true}),menu=records.find(record=>record.stages.momentum).stages.momentum.nativeOptions[0][0];assert.deepEqual(Object.keys(menu),Object.keys(menu).sort());
+   const prior={...counts};nodes(main)[12].value='444';const reused=await request({cachedChoices:records});assert.equal(reused.ok,true,reused.error);assert.equal(reused.choicesFromCache,true);assert.equal(reused.config.stages.momentum.fields[12].value,'444');assert.deepEqual(counts,prior,'Object-key order alone must not rediscover any Group or rule menu');
+   const pnf=await request({changes:{momentum:{0:'P&F'}},cachedChoices:records});assert.equal(pnf.ok,true,pnf.error);assert.equal(pnf.config.stages.momentum.fields[0].value,'P&F');assert.equal(pnf.config.stages.execution.fields[3].value,'Candle');assert.equal(counts.groups,prior.groups,'A chart switch reuses the same observed NSE Group menu');
+   const combined=await persistedMenus([first,reused,pnf],{reorderStorage:true}),warmBefore={...counts},savedMain=JSON.stringify(w.VaultCapture.fields(main)),savedExecution=JSON.stringify(executionState.fields),warm=await request({warmChart:'Candle',cachedChoices:combined});assert.equal(warm.ok,true,warm.error);assert.equal(warm.choicesFromCache,true);assert.equal(warm.config.stages.momentum.fields[0].value,'Candle');assert.deepEqual(counts,warmBefore,'Warming known Candle choices after P&F does not walk Group or rule categories again');assert.equal(JSON.stringify(w.VaultCapture.fields(main)),savedMain,'Warm inspection restores the selected P&F form');assert.equal(JSON.stringify(executionState.fields),savedExecution,'Warm inspection restores the independent execution form');assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
+   for(const damage of [stage=>stage.nativeOptions[0].reverse(),stage=>{stage.signature[12][1]+=' changed';}]){
+    const bad=structuredClone(combined),stage=bad.find(record=>record.stages.momentum?.context.chart==='P&F').stages.momentum;damage(stage);const scansBefore={...counts},rejected=await request({cachedChoices:bad});assert.equal(rejected.ok,false,'Real menu order or label changes must remain rejected');assert.match(rejected.error,/Recheck all choices/);assert.deepEqual(counts,scansBefore,'A real mismatch stops instead of silently rescanning');assert.equal(JSON.stringify(w.VaultCapture.fields(main)),savedMain);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
+   }
+   return;
+  }
   if(chartCase==='cache-reconnect'||daily){
    if(!dailySeed){assert.ok(counts.categories>0&&counts.groups>0);const records=await persistedMenus([first]);return await chartScenario(chartCase,{records,session:first.session});}
    assert.notEqual(first.session,dailySeed.session,'A new source document must receive a new runner session.');assert.ok(first.config.stages.momentum.ruleCatalogues[36].categories.My.some(option=>option.label==='Fictional private radar'),'Daily persistence retains native private Radar choices.');assert.equal(first.config.stages.momentum.fields[12].value,'444','Persisted menus must not overwrite fresh form values.');assert.deepEqual(counts,{categories:0,groups:0,submissions:0},'A fresh document reuses all daily dropdown metadata without walking Group or rule categories.');assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);
@@ -640,7 +654,7 @@ async function filterScenario(mode,dailySeed){
   ...['P&F','Renko','cache','warm','warm-reversal','cache-reconnect'].map(chartCase=>({chartCase})),
   {vaultSetup:true,bridge:true,variableSet:'universe-timeframe'},{vaultSetup:true,bridge:true,changedGroupIdentity:true},
   ...['relative-strength','market-filter','combined','symbol-identity','market-retained','market-context','market-renko','market-delayed-symbol','market-unknown-dialog','market-symbol-timeout'].map(filterCase=>({filterCase})),
-  {chartCase:'daily-categories'},{filterCase:'daily-cache'},{vaultSetup:true,closeSlowAnimation:true},{vaultSetup:true,closeBlockedByChild:true},{filterCase:'market-late-symbol'},{filterCase:'rs-warm'},{filterCase:'symbol-no-match'}
+  {chartCase:'daily-categories'},{filterCase:'daily-cache'},{vaultSetup:true,closeSlowAnimation:true},{vaultSetup:true,closeBlockedByChild:true},{filterCase:'market-late-symbol'},{filterCase:'rs-warm'},{filterCase:'symbol-no-match'},{chartCase:'daily-storage-order'}
  ];
  if(fromCase===1&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus, rule/symbol/filter routing and deadline checks (12 cases).');}
  const selected=cases.filter(o=>(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake||o.closeSlowAnimation||o.closeBlockedByChild));
