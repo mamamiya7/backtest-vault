@@ -236,7 +236,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   // A bounded recheck may return the main form before reloading an enabled
   // optional filter. Keep its existing draft until its controls arrive again.
   if(draft)for(const [key,value]of Object.entries(draft))if(!Object.hasOwn(config,key)&&(key.startsWith('momentum.rs.')||key.startsWith('marketFilter.')))config[key]=value;
-  state.template=template;state.sourceSession=source.session;state.config=config;state.stale=false;state.symbolSearchResults?.clear();state.choiceCache=null;cacheReceipt(state,source);
+  state.template=template;state.sourceSession=source.session;state.config=config;state.stale=false;state.symbolSearchResults?.clear();state.ruleSearchFeedback?.clear();state.choiceCache=null;cacheReceipt(state,source);
  }
 
  async function warmSetupChoices(state,generation,{force=false}={}){
@@ -290,8 +290,9 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  async function searchSetupRule(state,field,rawQuery){
   if(wizard!==state||state.connecting||state.ruleLookup||!setupSourceValid())return;
-  const query=rawQuery.trim();if(!query||query.length>200||/[\u0000-\u001f\u007f]/.test(query))throw Error('Enter a rule name to search (up to 200 characters).');
-  const category=state.config[field.sourceKey],draftKey=field.key+'|'+category,generation=state.generation,session=state.sourceSession,sourceId=state.sourceId,template=state.template;
+  const query=rawQuery.trim(),category=state.config[field.sourceKey],draftKey=field.key+'|'+category,generation=state.generation,session=state.sourceSession,sourceId=state.sourceId,template=state.template;
+  if(!query||query.length>200||/[\u0000-\u001f\u007f]/.test(query)){const error='Enter a rule name to search (up to 200 characters).';(state.ruleSearchFeedback||=new Map()).set(draftKey,{query,error});setupPage();throw Error(error);}
+  state.ruleSearchFeedback?.delete(draftKey);
   const request={fieldKey:field.key,category,query};state.ruleLookup=request;state.ruleSearchDrafts.set(draftKey,query);setupPage();
   const current=()=>alive()&&wizard===state&&state.generation===generation&&state.sourceSession===session&&state.sourceId===sourceId&&state.template===template&&state.config[field.sourceKey]===category&&state.ruleSearchDrafts.get(draftKey)?.trim()===query;
   try{
@@ -306,8 +307,8 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
     stage.options[field.index]=options;
    }
    catalogue.categories[category]=options;(catalogue.searchQueries||={})[category]=query;
-   state.template=S.template(next);notice.textContent='';
-  }catch(error){if(current())throw error;}
+   state.template=S.template(next);(state.ruleSearchFeedback||=new Map()).set(draftKey,{query,count:result.options.length});notice.textContent='';
+  }catch(error){if(current()){(state.ruleSearchFeedback||=new Map()).set(draftKey,{query,error:error.message});throw error;}}
   finally{if(state.ruleLookup===request)state.ruleLookup=null;if(alive()&&wizard===state)setupPage();}
  }
 
@@ -520,9 +521,10 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    if(field.symbol&&extension){const market=state.config[field.marketKey],draftKey=field.key+'|'+market,pending=state.ruleLookup?.fieldKey===field.key&&state.ruleLookup.market===market,search=el('div',undefined,'source-rule-search'),find=button(pending?'Searching…':'Search RZone',()=>action(()=>searchSetupSymbol(state,field,state.ruleSearchDrafts.get(draftKey)??control.value)),'quiet');find.setAttribute('aria-label','Search RZone for '+caption+' in '+market);find.disabled=!!state.ruleLookup||state.connecting||!setupEnabled(state,field.enabledBy)||!setupFieldActive(state,field);state.controls.push({field,control:find,auxiliary:true,lookupButton:true});search.append(find);(combo||wrap).append(search);}
   }
   if(!field.symbol&&field.searchable&&extension){
-   const draftKey=field.key+'|'+field.categoryKey,search=el('div',undefined,'source-rule-search'),query=input(state.ruleSearchDrafts.get(draftKey)??field.searchQuery??''),pending=state.ruleLookup?.fieldKey===field.key&&state.ruleLookup.category===field.categoryKey;
-   query.placeholder='Search rules';query.maxLength=200;query.setAttribute('aria-label','Search '+caption+' in '+field.categoryKey);query.dataset.ruleSearch=field.key;query.addEventListener('input',()=>state.ruleSearchDrafts.set(draftKey,query.value));
-   const find=button(pending?'Searching…':'Search',()=>action(()=>searchSetupRule(state,field,query.value)),'quiet');find.setAttribute('aria-label','Search RZone for '+caption+' in '+field.categoryKey);find.disabled=!!state.ruleLookup||state.connecting;query.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();event.stopPropagation();if(!find.disabled)find.click();}});search.append(query,find);wrap.append(search);
+   const draftKey=field.key+'|'+field.categoryKey,search=el('div',undefined,'source-rule-search'),query=input(state.ruleSearchDrafts.get(draftKey)??field.searchQuery??''),pending=state.ruleLookup?.fieldKey===field.key&&state.ruleLookup.category===field.categoryKey,status=el('span','','source-choice-status');
+   status.id='rule-search-status-'+field.key.replaceAll('.','-');status.dataset.ruleSearchStatus=field.key;status.setAttribute('role','status');const feedback=()=>{const result=state.ruleSearchFeedback?.get(draftKey),current=result?.query===query.value.trim();status.textContent=pending?'Searching RZone for “'+state.ruleLookup.query+'”…':current?result.error??result.count+' '+(result.count===1?'match':'matches')+' for “'+result.query+'”':'';status.hidden=!status.textContent;};
+   query.placeholder='Search rules';query.maxLength=200;query.setAttribute('aria-label','Search '+caption+' in '+field.categoryKey);query.setAttribute('aria-describedby',status.id);query.dataset.ruleSearch=field.key;query.addEventListener('input',()=>{state.ruleSearchDrafts.set(draftKey,query.value);feedback();});line.querySelector('[data-setup-field]')?.setAttribute('aria-describedby',status.id);
+   const find=button(pending?'Searching…':'Search',()=>action(()=>searchSetupRule(state,field,query.value)),'quiet');find.setAttribute('aria-label','Search RZone for '+caption+' in '+field.categoryKey);find.disabled=!!state.ruleLookup||state.connecting;query.addEventListener('keydown',event=>{if(event.key==='Enter'){event.preventDefault();event.stopPropagation();if(!find.disabled)find.click();}});search.append(query,find);wrap.append(search,status);feedback();
   }
   if(field.disabled)wrap.classList.add('source-fixed');if(variation){const editor=variationEditor(state,field);if(editor)wrap.append(editor);}return wrap;
  }

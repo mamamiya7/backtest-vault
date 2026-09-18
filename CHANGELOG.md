@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.17.6 preview - 2026-09-18
+
+- Search exit rules using the execution chart selected in Vault, even when RZone reopens the dialog using a different main chart. Restore the original source dialog after the search.
+- Show search progress, match counts and errors beside the rule dropdown, including empty-query feedback. Keep stale replies from replacing current choices.
+- Preserve the daily choice cache and existing chart execution gates. Download publication and installed-extension acceptance remain separate from source tests.
+
 ## 0.17.5 preview - 2026-09-18
 
 - Search RZone from the symbol dropdown itself in Relative Strength and Market Trend Filter. Show all returned matches and keep selected symbols and Test values when another search is made.

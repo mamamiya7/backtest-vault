@@ -5,7 +5,9 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.17.5 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.17.6 preview** · Chrome · Local storage · MIT · No cloud account
+
+Exit-rule search follows the selected execution chart. Search progress, match counts and errors appear beside the rule dropdown.
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 

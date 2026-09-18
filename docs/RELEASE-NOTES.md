@@ -1,8 +1,11 @@
-# Backtest Vault 0.17.5 — installable preview
+# Backtest Vault 0.17.6 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
+
+- Fix exit-rule searches when the main and execution charts differ; restore the source dialog after searching.
+- Display progress, match counts and search errors directly beside the rule control.
 
 - Search symbols in one field for Relative Strength and Market Trend Filter; show every returned match and retain selected Test values.
 - Reuse same-day, same-market symbol searches across both filters, including after page refreshes.
@@ -25,7 +28,7 @@ One complete package for Windows and Linux. No Node.js, Python, Git, npm, admini
 
 ## Install
 
-Download **backtest-vault-0.17.5.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.17.6.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.

@@ -679,7 +679,11 @@ async function lookupContext(stage,index,until,restoreUntil=until+14000){
    const full=lastConfig?.stages.marketFilter;if(!full)throw Error('Load Market Trend Filter settings first.');
    p=await openMarketFilter(until);snapshot=restorableStage(p,stage);await transitionLayout(p,full.fields,stage,until);
   }else if(stage==='execution'){
+   const full=lastConfig?.stages.execution;if(!full)throw Error('Connect RZone before searching exit strategies.');
    ownClick(button(C.main(),/^BackTest$/i));p=C.popup('Momentum Trading BackTest')||await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(Date.now()+10000,until),'Momentum settings did not open.');snapshot=restorableStage(p,stage);
+   // RZone can reopen this dialog using the main chart. Search the execution
+   // chart staged in Vault, then restore the independently captured source.
+   await transitionLayout(p,full.fields,stage,until);
   }else {
    const current=L.stage(stage,mainSnapshot.fields),full=lastConfig?.stages.momentum.relativeStrength;
    if(full&&index>current.rsIndex&&!current.relativeStrength){await setField(p,current.rsIndex,{...mainSnapshot.fields[current.rsIndex],checked:true},stage,until);extraSnapshot=restorableStage(p,stage);}
