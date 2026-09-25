@@ -1,8 +1,11 @@
-# Backtest Vault 0.18.4 — installable preview
+# Backtest Vault 0.18.5 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
+
+- Fix saved-run reuse failing with a layout mismatch after visiting source filters or help panels. Keep raw captured labels and reuse today's unchanged menus.
+- Verify the clean/visited-form transition in both directions for Candle, P&F and Renko; saved inputs and original reports remain intact.
 
 - Fix false cache rejection caused by reordered menus, inactive controls and valid alternate form layouts.
 - Reuse P&F dropdown choices when reversal size changes.
@@ -20,7 +23,7 @@ One complete package for Windows and Linux. No Node.js, Python, Git, npm, admini
 
 ## Install
 
-Download **backtest-vault-0.18.4.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.18.5.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.

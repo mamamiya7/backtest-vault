@@ -460,6 +460,22 @@ function dailyStage(stage,descriptor,cached){
  if(!jsonSame(withoutCategories(cached.context),withoutCategories(context)))return null;
  try{
   if(cached.signature.length!==descriptor.fields.length)throw Error('signature');
+  // RZone leaves mounted RS controls and portfolio help in hidden ancestor
+  // rows after those panels are visited. They change captured text, not the
+  // visible control or its menu. Normalize only these observed decorations
+  // for cache matching; retain the source's raw labels in the returned form.
+  const help=' / iThis feature can help you to look at combined result of the group of stocks you have backtested. It assumes equal amount of allocation in all stocks and calculates the total performance of the stocks in the group. The average return, hit ratio and risk-reward ratio is calculated on all stocks put together gives idea about the performance of systems tested on group of stocks. For equity curve & drawdown, progressive P&L is calculated on the allocated amount.';
+  const stableLabel=(label,index)=>{
+   if(stage!=='momentum')return label;
+   const strategyRows=layout.rows.slice(1,4);
+   if(strategyRows.slice(1).some(row=>ruleRowIndices(row).includes(index)))label=label.split(help).join('');
+   if(index===layout.rsIndex&&!layout.relativeStrength)label=label.replace(/^(Relative Strength\s*:)\s*\/\s*(?:All|NSE|BSE|MF|EQW)$/,'$1');
+   if(layout.variant&&[layout.sizeIndex,layout.modeIndex].includes(index))label=label.replace(/^RS SB : \/ (?:Pre|My|Public|Popular)i → /,'');
+   return label;
+  };
+  cached=structuredClone(cached);
+  cached.signature.forEach((entry,index)=>{entry[1]=stableLabel(entry[1],index);});
+  for(const row of layout.rows)for(const labels of Object.values(cached.ruleCatalogues[row.childIndex]?.fieldLabels||{}))ruleRowIndices(row).forEach((index,n)=>{labels[n]=stableLabel(labels[n],index);});
   const base=descriptor.fields.map((field,index)=>({...field,type:cached.signature[index][0],label:cached.signature[index][1]}));
   for(const [index,value]of cached.context.categories)base[index].value=value;
   const labels=window.VaultSetup.projectRuleLabels(base,cached.ruleCatalogues,descriptor.fields,stage),children=new Set(layout.rows.map(row=>String(row.childIndex)));
@@ -471,10 +487,16 @@ function dailyStage(stage,descriptor,cached){
    base[row.childIndex].type=catalogue.controlTypes[category];
    if(!descriptor.fields[row.childIndex].disabled&&base[row.childIndex].type==='select-one'&&!menuSame(catalogue.categories[category],compactRuleChoices(structuredClone(descriptor.options[row.childIndex]||[]))))throw Error('available rule identities');
   }
-  if(base.some((field,index)=>field.type!==descriptor.fields[index].type||labels[index]!==descriptor.fields[index].label))throw Error('layout');
+  if(base.some((field,index)=>field.type!==descriptor.fields[index].type||labels[index]!==stableLabel(descriptor.fields[index].label,index)))throw Error('layout');
   for(const owner of Object.values(copy.ruleCatalogues))if(owner.labelDependents){const before=base[owner.parentIndex].label+' → ',after=labels[owner.parentIndex]+' → ';
    for(const row of layout.rows){const indices=ruleRowIndices(row),catalogue=copy.ruleCatalogues[row.childIndex];for(const observed of Object.values(catalogue.fieldLabels||{}))indices.forEach((index,n)=>{if(owner.labelDependents.includes(index)){if(!observed[n].startsWith(before))throw Error('dependent labels');observed[n]=after+observed[n].slice(before.length);}});}
   }
+  // Category labels must still match raw capture evidence, including the
+  // STR2 ancestor of STR3. Restore help only in its observed context segment.
+  if(stage==='momentum')for(const row of layout.rows.slice(2,4))for(const observed of Object.values(copy.ruleCatalogues[row.childIndex].fieldLabels||{}))ruleRowIndices(row).forEach((index,n)=>{
+   const current=descriptor.fields[index].label.split(' → '),parts=observed[n].split(' → ');
+   current.forEach((part,i)=>{if(part.includes(help)){if(parts[i]===undefined)throw Error('dependent labels');parts[i]+=help;}});observed[n]=parts.join(' → ');
+  });
   if(stage==='momentum'&&(!Array.isArray(copy.groupOptions)||descriptor.fields[1].value&&!copy.groupOptions.some(option=>!option.disabled&&option.label===descriptor.fields[1].value)))throw Error('group');
   return copy;
  }catch(error){throw Error(error.message);}
