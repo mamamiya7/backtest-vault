@@ -19,7 +19,7 @@ const tick=()=>new Promise(r=>setTimeout(r,20));
   d.querySelector('.open').click();[...d.querySelectorAll('.tabs button')].find(b=>b.textContent==='Trades').click();assert.match(d.getElementById('detail').textContent,/1 trades have quantity zero/);
   [...d.querySelectorAll('.tabs button')].find(b=>b.textContent==='Notes').click();d.querySelector('#detail input').value='Revised name';d.querySelector('textarea').value='Holdout period still required';[...d.querySelectorAll('#detail button')].find(b=>b.textContent==='Save name & notes').click();await tick();assert.equal(saved['run:a'].notes,'Holdout period still required');
   d.getElementById('summary').click();assert.equal(downloads.length,1);await d.getElementById('backup').onclick();assert.equal(downloads.length,2);
-  dom.window.close();await testGrowthPreference();await testJourneyNavigation();console.log('PASS: dashboard persistence, comparisons, risk filters, zero quantities, notes, exports, and CAGR-first display/sort/CSV with labelled fallback.');
+  dom.window.close();await testGrowthPreference();await testJourneyNavigation();await testSavedReportJourney();console.log('PASS: dashboard persistence, comparisons, exports, exact saved-report links, actual-storage settings reuse and real/sample isolation.');
 })().catch(e=>{dom.window.close();console.error(e);process.exitCode=1;});
 
 async function testGrowthPreference(){
@@ -78,4 +78,40 @@ async function testJourneyNavigation(){
     routes.at(-1).options.onOpen(run,'navigation-study');const back=[...doc.querySelectorAll('#detail button')].find(button=>button.textContent==='Back to study');assert.ok(back,'Opening one report keeps a route back to its study');back.click();await tick();assert.equal(routes.at(-1).kind,'studies');assert.equal(routes.at(-1).options.studyId,'navigation-study','Back returns to the originating study rather than an unrelated list or setup');assert.equal(routes.at(-1).options.startNew,false);
     assert.deepEqual(stored,{'run:navigation':run},'The navigation flow is read-only until an explicit run action');
   }finally{win.close();}
+}
+
+async function testSavedReportJourney(){
+  for(const mode of ['omitted','false','missing']){
+    const runId='saved-portfolio-older',requested=mode==='missing'?'deleted-report':runId;
+    const page=new JSDOM(fs.readFileSync(path.join(base,'index.html'),'utf8'),{runScripts:'outside-only',url:'chrome-extension://test-extension/index.html?run='+encodeURIComponent(requested)}),win=page.window,doc=win.document,stored={},commands=[];
+    win.structuredClone=structuredClone;win.HTMLElement.prototype.scrollIntoView=function(){};win.scrollTo=()=>{};win.setInterval=()=>1;win.clearInterval=()=>{};
+    win.URL.createObjectURL=()=> 'blob:report';win.URL.revokeObjectURL=()=>{};
+    let source;
+    win.chrome={storage:{local:{get:async()=>stored,set:async()=>{throw Error('Opening and copying a report must not write saved research');}}},runtime:{sendMessage:async message=>{commands.push(message.action);if(message.action==='list')return {ok:true,experiments:[],tabs:[{id:9,session:source.session,capable:true,ready:true,chart:'Candle'}]};assert.equal(message.action,'configure','Reuse only reads source choices, never creates or starts a test');return {ok:true,source:structuredClone(source)};}}};
+    try{
+      for(const file of ['core.js','demo.js','storage.js','presentation.js','intelligence.js','intelligence-ui.js','source-layouts.js','setup.js','experiments.js','date-range.js','workspace-motion.js','experiments-ui.js'])win.eval(fs.readFileSync(path.join(base,file),'utf8'));
+      const setup=win.VaultSetup;source=setup.demoTemplate();source.demo=false;source.session='saved-report-source';
+      const config={...setup.defaults(source),'momentum.period.1':321,'portfolio.capital':234567,'execution.from':'2024-01-01','execution.to':'2024-12-31'};
+      const run=win.VaultDemo.create()[0];run.id=runId;run.name='Saved portfolio report';run.savedAt='2026-09-24T10:00:00Z';run.charts=[];run.parameters=setup.configToBaseline(config,source,{id:runId,name:run.name,demo:false}).parameters;
+      if(mode==='false')run.demo=false;else delete run.demo;
+      stored['run:'+runId]=run;stored['run:newer']= {...structuredClone(run),id:'newer',name:'Unrelated newer report',savedAt:'2026-09-25T10:00:00Z'};
+      const before=JSON.stringify(stored);
+      win.eval(fs.readFileSync(path.join(base,'dashboard.js'),'utf8'));await tick();
+      if(mode==='missing'){
+        assert.match(doc.getElementById('notice').textContent,/saved report.*not.*found/i,'A missing link explains the problem');assert.equal(doc.querySelector('.detail-head'),null,'A missing link must not silently show a different report');assert.equal(doc.querySelectorAll('#list .run').length,2,'The remaining library stays available');assert.equal(commands.length,0);
+      }else{
+        assert.equal(doc.querySelector('.detail-head h2')?.textContent,run.name,'The exact linked report opens, even with a newer run in the library');assert.equal(commands.length,0,'Opening a saved report must not connect to RZone');
+        [...doc.querySelectorAll('#detail button')].find(b=>b.textContent==='Use these settings').click();await new Promise(resolve=>setTimeout(resolve,100));
+        assert.doesNotMatch(doc.getElementById('notice').textContent,/could not be opened|cannot be mixed/i);
+        assert.equal(doc.querySelector('[data-setup-field="momentum.period.1"]')?.value,'321','Use these settings opens the complete setup with the saved period');
+        assert.equal(doc.querySelector('[data-setup-field="portfolio.capital"]')?.value,'234567');assert.equal(doc.querySelector('[data-setup-field="execution.from"]')?.value,'2024-01-01');assert.equal(doc.querySelector('[data-setup-field="execution.to"]')?.value,'2024-12-31');
+        doc.getElementById('experiments').click();await tick();[...doc.querySelectorAll('#detail button')].find(b=>b.textContent==='Use a saved run').click();
+        assert.ok([...doc.querySelectorAll('.experiment-builder select option')].some(o=>o.value===runId),'Actual-storage saved-run picker includes eligible real reports');
+        const render=(store,baselineRun)=>win.VaultExperimentsUI.render({target:doc.getElementById('detail'),store,runs:[baselineRun],baselineRun,onOpen:()=>{},onExit:()=>{},onNotice:()=>{},table:()=>doc.createElement('table'),download:()=>{}});
+        await assert.rejects(render(win.VaultStore,{...run,demo:true}),/Real and fictional/,'Sample inputs cannot be reused in the real archive');
+        await assert.rejects(render({...win.VaultStore,demo:true},run),/Real and fictional/,'Real inputs cannot be reused in the sample workspace');
+      }
+      assert.equal(JSON.stringify(stored),before,'Opening, picking and reusing settings leaves original research unchanged');
+    }finally{win.VaultExperimentsUI?.dispose();win.close();}
+  }
 }

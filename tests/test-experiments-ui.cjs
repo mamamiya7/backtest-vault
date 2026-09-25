@@ -75,7 +75,8 @@ async function savedRunReuseTests(){
  source.stages.momentum.options[1].push({value:'Fresh source choice',label:'Fresh source choice'});
  const tabs=()=>[{id:9,session:source.session,capable:true,ready:true,chart:'Candle'}];
  w.chrome={runtime:{sendMessage:async message=>{commands.push(message);if(message.action==='list')return {ok:true,experiments:plans,tabs:tabs()};if(message.action==='configure')return {ok:true,source:structuredClone(source)};if(message.action==='create'){const experiment=E.create({...message.plan,id:'copied-study'});plans.push(experiment);return {ok:true,experiment};}if(message.action==='start')return {ok:true};throw Error('Unexpected reuse command '+message.action);}}};
- const store={demo:false,all:async()=>[saved],allBenchmarks:async()=>[],put:async()=>{runWrites++;throw Error('Copying settings cannot write a result');}};
+ w.chrome.storage={local:{get:async()=>({['run:'+saved.id]:saved}),set:async()=>{runWrites++;throw Error('Copying settings cannot write a result');}}};
+ w.eval(fs.readFileSync(path.join(base,'storage.js'),'utf8'));const store=w.VaultStore;
  const render=options=>w.VaultExperimentsUI.render({target:d.querySelector('main'),store,runs:[saved],onOpen:()=>{},onExit:()=>{},table:()=>d.createElement('table'),download:()=>{},...options});
  const click=(text,scope=d)=>{const node=[...scope.querySelectorAll('button')].find(n=>n.textContent===text);assert.ok(node,text);assert.equal(node.disabled,false,text);node.click();};
  const field=key=>{const node=d.querySelector('[data-setup-field="'+key+'"]');assert.ok(node,key);return node;},change=(key,value)=>{const n=field(key);n.value=String(value);n.dispatchEvent(new w.Event('input',{bubbles:true}));n.dispatchEvent(new w.Event('change',{bubbles:true}));};

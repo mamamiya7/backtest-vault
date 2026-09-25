@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.18.1 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.18.2 preview** · Chrome · Local storage · MIT · No cloud account
 
 New test now has clear Test setup, Portfolio, Strategy details, Entry conditions and Exit conditions sections. Radar, Relative Strength and its Builder sit together; Market Trend opens in its own settings window. Every eligible setting keeps its Test values.
 
@@ -16,6 +16,23 @@ New test now has clear Test setup, Portfolio, Strategy details, Entry conditions
 **All screenshots and demo records are fictional.** They illustrate the product, not investment performance.
 
 [Install](#install-the-extension) · [Manage studies](#manage-your-studies) · [Compare strategies](#how-the-ranking-works) · [Understand the numbers](#cagr-or-annualized-return) · [Backups](#where-your-data-lives) · [Develop](#development)
+
+## From an RZone report back to setup
+
+Click **Open vault** on a completed Portfolio Backtesting Report. Vault saves the report if needed and opens that exact result. Click **Use these settings** to copy its captured inputs into **New test**, edit values or add alternatives, then review and run a new study. The original result stays unchanged.
+
+```mermaid
+flowchart LR
+    R[Portfolio report in RZone] --> O[Open vault]
+    O --> S[Save if needed]
+    S --> V[That exact saved report]
+    V --> U[Use these settings]
+    U --> N[New test with copied inputs]
+    N --> E[Edit values and review]
+    E --> T[Run a new study]
+```
+
+Opening the extension from Chrome still shows **My studies**. An incomplete capture remains in RZone with a retry message instead of opening an unrelated result.
 
 ## Start in Vault
 

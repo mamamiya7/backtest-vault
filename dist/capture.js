@@ -9,7 +9,9 @@
   const onMomentum = () => !!main() && document.body.innerText.includes('Momentum Trading BackTesting');
   let strategy = null, portfolio = null, busy = false, sawRunning = false, sawCleared = false, lastReport = null, pendingRun = null;
   let reportsAtSubmit = new Set(), portfolioLinked = false, marketTrendReceipt = null;
+  let savedReports=new WeakMap(), reportGeneration=0, pendingReport=null, openingVault=false;
   const reportLinks = new WeakMap();
+  const forgetSavedReports=()=>{savedReports=new WeakMap();reportGeneration++;};
   const reports = () => [...document.querySelectorAll('.popupContent')].filter(p=>caption(p)==='Portfolio Backtesting Report');
   const running = () => [...(main()?.querySelectorAll('button') || [])].some(b=>visible(b)&&/Cancel BackTest/i.test(text(b)));
   const completed = () => !!main()?.innerText.includes('BackTest Completed.');
@@ -44,12 +46,13 @@
   }
   function status(message) {statusEl.textContent = message;}
   const host = document.createElement('div'); host.id = 'definedge-backtest-vault';
-  host.dataset.version = '0.18.1';
+  host.dataset.version = '0.18.2';
   host.style.cssText = 'position:fixed;right:16px;bottom:14px;z-index:2147483646;';
   const shadow = host.attachShadow({mode:'closed'});
   shadow.innerHTML = `<style>:host{font:14px system-ui;color:#f3f8fc}.bar{background:#112639;border:1px solid #34536e;border-radius:12px;padding:10px;box-shadow:0 6px 26px #0007;max-width:390px}button{font:600 14px system-ui;border:0;border-radius:7px;padding:9px 12px;cursor:pointer;background:#52d8ca;color:#072923;margin-right:6px}button.secondary{background:#2b455b;color:white}button:disabled{opacity:.5;cursor:wait}p{margin:8px 2px 0;line-height:1.35;font-size:13px}</style><div class="bar"><button id="save">Save backtest</button><button class="secondary" id="open">Open vault</button><p id="status" role="status">Recording settings when you run a backtest.</p></div>`;
   const statusEl = shadow.querySelector('#status');
   const saveButton = shadow.querySelector('#save');
+  const openButton = shadow.querySelector('#open');
   const recoveryButton = document.createElement('button');
   recoveryButton.id='recovery'; recoveryButton.className='secondary'; recoveryButton.textContent='Download recovery backup'; recoveryButton.hidden=true;
   statusEl.before(recoveryButton);
@@ -65,6 +68,8 @@
       const local=typeof chrome==='undefined'?null:chrome.storage?.local;
       if(typeof local?.set!=='function') {const error=new Error(disconnected);error.code='VAULT_DISCONNECTED';throw error;}
       await local.set({['run:'+run.id]:run});
+      if(pendingReport?.generation===reportGeneration)savedReports.set(pendingReport.report,{id:run.id,proof:pendingReport.proof});
+      pendingReport=null;
       pendingRun=null; recoveryButton.hidden=true; saveButton.textContent='Save backtest';
       status(`Saved ${run.trades.rows.length} trades and ${run.charts.length} charts${run.provenance==='unverified'?' · settings unverified':''}. Open vault to review and back up.`);
       return run;
@@ -85,11 +90,33 @@
       status('Recovery download requested. Check that the JSON file finished downloading before refreshing. Import it into Vault to finish saving. This capture remains in the tab until you leave or retry successfully.');
     } catch(error) {status('Recovery download could not start: '+error.message+'. Keep this tab open and retry.');}
   };
-  shadow.querySelector('#open').onclick = async () => {
+  openButton.onclick = async () => {
+    if(openingVault){status('Preparing this report for Vault. Please wait.');return;}
+    openingVault=true;openButton.disabled=true;
     try {
       if(typeof chrome==='undefined'||typeof chrome.runtime?.sendMessage!=='function')throw new Error(disconnected);
-      await chrome.runtime.sendMessage({type:'open-vault'});
-    } catch {status(disconnected+recoveryAdvice());}
+      const report=popup('Portfolio Backtesting Report');
+      let runId;
+      if(report){
+        if(busy){status('This report is being saved. Wait for it to finish, then open Vault.');return;}
+        const proof=()=>{try{return JSON.stringify(readReport(report));}catch{return null;}},saved=savedReports.get(report);
+        if(saved&&!pendingRun&&proof()===saved.proof)runId=saved.id;
+        else{
+          if(window.VaultRunner?.active){status('An experiment is saving this report. Wait for the trial to finish, then open Vault.');return;}
+          if(pendingRun&&(!pendingReport||pendingReport.report!==report||pendingReport.generation!==reportGeneration||pendingReport.proof!==proof())){status('An earlier capture is waiting to be saved. Use Retry captured run or Download recovery backup before opening this report in Vault.');return;}
+          monitor();
+          if(running()||strategy&&!strategy.completed||portfolio&&!portfolioLinked){status('RZone is still preparing the backtest. Wait for its completed portfolio report, then open Vault.');return;}
+          const run=await capture();
+          if(!run)return; // Capture already explains a failed write and recovery.
+          const stored=savedReports.get(report);
+          if(popup('Portfolio Backtesting Report')!==report||stored?.id!==run.id||stored.proof!==proof()){status('The captured run was saved, but the displayed report changed. Open the report you want to review and try again.');return;}
+          runId=run.id;
+        }
+      }
+      const result=await chrome.runtime.sendMessage({type:'open-vault',...(runId?{runId}:{})});
+      if(!result?.ok)throw Error(result?.error||'Vault did not confirm opening.');
+    } catch(error) {status((/disconnected|extension context invalidated/i.test(error.message)?disconnected:'Could not open Vault: '+error.message)+recoveryAdvice());}
+    finally{openingVault=false;openButton.disabled=false;}
   };
   document.documentElement.append(host);
   document.addEventListener('click', event => {
@@ -106,6 +133,7 @@
     }
     if(!/^backtest$/i.test(text(button)))return;
     if (caption(p) === 'Momentum Trading BackTest') {
+      forgetSavedReports();
       const extraSettings = [...main().querySelectorAll('button')].some(b=>/Market Trend Filter/i.test(text(b)) && !b.disabled);
       const marketTrend=extraSettings?currentMarketTrend():null;
       strategy = {id:crypto.randomUUID(), at:now(), main:snapshot(main()), execution:snapshot(p), completed:false, auxiliarySettingsUncaptured:extraSettings&&!marketTrend,...(marketTrend?{marketTrend}:{})};
@@ -115,6 +143,7 @@
       reportsAtSubmit = new Set(); portfolioLinked = false;
       status('Strategy settings recorded. Waiting for Definedge to start.');
     } else if (caption(p) === 'Portfolio Backtesting') {
+      forgetSavedReports();
       reportsAtSubmit = new Set(reports()); portfolioLinked = false;
       portfolio = {id:crypto.randomUUID(), at:now(), settings:snapshot(p), strategy:strategy?.completed && !running() ? structuredClone(strategy) : null};
       status('Portfolio settings recorded. Save when the report opens.');
@@ -129,7 +158,7 @@
     const activePopup = [...document.querySelectorAll('.popupContent')].filter(visible).at(-1);
     const parent = activePopup || document.body;
     if (host.parentElement !== parent) parent.append(host);
-    if (!active) {strategy = null; marketTrendReceipt=null; portfolio = null; lastReport = null; reportsAtSubmit.clear(); return;}
+    if (!active) {strategy = null; marketTrendReceipt=null; portfolio = null; lastReport = null; reportsAtSubmit.clear(); forgetSavedReports(); return;}
     if (popup('Error') && (portfolio || strategy && !strategy.completed)) {
       const which=portfolio?'portfolio':'strategy';
       strategy = null; portfolio = null; sawRunning = false; sawCleared = false;
@@ -270,6 +299,7 @@
       }
       if(options.runId){run.id=options.runId;run.name=options.name;run.experiment=options.experiment;}
       pendingRun=run;
+      pendingReport={report,generation:reportGeneration,proof:JSON.stringify(extracted)};
       return await persistPending(options.strict);
     } catch(error) {status(`Save failed: ${error.message}`);if(options.strict)throw error;}
     finally {
