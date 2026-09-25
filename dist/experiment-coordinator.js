@@ -147,7 +147,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
   if(saved?.version===L.version&&saved.cacheVersion===cacheSchema&&saved.day===day&&Array.isArray(saved.records))for(const record of saved.records.slice(-128)){
    try{if(typeof record?.checkedAt!=='string'||!Number.isFinite(Date.parse(record.checkedAt))||Date.parse(record.checkedAt)>clock()||localDay(Date.parse(record.checkedAt))!==day)continue;const payload=choicePayload(record.payload,tab,true);if(Object.keys(payload.stages).length!==1)continue;records.push({checkedAt:record.checkedAt,payload});}catch{/* Malformed metadata is never overlaid onto source controls. */}
   }
-  return {key:dailyKey,day,records};
+  return {key:dailyKey,day,records,...(saved?.version===L.version&&saved.cacheVersion===cacheSchema&&saved.day===day&&L.charts.includes(saved.warmInterruptedChart)?{warmInterruptedChart:saved.warmInterruptedChart}:{})};
  }
  async function retainChoices(tab,cache,response){
   const day=localDay(),rolledOver=cache.day!==day;let records=rolledOver?[]:cache.records,writeFailed=false;
@@ -160,12 +160,12 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
      const payload={schemaVersion:cacheSchema,adapterVersion:L.version,daily:true,stages:{[stage]:value}},key=choiceKey(payload),existing=records.find(record=>choiceKey(record.payload)===key);
      records=[...records.filter(record=>choiceKey(record.payload)!==key),{payload,checkedAt:existing?.checkedAt||new Date(clock()).toISOString()}].slice(-128);
     }
-    try{await storage.set({[dailyKey]:{version:L.version,cacheVersion:cacheSchema,day,records}});}catch{writeFailed=true;}
+    try{await storage.set({[dailyKey]:{version:L.version,cacheVersion:cacheSchema,day,records,...(!rolledOver&&cache.warmInterruptedChart?{warmInterruptedChart:cache.warmInterruptedChart}:{})}});}catch{writeFailed=true;}
    }
-  }catch{/* A source form can be shown without retaining invalid cache metadata. */}
+  }catch{writeFailed=true;/* Never report invalid metadata as successfully saved. */}
   const covered=stage=>new Set(records.flatMap(record=>{const context=record.payload.stages[stage]?.context;return context&&(stage!=='momentum'||context.relativeStrength===false)&&(!context.selection||context.selection==='Price')?[context.chart]:[];}));
   const main=covered('momentum'),execution=covered('execution'),charts=L.charts.filter(chart=>main.has(chart)&&execution.has(chart));
-  return {checkedAt:records.map(record=>record.checkedAt).sort().at(-1)||null,day,source:response.choicesFromCache===true?'cache':'live',scope:'daily',charts,pendingCharts:L.charts.filter(chart=>!charts.includes(chart)),complete:charts.length===L.charts.length,...(writeFailed?{notSaved:true}:{})};
+  return {checkedAt:records.map(record=>record.checkedAt).sort().at(-1)||null,day,source:response.choicesFromCache===true?'cache':'live',scope:'daily',charts,pendingCharts:L.charts.filter(chart=>!charts.includes(chart)),complete:charts.length===L.charts.length,...(!rolledOver&&cache.warmInterruptedChart?{warmInterruptedChart:cache.warmInterruptedChart}:{}),...(writeFailed?{notSaved:true}:{})};
  }
 
  async function sourceStatus(tab){
@@ -302,6 +302,12 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    for(const values of Object.values(changes))if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>10||Object.entries(values).some(([index,value])=>!/^\d{1,2}$/.test(index)||typeof value!=='string'||value.length>2000))throw Error('Invalid source choices request.');
    if(m.recheckAllChoices!==undefined&&typeof m.recheckAllChoices!=='boolean'||m.warmChart!==undefined&&!L.charts.includes(m.warmChart)||m.loadFilter!==undefined&&!['relativeStrength','marketFilter'].includes(m.loadFilter)||m.warmChart&&(Object.keys(changes).length||m.loadFilter))throw Error('Invalid source choice refresh.');
    const cache=await readChoiceCache(tab,m.recheckAllChoices===true),symbols=cachedSymbolChoices(await readSymbolQueries());
+   if(m.warmChart){
+    if(cache.warmInterruptedChart)throw Error('Automatic choices check stopped earlier today. Use Recheck all choices to retry it.');
+    // Reserve durably before touching the source. A failed read, closed Vault
+    // or worker restart must not begin the same day's background pass again.
+    await storage.set({[dailyKey]:{version:L.version,cacheVersion:cacheSchema,day:cache.day,records:cache.records,warmInterruptedChart:m.warmChart}});
+   }
    const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(symbols.length?{cachedSymbols:symbols}:{}),...(m.warmChart?{warmChart:m.warmChart}:{}),...(m.loadFilter?{loadFilter:m.loadFilter}:{})};
    const r=await configure(tab.id,changes,undefined,options);
    if(!r?.ok)throw Error(r?.error||'RZone setup could not be read.');
