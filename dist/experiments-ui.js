@@ -204,7 +204,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  const chartSpecific=key=>/\.(?:chart|signal-mode|box|brick|price|radar|strategy|exit)(?:\.|$)/.test(key)||/\.rs\./.test(key)||/\.price-mode$/.test(key);
  function cacheReceipt(state,source){
   const cache=source?.choiceCache;if(!cache||!['live','cache'].includes(cache.source)||!Array.isArray(cache.charts)||cache.charts.some(c=>!choiceCharts.includes(c))||!(Number.isFinite(Date.parse(cache.checkedAt))||cache.checkedAt===null&&!cache.charts.length))return false;
-  state.choiceCache={checkedAt:cache.checkedAt,source:cache.source,scope:cache.scope,charts:[...new Set(cache.charts)],pendingCharts:choiceCharts.filter(c=>!cache.charts.includes(c))};
+  state.choiceCache={checkedAt:cache.checkedAt,source:cache.source,scope:cache.scope,charts:[...new Set(cache.charts)],pendingCharts:choiceCharts.filter(c=>!cache.charts.includes(c)),notSaved:cache.notSaved===true,warmInterruptedChart:choiceCharts.includes(cache.warmInterruptedChart)?cache.warmInterruptedChart:null};
   return true;
  }
  function acceptSetupSource(state,source){
@@ -243,6 +243,8 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   if(!state.choiceCache||store.demo)return;
   const day=localChoiceDay(),prior=state.choiceWarmAttempt;
   const warmError=failed=>'Could not check '+failed.chart+' choices. '+failed.message+' Your current '+state.config['momentum.chart']+' settings are kept. Use Recheck all choices to retry.';
+  if(state.choiceCache.notSaved){state.connectionError='Vault could not save today’s dropdown choices. Your form is available; the background scan is paused to avoid repeating it.';setupPage();return;}
+  if(!force&&state.choiceCache.pendingCharts.length&&state.choiceCache.warmInterruptedChart){state.connectionError=warmError({chart:state.choiceCache.warmInterruptedChart,message:'Automatic checking stopped earlier today and will not restart on reopening.'});setupPage();return;}
   if(!force&&prior?.day===day&&prior.sourceId===state.sourceId&&prior.session===state.sourceSession){if(prior.failed&&state.choiceCache.pendingCharts.includes(prior.failed.chart))state.connectionError=warmError(prior.failed);return;}
   // Reserve the whole pass before its first request. A failed or interrupted
   // pass must not resume through an unrelated chart/filter edit the same day.
@@ -254,6 +256,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
     const response=await command('configure',{tabId:Number(state.sourceId),warmChart:chart});
     if(!alive()||wizard!==state||generation!==state.generation)return;if(response.source?.session!==state.sourceSession){state.template=null;state.sourceSession=null;state.choiceCache=null;state.step=0;state.stale=true;throw Error('RZone changed while checking choices. Reconnect before continuing.');}
     if(!cacheReceipt(state,response.source)||!state.choiceCache.charts.includes(chart))throw Error('RZone did not finish checking '+chart+' choices.');
+    if(state.choiceCache.notSaved)throw Error('Vault could not save today’s dropdown choices. The remaining background checks are paused.');
    }
   }catch(error){if(alive()&&wizard===state&&generation===state.generation){attempt.failed={chart:state.warmingChart,message:error.message};state.connectionError=warmError(attempt.failed);}}
   finally{state.connecting=false;state.warmingChart=null;if(alive()&&wizard===state&&generation===state.generation)setupPage();}

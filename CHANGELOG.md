@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.18.4 preview - 2026-09-25
+
+- Reuse today's choices when native dropdowns reorder or inactive controls show partial menus. Preserve complete saved choices when those controls are off.
+- Try matching saved form variants before rejecting a cached layout. P&F reversal size changes reuse chart menus; Index and Relative Strength remain separate filter contexts.
+- Persist interrupted background discovery across Vault/RZone reloads. Reopening does not restart an aborted same-day sweep; explicit Recheck all choices and the next local day allow a new attempt.
+- Report cache retention failures honestly and stop remaining background scans. Keep active choice identities, source layout checks, saved runs and execution gates intact.
+
 ## 0.18.3 preview - 2026-09-25
 
 - Recover stale study ownership when RZone is refreshed. Confirm the replacement page before releasing the previous page's lock, so New test can connect again.

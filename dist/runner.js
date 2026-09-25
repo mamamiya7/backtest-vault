@@ -423,6 +423,15 @@ const choiceSignature=descriptor=>descriptor.fields.map(field=>[field.type,field
 // Storage and extension messages may reorder object keys; array order and values remain significant.
 const canonicalJson=value=>JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item);
 const jsonSame=(a,b)=>canonicalJson(a)===canonicalJson(b);
+// Native dropdown order is not a change to the offered identities. Keep
+// duplicate counts, disabled flags and source IDs significant.
+const menuSame=(a,b)=>Array.isArray(a)&&Array.isArray(b)&&jsonSame(a.map(canonicalJson).sort(),b.map(canonicalJson).sort());
+const inactiveChoice=(layout,fields,index)=>fields[index]?.disabled&&layout.gates.some(([gate,...children])=>children.includes(Number(index))&&!fields[gate].checked);
+function reuseInactiveChoices(stage,descriptor,cached){
+ if(!cached||cached.publicOnly)return;
+ const layout=L.stage(stage,descriptor.fields);
+ for(const [index,options]of Object.entries(cached.nativeOptions))if(inactiveChoice(layout,descriptor.fields,index))descriptor.options[index]=structuredClone(options);
+}
 function choiceStageCache(stage,descriptor){
  const catalogues=structuredClone(descriptor.ruleCatalogues);
  const symbols=new Set(symbolIndices(L.stage(stage,descriptor.fields)).map(String));
@@ -447,20 +456,20 @@ function knownSymbols(records=[],extra=[],force=false){
  return [...choices,...extra];
 }
 function dailyStage(stage,descriptor,cached){
- const layout=L.stage(stage,descriptor.fields),context=choiceContext(stage,descriptor),withoutCategories=value=>Object.fromEntries(Object.entries(value).filter(([key])=>key!=='categories').sort(([a],[b])=>a.localeCompare(b)));
+ const layout=L.stage(stage,descriptor.fields),context=choiceContext(stage,descriptor),withoutCategories=value=>Object.fromEntries(Object.entries(value).filter(([key])=>key!=='categories'&&!(value.chart==='P&F'&&(stage==='marketFilter'?['brickMode','exitBrickMode']:['mode']).includes(key))).sort(([a],[b])=>a.localeCompare(b)));
  if(!jsonSame(withoutCategories(cached.context),withoutCategories(context)))return null;
  try{
   if(cached.signature.length!==descriptor.fields.length)throw Error('signature');
   const base=descriptor.fields.map((field,index)=>({...field,type:cached.signature[index][0],label:cached.signature[index][1]}));
   for(const [index,value]of cached.context.categories)base[index].value=value;
   const labels=window.VaultSetup.projectRuleLabels(base,cached.ruleCatalogues,descriptor.fields,stage),children=new Set(layout.rows.map(row=>String(row.childIndex)));
-  const native=Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one'&&!children.has(index))),priorNative=Object.fromEntries(Object.entries(cached.nativeOptions).filter(([index])=>!children.has(index)));
-  if(!jsonSame(native,priorNative))throw Error('native choices');
+  const native=Object.fromEntries(Object.entries(descriptor.options).filter(([index])=>descriptor.fields[index]?.type==='select-one'&&!children.has(index)));
+  for(const [index,options]of Object.entries(native))if(!inactiveChoice(layout,descriptor.fields,index)&&!menuSame(options,cached.nativeOptions[index]))throw Error('available dropdown identities');
   const copy=structuredClone(cached);
   for(const row of layout.rows){const catalogue=copy.ruleCatalogues[row.childIndex],category=descriptor.fields[row.parentIndex].value;
    if(!catalogue||catalogue.parentIndex!==row.parentIndex||catalogue.gateIndex!==row.gateIndex||!Array.isArray(catalogue.categories?.[category])||catalogue.controlTypes?.[category]!==descriptor.fields[row.childIndex].type)throw Error('category');
    base[row.childIndex].type=catalogue.controlTypes[category];
-   if(!descriptor.fields[row.childIndex].disabled&&base[row.childIndex].type==='select-one'&&!jsonSame(catalogue.categories[category],compactRuleChoices(structuredClone(descriptor.options[row.childIndex]||[]))))throw Error('rules');
+   if(!descriptor.fields[row.childIndex].disabled&&base[row.childIndex].type==='select-one'&&!menuSame(catalogue.categories[category],compactRuleChoices(structuredClone(descriptor.options[row.childIndex]||[]))))throw Error('available rule identities');
   }
   if(base.some((field,index)=>field.type!==descriptor.fields[index].type||labels[index]!==descriptor.fields[index].label))throw Error('layout');
   for(const owner of Object.values(copy.ruleCatalogues))if(owner.labelDependents){const before=base[owner.parentIndex].label+' → ',after=labels[owner.parentIndex]+' → ';
@@ -468,13 +477,13 @@ function dailyStage(stage,descriptor,cached){
   }
   if(stage==='momentum'&&(!Array.isArray(copy.groupOptions)||descriptor.fields[1].value&&!copy.groupOptions.some(option=>!option.disabled&&option.label===descriptor.fields[1].value)))throw Error('group');
   return copy;
- }catch{throw Error('RZone choices changed. Use Recheck all choices to update today’s cache.');}
+ }catch(error){throw Error(error.message);}
 }
 function cachedStage(stage,descriptor,records,force){
  if(force||!Array.isArray(records))return null;
- const layout=L.stage(stage,descriptor.fields);
+ const layout=L.stage(stage,descriptor.fields),mismatches=[];
  for(const record of records.slice(-128).reverse()){
-  if(record?.schemaVersion===2&&record.adapterVersion===L.version&&(record.daily===true&&!Object.hasOwn(record,'session')||record.session===session)&&record.stages?.[stage]){const hit=dailyStage(stage,descriptor,record.stages[stage]);if(hit)return hit;continue;}
+  if(record?.schemaVersion===2&&record.adapterVersion===L.version&&(record.daily===true&&!Object.hasOwn(record,'session')||record.session===session)&&record.stages?.[stage]){try{const hit=dailyStage(stage,descriptor,record.stages[stage]);if(hit)return hit;}catch(error){mismatches.push(error.message);}continue;}
   if(layout.rows.some(row=>descriptor.fields[row.childIndex].type==='text'&&descriptor.fields[row.childIndex].value.trim()))continue;
   const shared=record?.publicOnly===true,cached=record?.stages?.[stage];if(record?.schemaVersion!==1||record.adapterVersion!==L.version||(!shared&&record.session!==session)||shared&&Object.hasOwn(record,'session')||!cached||!jsonSame(cached.context,choiceContext(stage,descriptor))||!jsonSame(cached.signature,choiceSignature(descriptor)))continue;
   const childIndices=new Set(layout.rows.map(row=>String(row.childIndex)));
@@ -486,6 +495,7 @@ function cachedStage(stage,descriptor,records,force){
    return {...structuredClone(cached),publicOnly:shared};
   }catch{/* A cache mismatch falls back to current source discovery. */}
  }
+ if(mismatches.length)throw Error('Vault could not match the current '+(stage==='momentum'?'main':stage==='execution'?'exit':'Market Trend Filter')+' form to today’s saved choices ('+[...new Set(mismatches)].join(', ')+'). Saved choices are kept. Use Recheck all choices only if you want to replace them.');
  return null;
 }
 function cachedGroups(descriptor,records,force){
@@ -561,7 +571,7 @@ async function filterConfiguration(requestedChanges,request={}){
    await setField(C.main(),off.rsIndex,{...C.fields(C.main())[off.rsIndex],checked:true},'momentum',until);
    relativeSnapshot=restorableStage(C.main(),'momentum');
    for(const [raw,value]of Object.entries(changes.momentum||{})){const index=Number(raw),layout=L.stage('momentum',C.fields(C.main()));if(![layout.benchmarkMarketIndex,layout.rows.at(-1).parentIndex].includes(index)||typeof value!=='string'||!value||value.length>200)throw Error('This Relative Strength selector cannot refresh the source.');await setField(C.main(),index,{...C.fields(C.main())[index],value},'momentum',until);}
-   const relative={...descriptor(C.main()),supportedMarkets:['NSE']};relative.options[1]=structuredClone(base.options[1]);const previous=cachedStage('momentum',relative,records,request.forceChoices===true);reusedChoices=!!previous;relative.ruleCatalogues=previous?previous.ruleCatalogues:{...without.ruleCatalogues,...await strategyCatalogues(C.main(),until,'momentum',null,['Relative Strength'])};
+   const relative={...descriptor(C.main()),supportedMarkets:['NSE']};relative.options[1]=structuredClone(base.options[1]);const previous=cachedStage('momentum',relative,records,request.forceChoices===true);reuseInactiveChoices('momentum',relative,previous);reusedChoices=!!previous;relative.ruleCatalogues=previous?previous.ruleCatalogues:{...without.ruleCatalogues,...await strategyCatalogues(C.main(),until,'momentum',null,['Relative Strength'])};
    for(const [child,c]of Object.entries(relative.ruleCatalogues))relative.options[child]=c.categories[relative.fields[c.parentIndex].value];
    mergeBenchmarks(relative,await benchmarkChoices(C.main(),'momentum',until,previous,undefined,symbols));
    choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',relative)}};optionalMenus.push(choiceCache);if(optionalMenus.length>128)optionalMenus.shift();
@@ -587,7 +597,7 @@ async function filterConfiguration(requestedChanges,request={}){
    const current={fields:C.fields(p)};
    if(!current.fields[layout.indexModeIndex].checked){await setField(p,layout.indexModeIndex,{...current.fields[layout.indexModeIndex],checked:true},'marketFilter',until);layout=L.stage('marketFilter',C.fields(p));}
    if(!layout.hasExit){await setField(p,layout.actionIndex,{...C.fields(p)[layout.actionIndex],value:L.marketActions[2]},'marketFilter',until);await settledStage(p,'marketFilter',layout.chart,until);layout=L.stage('marketFilter',C.fields(p));}
-   const full=descriptor(p);full.current=current;const previous=cachedStage('marketFilter',full,records,request.forceChoices===true);reusedChoices=!!previous;full.ruleCatalogues=previous?previous.ruleCatalogues:await strategyCatalogues(p,until,'marketFilter');for(const [child,c]of Object.entries(full.ruleCatalogues))full.options[child]=c.categories[full.fields[c.parentIndex].value];
+   const full=descriptor(p);full.current=current;const previous=cachedStage('marketFilter',full,records,request.forceChoices===true);reuseInactiveChoices('marketFilter',full,previous);reusedChoices=!!previous;full.ruleCatalogues=previous?previous.ruleCatalogues:await strategyCatalogues(p,until,'marketFilter');for(const [child,c]of Object.entries(full.ruleCatalogues))full.options[child]=c.categories[full.fields[c.parentIndex].value];
    mergeBenchmarks(full,await benchmarkChoices(p,'marketFilter',until,previous,undefined,symbols));
    // Read both benchmark branches; map the observed RS indices back to the
    // full Index descriptor instead of assuming non-Candle positions match.
@@ -634,6 +644,7 @@ async function configuration(requestedChanges,request={}){
   await changeParents(C.main(),warm?{0:warm}:changes.momentum,'momentum',started+(warm?25000:35000));const momentum={...descriptor(C.main()),supportedMarkets:['NSE']};
   L.stage('momentum',momentum.fields);
   const mainCache=cachedStage('momentum',momentum,request.cachedChoices,request.forceChoices===true);hits.push(!!mainCache);
+  reuseInactiveChoices('momentum',momentum,mainCache);
   sharedChoicesUsed=!!mainCache?.publicOnly;
   if(mainCache)C.status('Reusing today’s dropdown choices; checking current settings…');
   momentum.options[1]=mainCache&&!mainCache.publicOnly?mainCache.groupOptions:cachedGroups(momentum,request.cachedChoices,request.forceChoices===true)||await groupCatalogue(C.main());
@@ -656,6 +667,7 @@ async function configuration(requestedChanges,request={}){
   const execution=descriptor(setup);
   L.stage('execution',execution.fields);
   const executionCache=cachedStage('execution',execution,request.cachedChoices,request.forceChoices===true);hits.push(!!executionCache);
+  reuseInactiveChoices('execution',execution,executionCache);
   sharedChoicesUsed=sharedChoicesUsed||!!executionCache?.publicOnly;
   execution.ruleCatalogues=executionCache&&!executionCache.publicOnly?executionCache.ruleCatalogues:await strategyCatalogues(setup,started+(warm?40000:48000),'execution',executionCache);
   for(const [child,catalogue]of Object.entries(execution.ruleCatalogues))execution.options[child]=catalogue.categories[execution.fields[catalogue.parentIndex].value];

@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.18.3 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.18.4 preview** · Chrome · Local storage · MIT · No cloud account
 
 New test now has clear Test setup, Portfolio, Strategy details, Entry conditions and Exit conditions sections. Radar, Relative Strength and its Builder sit together; Market Trend opens in its own settings window. Every eligible setting keeps its Test values.
 
@@ -158,6 +158,18 @@ flowchart LR
     D --> E[RZone applies settings and calculates]
     E --> F[New study with saved results]
     A -. remains unchanged .-> G[Original evidence]
+```
+
+Dropdown choices are saved for the local calendar day, including across Vault and RZone reloads. Connecting reads the current inputs; it does not walk the same saved menus again. An interrupted background check stays paused after reopening. **Recheck all choices** is the manual override when you know a rule or group changed. A new day permits a fresh check.
+
+```mermaid
+flowchart LR
+    A[Open New test] --> B{Choices saved today?}
+    B -->|Yes| C[Reuse menus · read current inputs]
+    B -->|No| D[Read available choices once]
+    D --> E[Save choices for today]
+    D -->|Interrupted| F[Keep available choices · pause retries]
+    G[Manual Recheck or new day] --> D
 ```
 
 Current RZone menus validate the copied choices. A removed rule or an unsearched My/Public rule stays visible for review instead of silently becoming a default. Unsupported saved layouts give a clear error; the existing chart execution limits still apply.
