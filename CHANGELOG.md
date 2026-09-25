@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.2 preview - 2026-09-25
+
+- Open the exact portfolio report from RZone. Open Vault saves an unsaved completed report first, then opens it; an already saved report is not duplicated.
+- Fix Use these settings and the saved-run picker rejecting real records because the archive has no demo flag. Copy the captured inputs into New test while preserving the original report.
+- Explain a missing report link instead of silently displaying another run. Keep real and sample settings separate.
+- Add integration coverage using the actual storage facade, capture-to-report routing and interrupted-save recovery. Daily choices, chart execution gates and installer behavior are unchanged.
+
+
 ## 0.18.1 preview - 2026-09-25
 
 - Update the Windows installer file list to include the research workbench stylesheet.

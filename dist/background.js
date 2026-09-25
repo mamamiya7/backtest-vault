@@ -46,13 +46,26 @@ async function openSource(knownTabs){
 }
 const coordinator=VaultExperimentCoordinator.createCoordinator({storage:chrome.storage.local,runtime:chrome.runtime,probe,configure,openSource});
 chrome.action.onClicked.addListener(() => chrome.tabs.create({url: chrome.runtime.getURL('index.html')}));
+async function openVault(message){
+ let url=chrome.runtime.getURL('index.html');
+ if(Object.hasOwn(message,'runId')){
+  const id=message.runId;
+  if(typeof id!=='string'||!/^[a-zA-Z0-9_-]{1,120}$/.test(id))throw Error('The saved run link is invalid.');
+  const key='run:'+id,stored=await chrome.storage.local.get(key),run=stored[key];
+  if(!run||run.id!==id||run.demo===true||run.source!=='https://zone.definedgesecurities.com/index.html#research')throw Error('This saved run is no longer available in Vault.');
+  Vault.validate(run);
+  url+='?run='+encodeURIComponent(id);
+ }
+ await chrome.tabs.create({url});
+ return {ok:true};
+}
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if(message?.type==='vault-experiment'){coordinator.handle(message,sender).then(result=>{
     if(message.action==='start'&&result.ok)void chrome.tabs.sendMessage(message.tabId,{type:'vault-runner-wake'},{frameId:0}).catch(()=>{});
     reply(result);
   },error=>reply({ok:false,error:error.message}));return true;}
-  if (message.type === 'open-vault' && sender.url?.startsWith('https://zone.definedgesecurities.com/')) {
-    chrome.tabs.create({url: chrome.runtime.getURL('index.html')});
-    reply({ok: true});
+  if (message?.type === 'open-vault' && sender.id===chrome.runtime.id && Number.isInteger(sender.tab?.id) && (sender.frameId??0)===0 && sender.url?.startsWith('https://zone.definedgesecurities.com/')) {
+    openVault(message).then(reply,error=>reply({ok:false,error:error.message}));
+    return true;
   }
 });

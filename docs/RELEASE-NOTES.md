@@ -1,41 +1,17 @@
-# Backtest Vault 0.18.1 — installable preview
+# Backtest Vault 0.18.2 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
 
-- Correct the Windows installer file list for the new stylesheet; verify it against the release payload on every platform. The v0.18.0 download was not published after its Windows installation check failed.
-- Redesign New test with explicit setup, portfolio, strategy, entry and exit sections.
-- Keep Radar, Relative Strength and Builder together; show all three entry strategies without a global multi-timeframe gate.
-- Put Market Trend in a responsive window; retain its chart, Index/RS, benchmark, method, action and conditional exit controls.
-- Preserve test alternatives, paired dates, source search, daily caching and saved-result reuse. Cancelling an edit restores its original settings even after resuming a draft.
-- Include the new stylesheet in the Windows/Linux ZIP and validate every dashboard asset against the release file list.
-
-- Fix exit-rule searches when the main and execution charts differ; restore the source dialog after searching.
-- Display progress, match counts and search errors directly beside the rule control.
-
-- Search symbols in one field for Relative Strength and Market Trend Filter; show every returned match and retain selected Test values.
-- Reuse same-day, same-market symbol searches across both filters, including after page refreshes.
-- Keep search-result counts distinct from a full-market catalogue; exact symbol IDs and exchanges remain verified.
-
-- Fix false “RZone choices changed” errors caused solely by reordered properties in stored dropdown metadata. Actual choice values, order and source identities remain checked.
-- Stop chart or filter changes from restarting a failed full choice scan in the same source session and day. Recheck all choices retries explicitly; a new day permits a new pass.
-
-- Reuse complete daily dropdown choices across RZone refreshes and tabs, including Group, private categories and loaded filter symbols. Keep Recheck all choices as the manual override.
-- Prevent delayed symbol responses from leaving orphan menus; handle native no-match results and wait for dialog close animations within the connection deadline.
-
-- Wait through RZone's normal symbol-loading spinner and read only settled results.
-- Close native RZone symbol lists correctly after reading their choices.
-- Clear interrupted filter-loading states when returning to setup, show failed source reads, and bound symbol-search waits.
-
-- Radar's enable control is beside its rule dropdown.
-- Universe × Timeframe Test values produce every selected combination, with results grouped by matching conditions.
-- Relative Strength and Market Trend Filter now have dedicated settings and Test values, including their source-specific rule lists and benchmark searches.
-- Automated trials apply and verify complete filter settings before saving results. Discovery restores the source form, and saved runs retain the full filter configuration.
+- Open Vault now opens the exact portfolio report. If the visible completed report has not been saved, Vault saves it first. Already saved reports are not duplicated.
+- Use these settings now correctly restores real saved inputs into New test. The saved-run picker also includes eligible real reports.
+- Missing report links and interrupted saves show a clear message. Real and sample settings remain separate.
+- Daily choice caching, source calculations, chart execution gates and installer behavior are unchanged.
 
 ## Install
 
-Download **backtest-vault-0.18.1.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.18.2.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.

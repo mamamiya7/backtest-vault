@@ -154,7 +154,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  function newTest(initial=null){
   const savedContext=initial?S.savedRunContext(initial):null;
-  if(initial&&(initial.demo===true)!==store.demo)throw Error('Real and fictional saved settings cannot be mixed.');
+  if(initial&&(initial.demo===true)!==(store.demo===true))throw Error('Real and fictional saved settings cannot be mixed.');
   const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid()){setupPage();if(extension&&(wizard.choiceCache?.checkedAt&&!choicesFromToday(wizard.choiceCache)||wizard.choiceWarmAttempt&&wizard.choiceWarmAttempt.day!==localChoiceDay()))void action(()=>refreshSetupChoices());}return;}
   selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),contextDrafts:new Map(),choiceCache:null,warmingChart:null,ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(initial){setupDrafts.delete(store);wizard.reuseRun=structuredClone(initial);wizard.reuseApplied=false;wizard.name=((initial.name||'Saved run').slice(0,110)+' · copy');}
@@ -671,7 +671,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   if(extension||store.demo){
    if(initial){newTest(initial);return;}
    keepSetup();clearCalendars();selected=null;wizard=null;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('Use a saved run',true),journey('setup'));
-   const shell=el('div',undefined,'experiment-builder'),usable=runs.filter(r=>{try{S.savedRunContext(r);return (r.demo===true)===store.demo;}catch{return false;}});content.append(shell);
+   const shell=el('div',undefined,'experiment-builder'),usable=runs.filter(r=>{try{S.savedRunContext(r);return (r.demo===true)===(store.demo===true);}catch{return false;}});content.append(shell);
    if(!usable.length){shell.append(el('p','No saved run has a complete supported setup yet.'),button('New test',()=>newTest(),'primary'));return;}
    const picker=select(usable.map(r=>[r.id,(r.name||r.id)+' · '+new Date(r.savedAt).toLocaleDateString('en-IN')]));shell.append(label('Saved run',picker),button('Use these settings',()=>action(()=>newTest(usable.find(r=>r.id===picker.value))),'primary'));return;
   }
@@ -679,7 +679,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
   selected=null;wizard=null;environment.hidden=extension;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('Test variations from a saved run',true),journey('setup'));const form=el('form',undefined,'experiment-builder');content.append(form);
 
-  const usable=runs.filter(r=>{try{E.baseline(r);return (r.demo===true)===store.demo;}catch{return false;}});
+  const usable=runs.filter(r=>{try{E.baseline(r);return (r.demo===true)===(store.demo===true);}catch{return false;}});
 
   if(!usable.length){form.append(el('p','Save a run with both submissions and a supported setting layout to use it as a baseline.'));return;}
 

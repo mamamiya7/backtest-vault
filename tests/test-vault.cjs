@@ -19,8 +19,8 @@ const empty={schemaVersion:1,id:'a',quickStats:[],statistics:[],charts:[],trades
 assert.equal(V.validate(empty),empty);
 assert.throws(()=>V.validate({...empty,quickStats:[null]}),/malformed/);
 assert.throws(()=>V.validate({...empty,monthly:'bad'}),/malformed/);
-let vaultOpens=0;
-const store={};w.chrome={storage:{local:{set:async data=>Object.assign(store,data)}},runtime:{sendMessage:async()=>{vaultOpens++;}}};
+let vaultOpens=0,writeCount=0;const vaultMessages=[];
+const store={};w.chrome={storage:{local:{set:async data=>{writeCount++;Object.assign(store,data);}}},runtime:{sendMessage:async message=>{if(message.runId)assert.ok(store['run:'+message.runId],'Navigation happens only after a durable save.');vaultOpens++;vaultMessages.push(JSON.parse(JSON.stringify(message)));return {ok:true};}}};
 const downloads=[];w.Blob=Blob;w.URL.createObjectURL=blob=>{downloads.push(blob);return 'blob:recovery';};w.URL.revokeObjectURL=()=>{};
 const downloadNames=[];w.HTMLAnchorElement.prototype.click=function(){downloadNames.push(this.download);};
 w.structuredClone=structuredClone;
@@ -47,6 +47,7 @@ w.eval(fs.readFileSync(path.join(base,'core.js'),'utf8'));w.eval(fs.readFileSync
   error.remove();await delay(800);
   shadow.querySelector('#open').click();
   assert.equal(vaultOpens,1,'Open vault must work inside the active strategy dialog after a nested error closes');
+  assert.deepEqual(vaultMessages.at(-1),{type:'open-vault'},'No saved report opens the ordinary Vault.');
   execution.querySelector('button').click();execution.remove();d.querySelector('#cancel').style.display='';await delay(800);d.querySelector('#cancel').style.display='none';d.querySelector('#completion').textContent='BackTest Completed.';await delay(800);
   const portfolio=popup('Portfolio Backtesting','<table><tr><td>Total Initial Investment :</td><td><input value="100,000"></td></tr></table><button>Backtest</button>');portfolio.querySelector('button').click();portfolio.remove();
   // Change the live setup after submission: archive must retain submitted 252.
@@ -55,10 +56,10 @@ w.eval(fs.readFileSync(path.join(base,'core.js'),'utf8'));w.eval(fs.readFileSync
   report.querySelectorAll('[role="tab"]').forEach(t=>t.onclick=()=>{report.querySelectorAll('[role="tab"]').forEach(x=>x.classList.remove('gwt-TabBarItem-selected'));t.classList.add('gwt-TabBarItem-selected');});
   function page(n){report.querySelector('#curPageTextEle').textContent=n;report.querySelector('.rade-result-detail').innerHTML='<tr><th>Sr #</th><th>Symbol</th><th>Qty</th><th>P&L</th></tr>'+[n*2-1,n*2].map(i=>`<tr><td>${i}</td><td>STOCK${i}</td><td>${i===2?0:10}</td><td>100</td></tr>`).join('')+(n===2?'<tr><td></td><td> </td><td>&nbsp;</td><td></td></tr>'.repeat(3):'');}
   page(1);report.querySelector('img[src$="firstPage.png"]').onclick=()=>page(1);report.querySelector('img[src$="next.png"]').onclick=()=>page(2);
-  await delay(800);shadow.querySelector('#save').click();
-  for(let i=0;i<60&&!Object.keys(store).length;i++)await delay(100);
+  await delay(800);const opensBeforeCapture=vaultOpens,opening=shadow.querySelector('#open').onclick();await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,opensBeforeCapture,'A concurrent Open click must not navigate while capture is in progress.');await opening;
   assert.equal(Object.keys(store).length,1,shadow.querySelector('#status').textContent);
   const run=Object.values(store)[0];V.validate(run);
+  assert.deepEqual(vaultMessages.at(-1),{type:'open-vault',runId:run.id},'Open Vault saves the unsaved completed report and opens that exact run.');assert.equal(vaultOpens,opensBeforeCapture+1);assert.equal(writeCount,1,'Repeated clicks create only one archive.');
   assert.equal(run.provenance,'recorded-at-submit');assert.equal(run.trades.rows.length,4);assert.equal(run.charts.length,6);
   assert.equal(run.parameters.strategy.main.fields.find(f=>f.value==='252').value,'252');
   assert.equal(run.trades.rows[1][2],'0','Zero quantity trade must be preserved');
@@ -67,17 +68,21 @@ w.eval(fs.readFileSync(path.join(base,'core.js'),'utf8'));w.eval(fs.readFileSync
   await delay(700);assert.equal(report.querySelector('#curPageTextEle').textContent,'1');
   assert.match(report.querySelector('[role="tab"]').className,/selected/);
   assert.equal(V.assessment(run).length,0);
+  await shadow.querySelector('#open').onclick();assert.deepEqual(vaultMessages.at(-1),{type:'open-vault',runId:run.id},'Open vault targets this successfully stored report.');assert.equal(writeCount,1,'An already-current archive must not be saved again.');
+  const otherReport=popup('Portfolio Backtesting Report','<div role="tabpanel"><div class="stats-card"><div class="amt">4</div><div class="status">Total no. of Trades</div></div></div>');report.hidden=true;const beforeOther=vaultOpens;w.VaultRunner={active:true};await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforeOther);assert.match(shadow.querySelector('#status').textContent,/experiment is saving/);w.VaultRunner=null;await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforeOther,'A different unreadable report must not inherit the prior archive or fall through to My studies.');assert.match(shadow.querySelector('#status').textContent,/Save failed.*Quick Stats tab not found/);otherReport.remove();report.hidden=false;
   // A broken next page must fail closed and never write a partial run.
-  report.querySelector('img[src$="next.png"]').remove();shadow.querySelector('#save').click();await delay(3200);
+  const returnValue=report.querySelectorAll('.amt')[1];returnValue.textContent='99%';report.querySelector('img[src$="next.png"]').remove();const beforeBroken=vaultOpens;await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforeBroken,'A changed report with a failed capture must stay in RZone.');returnValue.textContent='25.26%';
   assert.equal(Object.keys(store).length,1);assert.match(shadow.querySelector('#status').textContent,/Save failed.*Next trade page/);
   assert.equal(shadow.querySelector('#recovery').hidden,true,'Incomplete trade captures must not become recovery backups');
   // Reproduce storage disappearing after an extension reload, without touching real browser storage.
   const next=d.createElement('img');next.src='/images/next.png';next.onclick=()=>page(2);report.querySelector('[role="tabpanel"]').append(next);
   const workingChrome=w.chrome;w.chrome={runtime:workingChrome.runtime};
-  await shadow.querySelector('#save').onclick();
+  const failedSave=shadow.querySelector('#save').onclick(),beforeBusy=vaultOpens;await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforeBusy);assert.match(shadow.querySelector('#status').textContent,/being saved/);await failedSave;
   assert.match(shadow.querySelector('#status').textContent,/Not saved to Vault.*disconnected.*Download recovery backup/);
   assert.doesNotMatch(shadow.querySelector('#status').textContent,/Cannot read properties/);assert.equal(Object.keys(store).length,1);
   assert.equal(shadow.querySelector('#recovery').hidden,false);assert.equal(shadow.querySelector('#save').textContent,'Retry captured run');
+  const beforePending=vaultOpens;await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforePending,'Failed pending-save retry must not leave the source report.');assert.match(shadow.querySelector('#status').textContent,/Not saved to Vault/);
+  const unrelated=popup('Portfolio Backtesting Report','<p>Different report</p>');report.hidden=true;await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforePending);assert.match(shadow.querySelector('#status').textContent,/earlier capture.*Retry captured run/);unrelated.remove();report.hidden=false;
   shadow.querySelector('#recovery').click();const recovery=JSON.parse(await downloads.at(-1).text());
   assert.equal(recovery.format,'definedge-backtest-vault');assert.equal(recovery.runs.length,1);V.validate(recovery.runs[0]);
   assert.equal(recovery.runs[0].trades.rows.length,4);assert.equal(recovery.runs[0].charts.length,6);assert.equal(recovery.runs[0].parameters.strategy.main.fields.find(f=>f.value==='252').value,'252');
@@ -98,11 +103,31 @@ w.eval(fs.readFileSync(path.join(base,'core.js'),'utf8'));w.eval(fs.readFileSync
   w.chrome={storage:{local:{set:async()=>{throw Error('Extension context invalidated.');}}}};await shadow.querySelector('#save').onclick();assert.match(shadow.querySelector('#status').textContent,/disconnected/);
   w.chrome={storage:{local:{set:async()=>{throw Error('QUOTA_BYTES quota exceeded');}}}};await shadow.querySelector('#save').onclick();assert.match(shadow.querySelector('#status').textContent,/Not saved.*QUOTA_BYTES/);
   shadow.querySelector('#recovery').click();assert.deepEqual(JSON.parse(await downloads.at(-1).text()).runs,recovery.runs);
+  w.chrome=workingChrome;await shadow.querySelector('#open').onclick();assert.deepEqual(vaultMessages.at(-1),{type:'open-vault',runId:recovery.runs[0].id},'Open Vault retries this report using its frozen capture ID before navigating.');assert.equal(Object.keys(store).length,2);assert.deepEqual(JSON.parse(JSON.stringify(store['run:'+recovery.runs[0].id])),recovery.runs[0]);
   // After the source report closes, retry must persist the original ID/data instead of recapturing.
+  w.chrome={runtime:workingChrome.runtime};await shadow.querySelector('#save').onclick();shadow.querySelector('#recovery').click();const closedRecovery=JSON.parse(await downloads.at(-1).text());
   report.remove();await delay(800);w.chrome=workingChrome;await shadow.querySelector('#save').onclick();
-  assert.equal(Object.keys(store).length,2);assert.deepEqual(JSON.parse(JSON.stringify(store['run:'+recovery.runs[0].id])),recovery.runs[0]);assert.equal(shadow.querySelector('#recovery').hidden,true);assert.equal(shadow.querySelector('#save').textContent,'Save backtest');
+  assert.equal(Object.keys(store).length,3);assert.deepEqual(JSON.parse(JSON.stringify(store['run:'+closedRecovery.runs[0].id])),closedRecovery.runs[0]);assert.equal(shadow.querySelector('#recovery').hidden,true);assert.equal(shadow.querySelector('#save').textContent,'Save backtest');
+  await shadow.querySelector('#open').onclick();assert.deepEqual(vaultMessages.at(-1),{type:'open-vault'},'No visible report retains generic navigation even after a successful retry.');
+  d.body.append(report);await shadow.querySelector('#open').onclick();assert.deepEqual(vaultMessages.at(-1),{type:'open-vault',runId:closedRecovery.runs[0].id},'Retry links the exact durable recovery ID to its original report.');
+  const newPortfolio=popup('Portfolio Backtesting','<button>Backtest</button>');newPortfolio.querySelector('button').click();newPortfolio.remove();const beforeSubmission=vaultOpens;await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforeSubmission,'An unfinished new submission cannot open the stale report left in its DOM.');assert.match(shadow.querySelector('#status').textContent,/still preparing the backtest/);
   report.remove();await delay(800);shadow.querySelector('#save').click();
   assert.match(shadow.querySelector('#status').textContent,/Open a completed Portfolio/,'Vault must remain usable after its report is removed');
+  w.chrome={...workingChrome,runtime:{sendMessage:async()=>({ok:false,error:'This saved run is no longer available in Vault.'})}};await shadow.querySelector('#open').onclick();assert.match(shadow.querySelector('#status').textContent,/Could not open Vault.*no longer available/);w.chrome=workingChrome;
+  await backgroundOpenChecks();
   dom.window.close();
   console.log('PASS: modal-safe vault controls, rejected submission recovery, numeric and CSV handling, SVG sanitation, malformed import rejection, frozen submitted parameters, completion linkage, all trade pages, six charts, zero quantity preservation, restoration, and fail-closed pagination.');
 })().catch(e=>{dom.window.close();console.error(e);process.exitCode=1;});
+async function backgroundOpenChecks(){
+  const vm=require('node:vm'),opened=[],reads=[],listeners=[],runtime={id:'vault-test',getURL:file=>'chrome-extension://vault-test/'+file,onMessage:{addListener:fn=>listeners.push(fn)}},real={...empty,id:'saved-trial_2',source:'https://zone.definedgesecurities.com/index.html#research'},memory={['run:'+real.id]:real};let failOpen=false;
+  const chrome={runtime,storage:{local:{get:async key=>{reads.push(key);return {[key]:memory[key]};}}},action:{onClicked:{addListener:()=>{}}},tabs:{create:async args=>{if(failOpen)throw Error('Could not create tab');opened.push({...args});return {id:12};}}};
+  const context=vm.createContext({chrome,URL,crypto:require('node:crypto').webcrypto,structuredClone,setTimeout,clearTimeout});context.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),context,{filename:file}));vm.runInContext(fs.readFileSync(path.join(base,'background.js'),'utf8'),context,{filename:'background.js'});
+  const sender={id:runtime.id,url:real.source,tab:{id:7},frameId:0},send=(message,from=sender)=>new Promise(resolve=>{const held=listeners[0](message,from,resolve);assert.equal(held,true,'Opening a tab must retain the asynchronous response channel.');});
+  assert.equal((await send({type:'open-vault'})).ok,true);assert.deepEqual(opened.at(-1),{url:runtime.getURL('index.html')});assert.equal(reads.length,0,'Ordinary navigation does not look up a latest global run.');
+  assert.equal((await send({type:'open-vault',runId:real.id})).ok,true);assert.deepEqual(opened.at(-1),{url:runtime.getURL('index.html')+'?run='+encodeURIComponent(real.id)});assert.deepEqual(reads,['run:'+real.id]);
+  for(const id of ['',null,25,'../../run','x?demo=1','a'.repeat(121)]){const count=reads.length;assert.equal((await send({type:'open-vault',runId:id})).ok,false);assert.equal(reads.length,count,'Malformed IDs must not access storage.');}
+  for(const value of [undefined,{...real,id:'wrong-id'},{...real,demo:true},{...real,source:'https://example.com/'},{...real,trades:null}]){memory['run:'+real.id]=value;assert.equal((await send({type:'open-vault',runId:real.id})).ok,false);assert.equal(opened.length,2,'Missing, mismatched, demo, foreign or malformed records must not create a deep link.');}memory['run:'+real.id]=real;
+  for(const change of [{id:'another-extension'},{url:'https://zone.definedgesecurities.com.evil.example/'},{url:'http://zone.definedgesecurities.com/'},{tab:undefined},{frameId:1}]){let replied=false;assert.equal(listeners[0]({type:'open-vault',runId:real.id},{...sender,...change},()=>{replied=true;}),undefined);assert.equal(replied,false);assert.equal(opened.length,2);}
+  failOpen=true;const failure=await send({type:'open-vault',runId:real.id});assert.equal(failure.ok,false);assert.match(failure.error,/Could not create tab/);assert.equal(opened.length,2);
+  console.log('PASS: exact saved-run navigation, source authorization, archive validation and asynchronous tab errors.');
+}
