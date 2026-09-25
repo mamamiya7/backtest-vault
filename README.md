@@ -5,9 +5,9 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.17.6 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.18.0 preview** · Chrome · Local storage · MIT · No cloud account
 
-Exit-rule search follows the selected execution chart. Search progress, match counts and errors appear beside the rule dropdown.
+New test now has clear Test setup, Portfolio, Strategy details, Entry conditions and Exit conditions sections. Radar, Relative Strength and its Builder sit together; Market Trend opens in its own settings window. Every eligible setting keeps its Test values.
 
 **[Download for Windows and Linux](https://github.com/mamamiya7/backtest-vault/releases/latest)** — one complete ZIP, no Python, Node.js, Git, or server required. Extract it, run **Setup.cmd** (Windows) or **bash setup.sh** (Linux), then add the extension in Chrome. [Already installed? Update in the same folder.](docs/INSTALL.md#update-an-existing-installation)
 
@@ -46,14 +46,14 @@ flowchart LR
 ```
 
 1. **Open New test:** keep RZone signed in. With one available RZone tab, Vault loads its choices automatically. If several tabs are available, select one and click **Connect RZone**. Loading choices does not run a backtest.
-2. **Set up on one page:** choose chart, Group, periods and indicators. **More strategy settings** contains period weights and secondary controls. **Test period** follows below; expand its **Execution settings** for ranking, chart selection and exits. **Portfolio** contains sizing, with **Portfolio limits** for additional controls. Search and select **Group** from the choices read from RZone. Arrow keys and Enter also work.
-3. **Add variations beside a setting:** Period 1 = `252,500` means two tests. A numeric range also needs a step. Choose **Off** to skip a period or filter, **On** to use it, or **Test both** for separate On and Off runs. Eligible rule menus can test selected choices from the loaded source catalogue.
+2. **Set up on one page:** choose universe and dates in **Test setup**, then sizing and ranking in **Portfolio**. **Strategy details** contains periods, weights, indicators and the entry chart. **Entry conditions** shows Strategy 1–3. **Exit conditions** has its own chart and exit rules. Search and select the universe from RZone choices. Arrow keys and Enter also work.
+3. **Add variations beside a setting:** Period 1 = `252,500` means two tests. A numeric range also needs a step. Check a period or filter to use it; clear it to skip it. **Test on & off** (or **Test both** in compact controls) adds separate On and Off trials. Eligible rule menus can test selected choices from the loaded source catalogue. Cancel restores an unfinished edit.
 4. **Review, then run:** choose **Review … tests** to check the compact summary, test count and comparison rules, then choose **Run … tests**. Reviewing does not start calculations; the stage indicator only shows progress. Leave the variation controls unused to run the current setup once.
 5. **Review results:** Vault saves each report automatically and marks the results stage when the tests finish. **View results** takes you to the saved evidence; it never starts another test. Open a saved report or inspect the study's **Results**. Exporting is an optional backup, not a step required to finish.
 
 **Universe and Timeframe can vary too.** Select their Test values to test every combination. Three universes × two timeframes create six tests. Results with different universes or timeframes are compared in separate matching groups.
 
-**Radar, Relative Strength and Market Trend Filter:** their Off / On / Test both control sits with the settings it enables. Turning a filter on loads its own choices when needed. Type a symbol name in the benchmark field and press Enter or **Search RZone**. Choose a returned match; the field keeps earlier choices for Test values. Market Trend Filter includes its chart, Index/RS mode, benchmarks, method, action, exits and Test values. A result is saved only after the planned settings match the source capture.
+**Radar, Relative Strength and Market Trend Filter:** each has its own checkbox and test alternatives. Turning a filter on loads its own choices when needed. Type a symbol name in the benchmark field and press Enter or **Search RZone**. Choose a returned match; the field keeps earlier choices for Test values. The Market Trend window includes its independent chart, Index/RS mode, benchmarks, method, action, exits and Test values. A result is saved only after the planned settings match the source capture.
 
 ```mermaid
 flowchart LR

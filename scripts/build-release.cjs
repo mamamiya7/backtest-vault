@@ -1,7 +1,7 @@
 /* Dependency-free, deterministic end-user ZIP. The explicit public allowlist is the boundary. */
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),zlib=require('node:zlib');
 const root=path.resolve(__dirname,'..');
-const runtimeFiles=['background.js','capture.js','core.js','dashboard.js','date-range.js','date-range.css','workspace-motion.js','workspace-motion.css','demo.js','experiment-coordinator.js','experiments-ui.js','experiments.css','experiments.js','index.html','intelligence-ui.js','intelligence.js','manifest.json','presentation.js','runner.js','setup.js','source-layouts.js','storage.js','vault.css'];
+const runtimeFiles=['background.js','capture.js','core.js','dashboard.js','date-range.js','date-range.css','workspace-motion.js','workspace-motion.css','demo.js','experiment-coordinator.js','experiments-ui.js','experiments.css','research-workbench.css','experiments.js','index.html','intelligence-ui.js','intelligence.js','manifest.json','presentation.js','runner.js','setup.js','source-layouts.js','storage.js','vault.css'];
 const installerFiles=['Setup.cmd','Update.cmd','setup.sh','update.sh','START-HERE.html'];
 const sha=data=>crypto.createHash('sha256').update(data).digest('hex');
 const crcTable=Array.from({length:256},(_,i)=>{let c=i;for(let n=0;n<8;n++)c=(c&1)?0xedb88320^(c>>>1):c>>>1;return c>>>0;});

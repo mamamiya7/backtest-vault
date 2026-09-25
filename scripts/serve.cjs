@@ -10,4 +10,5 @@ const server=http.createServer((req,res)=>{
   res.writeHead(200,{'Content-Type':types[path.extname(target)],'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'self'; script-src 'self'; connect-src 'none'; img-src 'self' blob: data:; style-src 'self' 'unsafe-inline'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'"});
   fs.createReadStream(target).pipe(res);
 });
-server.listen(8767,'127.0.0.1',()=>console.log('Backtest Vault: http://127.0.0.1:8767/?demo=1'));
+const port=Number(process.env.PORT||8767);
+server.listen(port,'127.0.0.1',()=>console.log('Backtest Vault: http://127.0.0.1:'+port+'/?demo=1'));
