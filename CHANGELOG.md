@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.5 preview - 2026-09-25
+
+- Fix Use these settings rejecting today's unchanged menus after RZone has mounted hidden Relative Strength controls or portfolio help text.
+- Match only the observed decorative label differences. Preserve captured labels, saved inputs, strategy-category dependencies, native option identities and all execution gates.
+- Verify saved-input reuse for Candle, P&F and Renko in both clean and previously visited forms. Keep the daily cache intact; no Recheck all choices is required for this update.
+
 ## 0.18.4 preview - 2026-09-25
 
 - Reuse today's choices when native dropdowns reorder or inactive controls show partial menus. Preserve complete saved choices when those controls are off.
