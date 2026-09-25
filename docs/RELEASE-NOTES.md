@@ -1,9 +1,10 @@
-# Backtest Vault 0.18.0 — installable preview
+# Backtest Vault 0.18.1 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
 
+- Correct the Windows installer file list for the new stylesheet; verify it against the release payload on every platform. The v0.18.0 download was not published after its Windows installation check failed.
 - Redesign New test with explicit setup, portfolio, strategy, entry and exit sections.
 - Keep Radar, Relative Strength and Builder together; show all three entry strategies without a global multi-timeframe gate.
 - Put Market Trend in a responsive window; retain its chart, Index/RS, benchmark, method, action and conditional exit controls.
@@ -34,7 +35,7 @@ One complete package for Windows and Linux. No Node.js, Python, Git, npm, admini
 
 ## Install
 
-Download **backtest-vault-0.18.0.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.18.1.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.

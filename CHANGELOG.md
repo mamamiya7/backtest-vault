@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.18.1 preview - 2026-09-25
+
+- Update the Windows installer file list to include the research workbench stylesheet.
+- Check the Windows installer list against the release payload on every platform. The v0.18.0 download was not published after Windows installation testing caught the mismatched list.
+- The installed research workbench UI, source automation and daily-cache behavior are unchanged from 0.18.0.
+
 ## 0.18.0 preview - 2026-09-25
 
 - Organize New test into Test setup, Portfolio, Strategy details, Entry conditions and Exit conditions.

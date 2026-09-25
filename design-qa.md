@@ -62,7 +62,9 @@ No unresolved P0, P1 or P2 UI findings remained in the checked scope. The implem
 
 The preview runs with clearly labeled fictional source choices and sample results. It does not contact RZone. These checks establish UI/model behavior; they do not establish live execution correctness for every chart.
 
-The v0.18.0 runtime has now been copied to the existing installed directory after backing up the previous files. Saved studies and daily-cache storage were not changed. A real RZone Candle/Price report completed and the installed capture overlay confirmed saving 43 trades and 6 charts. This verifies the live calculation/capture path, not the new setup form or automatic multi-trial execution. The installed dashboard was opened; extension reload and new-layout acceptance are pending. Existing P&F/Renko execution gates remain closed.
+The v0.18.0 runtime was copied to the existing installed directory after backing up the previous files. Saved studies and daily-cache storage were not changed. A real RZone Candle/Price report completed and the installed capture overlay confirmed saving 43 trades and 6 charts. After reloading, the user confirmed New test shows the new Test setup, Portfolio and Strategy details sections; the live RZone host also reported v0.18.0. This verifies interface activation and the live manual calculation/capture path, not automatic multi-trial execution. Existing P&F/Renko execution gates remain closed.
+
+The initial downloadable package was held by the Windows installer check: its fixed allowlist omitted the new stylesheet. v0.18.1 corrects that list and adds cross-platform file-set validation. A fresh extracted-ZIP Windows install passed with all 24 runtime hashes matching. There is no further UI or backend change in that patch. Public main and tag are pushed; download publication remains gated on the complete release workflow.
 
 ## Preview
 
