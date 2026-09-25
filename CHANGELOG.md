@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.18.3 preview - 2026-09-25
+
+- Recover stale study ownership when RZone is refreshed. Confirm the replacement page before releasing the previous page's lock, so New test can connect again.
+- Preserve saved reports and queued trials. Reconcile fully verified saved results; retain unfinished or unverified trials for review without rerunning them.
+- Ignore delayed messages from the old page, including between studies. Protect active tests in other tabs and keep uncertain same-page timeouts blocked for review.
+- Keep daily dropdown choices intact. Add recovery tests for every trial stage, startup races, source readiness and storage failures.
+
+
 ## 0.18.2 preview - 2026-09-25
 
 - Open the exact portfolio report from RZone. Open Vault saves an unsaved completed report first, then opens it; an already saved report is not duplicated.

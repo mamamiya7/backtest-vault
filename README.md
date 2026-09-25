@@ -5,7 +5,7 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.18.2 preview** · Chrome · Local storage · MIT · No cloud account
+**v0.18.3 preview** · Chrome · Local storage · MIT · No cloud account
 
 New test now has clear Test setup, Portfolio, Strategy details, Entry conditions and Exit conditions sections. Radar, Relative Strength and its Builder sit together; Market Trend opens in its own settings window. Every eligible setting keeps its Test values.
 
@@ -91,6 +91,8 @@ flowchart LR
 | **Compare results** | Compare saved runs across studies; use matching conditions for a fair ranking. |
 
 The installed Vault opens **My studies**. An unfinished setup stays available through **Continue setup** while you move around the same open Vault tab; refreshing or closing that tab clears this unsaved draft. Saved studies remain in your archive. The library is still available for individual runs, imports and **Back up all**.
+
+If RZone is refreshed during a study, Vault recognizes the replacement page and lets you reconnect. Saved reports stay in the archive. An unfinished trial remains available for review in **My studies**; it is never automatically rerun. A report with complete verified evidence is recovered automatically.
 
 All source settings stay on one page. The journey shows progress through the work; it does not split the form into a mandatory questionnaire. Only an explicit run or resume action can start source calculations. After reviewing a completed study, **Test on another period** lets you prepare a separate validation test without changing the original results.
 
