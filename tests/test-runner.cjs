@@ -2,6 +2,19 @@
 const assert=require('node:assert/strict'),fs=require('node:fs'),path=require('node:path'),{JSDOM}=require('jsdom');
 const E=require('../dist/experiments.js'),S=require('../dist/setup.js'),D=require('../dist/demo.js'),{createCoordinator}=require('../dist/experiment-coordinator.js');
 const base=path.resolve(__dirname,'../dist'),sleep=ms=>new Promise(r=>setTimeout(r,ms));
+let fixtureTime=false;
+async function withFixtureTime(work){
+ // These discovery fixtures check source events and the real runner deadlines.
+ // Use one deterministic clock for source callbacks and settling: synchronous
+ // JSDOM capture cost must not consume a simulated RZone network deadline.
+ const {mock}=require('node:test'),{setImmediate:turn}=require('node:timers');
+ mock.timers.enable({apis:['Date','setTimeout','setInterval'],now:Date.now()});fixtureTime=true;
+ let settled=false,value,error;
+ Promise.resolve().then(work).then(result=>{value=result;settled=true;},failure=>{error=failure;settled=true;});
+ try{for(let elapsed=0;!settled&&elapsed<1200000;elapsed+=25){await new Promise(turn);mock.timers.tick(25);}assert.ok(settled,'The fixture must settle within its simulated time budget.');if(error)throw error;return value;}
+ finally{fixtureTime=false;mock.timers.reset();}
+}
+function installFixtureTime(w){if(fixtureTime){w.Date=Date;w.setTimeout=setTimeout;w.clearTimeout=clearTimeout;w.setInterval=setInterval;w.clearInterval=clearInterval;}}
 const requestedCatalogue=process.argv.find(argument=>argument.startsWith('--catalogue-case='))?.slice('--catalogue-case='.length);
 const fromCase=Number(process.argv.find(argument=>argument.startsWith('--from-case='))?.slice('--from-case='.length)||1);
 const toCaseArgument=process.argv.find(argument=>argument.startsWith('--to-case='))?.slice('--to-case='.length),toCase=toCaseArgument===undefined?Infinity:Number(toCaseArgument);
@@ -455,6 +468,7 @@ async function persistedMenus(responses,{reorderStorage=false}={}){
 }
 async function chartScenario(chartCase,dailySeed){
  const L=require('../dist/source-layouts.js'),dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document,main=d.querySelector('.account-right'),listeners=[],counts={categories:0,groups:0,submissions:0},menus=new Set();
+ installFixtureTime(w);
  w.structuredClone=structuredClone;Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')?[{width:100,height:20}]:[];};
  const initial=chartCase==='Renko'?'Renko':['warm-reversal','exit-context'].includes(chartCase)?'P&F':'Candle',daily=chartCase==='daily-categories';let executionState=null,privateRadarChoices=chartCase==='cache-reconnect'||daily?['Fictional private radar']:[];const categoryRequests=[],groupRows=['Demo universe 40','Other fictional group'];
  const state=(stage,chart)=>JSON.parse(JSON.stringify(S.demoTemplate({momentumChart:chart,executionChart:chart}).stages[stage]));
@@ -472,7 +486,7 @@ async function chartScenario(chartCase,dailySeed){
     else {const values=category==='My'?privateRadarChoices:[descriptor.fields[row.childIndex].type==='select-one'?descriptor.fields[row.childIndex].value:'Demo rule',layout.chart+' '+row.name+' '+category+' rule'];for(const value of [...new Set(values)]){const o=d.createElement('option');o.value='native:'+value;o.textContent=value;next.append(o);}}
     dailyLabels();
    };
-   populate();current[row.parentIndex].addEventListener('change',()=>{counts.categories++;categoryRequests.push({stage,row:row.name,category:current[row.parentIndex].selectedOptions[0].textContent});w.setTimeout(populate,150);});
+   populate();current[row.parentIndex].addEventListener('change',()=>{counts.categories++;categoryRequests.push({stage,row:row.name,category:current[row.parentIndex].selectedOptions[0].textContent});if(chartCase==='dependent-timeout'&&stage==='momentum'&&row.name==='Strategy 1')return;w.setTimeout(populate,150);});
   }
   const chart=current[layout.chartIndex];chart.addEventListener('change',()=>{const target=chart.selectedOptions[0].textContent,group=stage==='momentum'?current[1].value:null;w.setTimeout(()=>{const next=state(stage,target);if(stage==='momentum')next.fields[1].value=group;render(p,stage,next);},100);});
   if(layout.chart==='Renko')current[layout.modeIndex].addEventListener('change',()=>{current[layout.sizeIndex].value=({Absolute:'10',Percent:'1',ATR:'14','ATR %':'14'})[current[layout.modeIndex].selectedOptions[0].textContent];});
@@ -489,6 +503,10 @@ async function chartScenario(chartCase,dailySeed){
  const initialMain=state('momentum',initial);if(chartCase==='exit-context')executionState=state('execution','Candle');if(chartCase==='warm-reversal'){initialMain.fields[55].value='5';executionState=state('execution',initial);executionState.fields[5].value='5';}render(main,'momentum',initialMain);const open=d.createElement('button');open.textContent='BackTest';open.onclick=openExecution;main.append(open);w.eval(fs.readFileSync(path.join(base,'runner.js'),'utf8'));
  const request=message=>new Promise(resolve=>{for(const listener of listeners)listener({type:'vault-runner-config',...message},{id:'chart-fixture'},resolve);});
  try{
+  if(chartCase==='dependent-timeout'){
+   const started=w.Date.now(),parent=L.main('Candle').rows.find(row=>row.name==='Strategy 1').parentIndex,rejected=await request({changes:{momentum:{[parent]:'My'}}}),elapsed=w.Date.now()-started;
+   assert.equal(rejected.ok,false,'An unchanged dependent menu must not be accepted by the deterministic clock.');assert.match(rejected.error,/did not finish loading the dependent choices/);assert.ok(elapsed>=10000&&elapsed<16000,'The unchanged 10-second menu deadline still rejects a stalled response.');assert.equal(counts.categories,1);assert.equal(counts.groups,0);assert.equal(counts.submissions,0);assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);return;
+  }
   if(dailySeed)nodes(main)[12].value='444';
   let exitSeed;
   if(chartCase==='exit-context'){
@@ -538,18 +556,22 @@ async function chartScenario(chartCase,dailySeed){
   if(chartCase.startsWith('warm')){
    const target=chartCase==='warm-reversal'?'Renko':'P&F',originalExecution=JSON.stringify(executionState.fields),warm=await request({warmChart:target});assert.equal(warm.ok,true,warm.error);assert.equal(warm.config.stages.momentum.fields[0].value,target);assert.equal(warm.config.stages.execution.fields[3].value,target);assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before,'A warm chart scan restores every original main value and gate.');assert.equal(JSON.stringify(executionState.fields),originalExecution,'The independent original execution chart and controls are restored.');if(chartCase==='warm-reversal'){assert.equal(nodes(main)[55].selectedOptions[0].textContent,'5');assert.equal(executionState.fields[5].value,'5','Nondefault P&F reversal must be restored after warming another chart.');}assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);return;
   }
-  const chart=chartCase,switched=chart===initial?first:await request({changes:{momentum:{0:chart}}});assert.equal(switched.ok,true,switched.error);assert.equal(switched.config.stages.momentum.fields.length,58);assert.equal(switched.config.stages.execution.fields[3].value,initial,'Main and execution charts are independent.');
-  const paired=await request({changes:{execution:{3:chart}}});assert.equal(paired.ok,true,paired.error);assert.equal(paired.config.stages.execution.fields.length,16);const t=S.template(paired.config),config=S.defaults(t),layout=L.main(chart),exit=L.execution(chart);
+  // Follow the coordinator contract: every successive configure receives the
+  // current day's persisted menus. A raw second request otherwise rescans the
+  // unchanged main form inside the shorter exit-transition deadline.
+  const chart=chartCase,firstMenus=await persistedMenus([first]),switched=chart===initial?first:await request({changes:{momentum:{0:chart}},cachedChoices:firstMenus});assert.equal(switched.ok,true,switched.error);assert.equal(switched.config.stages.momentum.fields.length,58);assert.equal(switched.config.stages.execution.fields[3].value,initial,'Main and execution charts are independent.');
+  const pairedMenus=await persistedMenus([first,switched]),beforeExit=categoryRequests.length,groupsBeforeExit=counts.groups,paired=await request({changes:{execution:{3:chart}},cachedChoices:pairedMenus});assert.equal(paired.ok,true,paired.error);assert.ok(categoryRequests.slice(beforeExit).every(item=>item.stage==='execution'),'Changing exit chart must not rescan unchanged main categories.');assert.equal(counts.groups,groupsBeforeExit,'Changing exit chart reuses the Group catalogue.');assert.equal(paired.config.stages.execution.fields.length,16);const t=S.template(paired.config),config=S.defaults(t),layout=L.main(chart),exit=L.execution(chart);
   config['momentum.period.1']=444;config[chart==='P&F'?'momentum.box.size':'momentum.brick.size']=chart==='P&F'?1.5:20;config['execution.target']=9;config['momentum.strategy.1.input']=0.75;
   const descriptors=S.fieldsForUI(t).flatMap(g=>g.fields),number=descriptors.find(f=>f.stage==='momentum'&&f.index===layout.rows[1].valueIndex);delete config['momentum.strategy.1.input'];config[number.key]=0.75;
   const b=S.configToBaseline(config,t),experiment={baseline:b,dimensions:[]},trial={patch:{}};await w.VaultRunner.apply(main,experiment,trial,'momentum');assert.equal(nodes(main)[12].value,'444');assert.equal(nodes(main)[layout.rows[1].valueIndex].value,'0.75');assert.equal(nodes(main)[layout.sizeIndex].value,String(chart==='P&F'?1.5:20));const p=openExecution();await w.VaultRunner.apply(p,experiment,trial,'execution');assert.equal(nodes(p)[exit.targetValueIndex].value,'9');p.querySelector('.close-buton').click();assert.equal(S.executionCapability(t).available,false,'Fictional application proof does not open the live execution gate.');
-  if(chart==='Renko'){const mode=await request({changes:{momentum:{55:'Percent'}}});assert.equal(mode.ok,true,mode.error);assert.equal(mode.config.stages.momentum.fields[54].value,'1','The fresh source reset is captured when the Renko brick mode changes.');}
+  if(chart==='Renko'){const mode=await request({changes:{momentum:{55:'Percent'}},cachedChoices:await persistedMenus([first,switched,paired])});assert.equal(mode.ok,true,mode.error);assert.equal(mode.config.stages.momentum.fields[54].value,'1','The fresh source reset is captured when the Renko brick mode changes.');}
  }finally{assert.equal(counts.submissions,0);dom.window.close();}
 }
 async function filterScenario(mode,dailySeed){
  const L=require('../dist/source-layouts.js'),F=require('./fixtures/filter-setup.cjs'),sourceTemplate=F(mode==='market-renko'?{marketChart:'Renko',exitPrices:true}:{}),dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document,main=d.querySelector('.account-right'),listeners=[],memory={},menus=new Set(),commits=[];
+ installFixtureTime(w);
  w.structuredClone=structuredClone;Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')&&!this.closest('[style*="display: none"]')?[{width:100,height:20}]:[];};
- const nativeTimeout=w.setTimeout.bind(w),nativeInterval=w.setInterval.bind(w);w.setTimeout=(fn,ms)=>nativeTimeout(fn,Math.min(ms,20));w.setInterval=(fn,ms)=>nativeInterval(fn,Math.min(ms,30));
+ const nativeTimeout=w.setTimeout.bind(w),nativeInterval=w.setInterval.bind(w);w.setTimeout=(fn,ms)=>nativeTimeout(fn,fixtureTime?ms:Math.min(ms,20));w.setInterval=(fn,ms)=>nativeInterval(fn,fixtureTime?ms:Math.min(ms,30));
  const scans={groups:0,categories:0,symbols:0},lateSymbolOwners=new Set();let lateSymbolReopens=0,missingSymbols=false,noMatchLists=0;
  let groupCommits=0,orderClicks=0,submissions=0,portfolios=0,filterSaves=0,symbolQueryClears=0,pendingSymbolShells=0,staleSymbolLists=0,changeSymbolIdentity=false,changeSymbolExchange=false,mainState=E.clone(sourceTemplate.stages.momentum.fields),rsState=E.clone(sourceTemplate.stages.momentum.relativeStrength.fields),filterState=E.clone(sourceTemplate.stages.marketFilter.current.fields),filterFull=E.clone(sourceTemplate.stages.marketFilter.fields);
  if(mode==='rs-warm')mainState=E.clone(rsState);
@@ -686,7 +708,7 @@ async function filterScenario(mode,dailySeed){
   ...['P&F','Renko','cache','warm','warm-reversal','cache-reconnect'].map(chartCase=>({chartCase})),
   {vaultSetup:true,bridge:true,variableSet:'universe-timeframe'},{vaultSetup:true,bridge:true,changedGroupIdentity:true},
   ...['relative-strength','market-filter','combined','symbol-identity','market-retained','market-context','market-renko','market-delayed-symbol','market-unknown-dialog','market-symbol-timeout'].map(filterCase=>({filterCase})),
-  {chartCase:'daily-categories'},{filterCase:'daily-cache'},{vaultSetup:true,closeSlowAnimation:true},{vaultSetup:true,closeBlockedByChild:true},{filterCase:'market-late-symbol'},{filterCase:'rs-warm'},{filterCase:'symbol-no-match'},{chartCase:'daily-storage-order'},{filterCase:'symbol-catalogue'},{chartCase:'exit-context'}
+  {chartCase:'daily-categories'},{filterCase:'daily-cache'},{vaultSetup:true,closeSlowAnimation:true},{vaultSetup:true,closeBlockedByChild:true},{filterCase:'market-late-symbol'},{filterCase:'rs-warm'},{filterCase:'symbol-no-match'},{chartCase:'daily-storage-order'},{filterCase:'symbol-catalogue'},{chartCase:'exit-context'},{chartCase:'dependent-timeout'}
  ];
  if(fromCase===1&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus, rule/symbol/filter routing and deadline checks (12 cases).');}
  const selected=cases.filter(o=>(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake||o.closeSlowAnimation||o.closeBlockedByChild));
@@ -694,7 +716,8 @@ async function filterScenario(mode,dailySeed){
  if(toCase!==Infinity&&toCase>selected.length)throw Error('Runner ending case exceeds the selected scenarios.');
  const lastCase=Math.min(toCase,selected.length);
  for(const [index,options]of selected.slice(fromCase-1,lastCase).entries()){
-  if(options.filterCase)await filterScenario(options.filterCase);else if(options.chartCase)await chartScenario(options.chartCase);else await scenario(options);console.log('PASS: runner '+(index+fromCase)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
+  const run=()=>options.filterCase?filterScenario(options.filterCase):options.chartCase?chartScenario(options.chartCase):scenario(options);
+  if(['P&F','Renko','dependent-timeout'].includes(options.chartCase)||options.filterCase==='rs-warm')await withFixtureTime(run);else await run();console.log('PASS: runner '+(index+fromCase)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
  }
  console.log('PASS: '+(lastCase-fromCase+1)+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

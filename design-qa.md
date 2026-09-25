@@ -62,7 +62,7 @@ No unresolved P0, P1 or P2 UI findings remained in the checked scope. The implem
 
 The preview runs with clearly labeled fictional source choices and sample results. It does not contact RZone. These checks establish UI/model behavior; they do not establish live execution correctness for every chart.
 
-The installed Vault directory, its saved studies and public main are unchanged. Existing P&F/Renko execution gates and the earlier audit's unresolved runner cases remain unchanged. Activating this branch in the real extension and performing a small live RZone acceptance run is a separate step before replacing the installed build.
+The v0.18.0 runtime has now been copied to the existing installed directory after backing up the previous files. Saved studies and daily-cache storage were not changed. A real RZone Candle/Price report completed and the installed capture overlay confirmed saving 43 trades and 6 charts. This verifies the live calculation/capture path, not the new setup form or automatic multi-trial execution. The installed dashboard was opened; extension reload and new-layout acceptance are pending. Existing P&F/Renko execution gates remain closed.
 
 ## Preview
 

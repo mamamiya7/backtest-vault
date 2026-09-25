@@ -2,7 +2,11 @@ const fs=require('node:fs'),path=require('node:path'),assert=require('node:asser
 const root=path.resolve(__dirname,'..'),dist=path.join(root,'dist'),pkg=require('../package.json'),manifest=require('../dist/manifest.json');
 assert.equal(pkg.version,manifest.version,'Package and extension versions differ');
 const html=fs.readFileSync(path.join(dist,'index.html'),'utf8');
-for(const [,name] of html.matchAll(/(?:src|href)="([^"?#]+\.(?:js|css))"/g))assert.ok(fs.existsSync(path.join(dist,name)),'Missing asset: '+name);
+const {runtimeFiles}=require('./build-release.cjs');
+for(const [,name] of html.matchAll(/(?:src|href)="([^"?#]+\.(?:js|css))"/g)){
+ assert.ok(fs.existsSync(path.join(dist,name)),'Missing asset: '+name);
+ assert.ok(runtimeFiles.includes(name),'Release omits dashboard asset: '+name);
+}
 for(const file of fs.readdirSync(dist).filter(f=>f.endsWith('.js'))){const r=spawnSync(process.execPath,['--check',path.join(dist,file)],{encoding:'utf8'});assert.equal(r.status,0,r.stderr);}
 assert.deepEqual(manifest.content_scripts[0].matches,['https://zone.definedgesecurities.com/*']);
 assert.deepEqual(manifest.permissions,['storage','unlimitedStorage']);

@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.18.0 preview - 2026-09-25
+
+- Organize New test into Test setup, Portfolio, Strategy details, Entry conditions and Exit conditions.
+- Place Radar, Relative Strength and its System Builder together; keep Strategy 1–3 visible and independent.
+- Open Market Trend in a dedicated, responsive window while preserving chart, benchmark, method, action, exit and Test values controls.
+- Keep entry, exit and Market Trend chart contexts independent. Existing execution eligibility remains unchanged.
+- Use native checkboxes with separate On/Off trial alternatives; support cancelling edits, including after resuming a setup draft.
+- Preserve source searches, paired dates, daily choice caching, saved studies and result reuse.
+- Include the new stylesheet in Windows/Linux packages; check that every dashboard asset is in the release payload.
+
 ## 0.17.6 preview - 2026-09-18
 
 - Search exit rules using the execution chart selected in Vault, even when RZone reopens the dialog using a different main chart. Restore the original source dialog after the search.
