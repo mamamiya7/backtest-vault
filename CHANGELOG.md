@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.19.0 candidate - 2026-09-25
+
+- Add candidate NSE/Price execution for independently selected Candle, P&F and Renko main and exit charts, including their box, reversal, brick and price-mode settings.
+- Preserve exact Relative Strength and Market Trend Filter settings through variant trials. Handle observed Relative Strength heading changes without rewriting raw captures or older saved templates.
+- Require the connected RZone page to advertise support for both selected charts. Older source pages keep variant Run disabled with a refresh-and-reconnect message.
+- Keep exact source choices, fresh submission/result evidence, complete report capture and verified durable saves. Uncertain trials are never replayed automatically; non-Price and other-market execution remain unavailable.
+- Preserve daily menu caches and interrupted-scan protection. No Recheck all choices is required for this update; installer behavior and existing archives are unchanged.
+- Focused suites and runner cases 86–101 passed, including 41 simulated saves and stale-result/reuse rejection. The three-trial live P&F batch passed exported settings, fresh-source lifecycle, full report and durable-save verification. Renko live acceptance and release publication remain pending.
+
 ## 0.18.5 preview - 2026-09-25
 
 - Fix Use these settings rejecting today's unchanged menus after RZone has mounted hidden Relative Strength controls or portfolio help text.

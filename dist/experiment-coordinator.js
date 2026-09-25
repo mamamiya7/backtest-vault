@@ -342,7 +342,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
     if(!['draft','paused'].includes(e.status)||e.trials.some(t=>t.status==='uncertain'))throw Error('Review interrupted trials before resuming.');
     const tab=await sourceStatus(await get('runner:tab:'+m.tabId));if(!tab?.ready)throw Error(tab?.reason||'RZone is not responding. Open its Momentum BackTesting page with the updated extension, then try again.');
     if(e.demo||!e.trials.some(t=>t.status==='queued'))throw Error('There are no queued real trials.');
-    if(E.fields(e.baseline,'momentum')[0].value!=='Candle'||E.fields(e.baseline,'execution')[3].value!=='Candle')throw Error('P&F and Renko plans can be saved; live execution is waiting for separate adapter acceptance tests.');
+    L.validate('momentum',E.fields(e.baseline,'momentum'));
+    if(L.validate('execution',E.fields(e.baseline,'execution')).selection!=='Price')throw Error('Automatic execution currently requires Price selection.');
     e.owner={tabId:tab.id,session:tab.session};e.status='running';E.journal(e,'Started on selected RZone tab');await put(e);return {ok:true};
    }
    if(m.action==='pause'){if(['running','pausing'].includes(e.status)){e.status=(await get('runner:lease'))?.experimentId===e.id?'pausing':'paused';if(e.status==='paused')delete e.owner;E.journal(e,'Stop after current trial requested');await put(e);}return {ok:true};}
