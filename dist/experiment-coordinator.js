@@ -183,6 +183,46 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
   if(t&&E.active.includes(t.status)){t.status='uncertain';t.error='Source tab stopped responding. Check for a saved report before skipping.';e.status='needs-review';E.journal(e,t.error);await put(e);}
   return l;
  }
+ async function recoverReplacedSource(tabId,session,confirmed){
+  const state=await storage.get(null),lease=state['runner:lease'];
+  const replaced=owner=>owner?.tabId===tabId&&typeof owner.session==='string'&&owner.session!==session;
+  const deadLease=replaced(lease),studies=Object.entries(state).filter(([key,e])=>key.startsWith('experiment:')&&(replaced(e.owner)||deadLease&&lease.experimentId===e.id&&!e.owner));
+  const registered=state['runner:tab:'+tabId],receiptChanged=typeof registered?.session==='string'&&registered.session!==session;
+  if(!deadLease&&!studies.length&&!receiptChanged)return true;
+  // A delayed hello from a dead document must not retire the new owner. Only
+  // the currently responding top-frame document can confirm replacement.
+  let current=confirmed;
+  if(!current&&probe){try{current=await probe(tabId);}catch{return false;}}
+  if(!current||current.session!==session)return false;
+  const leaseStudy=deadLease&&state['experiment:'+lease.experimentId];
+  if(leaseStudy?.owner&&!replaced(leaseStudy.owner))return false;
+  const updates={},at=new Date(clock()).toISOString();
+  for(const [key,e] of studies){
+   if(key!=='experiment:'+e.id)throw Error('The saved study identity does not match.');
+   E.validate(e);
+   for(const t of e.trials){
+    if(!E.active.includes(t.status)&&t.status!=='uncertain')continue;
+    const saved=state['run:'+t.runId];let recovered=false;
+    if(saved){try{validateCapture(e,t,saved);recovered=true;}catch{/* Unproven results remain untouched for review. */}}
+    t.status=recovered?'saved':'uncertain';
+    t.error=recovered?null:'RZone was refreshed or reopened before this test finished. Check its saved result or skip this trial before resuming.';
+   }
+   e.status=e.trials.some(t=>t.status==='uncertain')?'needs-review':e.trials.every(t=>['saved','skipped'].includes(t.status))?'complete':'paused';
+   delete e.owner;E.journal(e,'RZone page changed. Saved results kept; unfinished tests stopped for review.',at);updates[key]=e;
+  }
+  if(deadLease)updates['runner:lease']=null;
+  if(current)updates['runner:tab:'+tabId]={id:tabId,session,seenAt:clock(),ready:current.ready===true,capable:current.capable===true||current.ready===true,chart:String(current.chart||'').slice(0,30)};
+  // Keep the interrupted journal and ownership release in one durable write.
+  await storage.set(updates);return true;
+ }
+ async function reviewSourceOwners(tabId){
+  if(!probe)return;
+  const state=await storage.get(null),owners=[state['runner:lease'],...Object.entries(state).filter(([key])=>key.startsWith('experiment:')).map(([,e])=>e.owner)],ids=new Set(owners.filter(o=>Number.isInteger(o?.tabId)&&typeof o.session==='string'&&(tabId===undefined||o.tabId===tabId)).map(o=>o.tabId));
+  for(const id of ids){let current;try{current=await probe(id);}catch{continue;}
+   if(typeof current?.session!=='string'||!current.session||current.session.length>80)continue;
+   await recoverReplacedSource(id,current.session,current);
+  }
+ }
  function validateCapture(e,t,r){
   if(!r||r.id!==t.runId||r.experiment?.id!==e.id||r.experiment?.trialId!==t.id||r.experiment?.phase!==t.phase||r.provenance!=='recorded-at-submit')throw Error('A matching durable capture has not been saved.');
   if(e.demo||r.demo===true)throw Error('A fictional result cannot complete a real RZone trial.');
@@ -195,7 +235,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
   const url=runtime.getURL('index.html'),dashboard=sender.id===runtime.id&&(sender.url===url||sender.url?.startsWith(url+'?'));
   if(!source&&!dashboard)throw Error('This page cannot control experiments.');
   if(source&&m.action==='hello'){
-   if(typeof m.session!=='string'||m.session.length>80)throw Error('Invalid source session.');
+   if(typeof m.session!=='string'||!m.session||m.session.length>80)throw Error('Invalid source session.');
+   if(!await recoverReplacedSource(sender.tab.id,m.session))return {ok:true,id:null};
    await storage.set({['runner:tab:'+sender.tab.id]:{id:sender.tab.id,session:m.session,seenAt:clock(),ready:m.ready===true,capable:m.capable===true||m.ready===true,chart:String(m.chart||'').slice(0,30)}});
    // Review the old deadline before accepting a late heartbeat. A returning tab
    // cannot erase a period during which its submission outcome was unknown.
@@ -204,14 +245,20 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    return {ok:true,id:mine?.id||null};
   }
   if(dashboard&&m.action==='list'){
-   await reviewLease();const tabs=(await Promise.all((await collection('runner:tab:')).map(sourceStatus))).filter(Boolean);return {ok:true,experiments:await collection('experiment:'),tabs};
+   await reviewSourceOwners();await reviewLease();const tabs=(await Promise.all((await collection('runner:tab:')).map(sourceStatus))).filter(Boolean);return {ok:true,experiments:await collection('experiment:'),tabs};
   }
   if(dashboard&&m.action==='create'){
    const e=E.create({...m.plan,id:uuid()});if(e.demo)throw Error('Fictional experiments cannot control RZone.');
    if(await get('experiment:'+e.id))throw Error('Experiment ID already exists.');await put(e);return {ok:true,experiment:e};
   }
   if(dashboard&&['configure','lookup-rule','lookup-symbol','open-source'].includes(m.action)){
-   if(await reviewLease()||(await collection('experiment:')).some(x=>['running','pausing'].includes(x.status)))throw Error('Finish or pause the current tests before changing the RZone setup.');
+   await reviewSourceOwners(m.action==='open-source'?undefined:m.tabId);
+   const lease=await reviewLease(),studies=await collection('experiment:');
+   if(lease||studies.some(x=>['running','pausing'].includes(x.status))){
+    const interrupted=lease&&studies.find(e=>e.id===lease.experimentId&&e.status==='needs-review');
+    if(interrupted)throw Error('An interrupted test needs review. Open "'+interrupted.name+'" in My studies, then choose Check saved result or Skip this trial before reconnecting.');
+    throw Error('Finish or pause the current tests in My studies before changing the RZone setup.');
+   }
    if(m.action==='open-source'){
     if(!openSource)throw Error('Open RZone in Chrome and sign in, then reconnect here.');
     return {ok:true,...await openSource(await collection('runner:tab:'))};

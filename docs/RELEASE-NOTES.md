@@ -1,8 +1,12 @@
-# Backtest Vault 0.18.2 — installable preview
+# Backtest Vault 0.18.3 — installable preview
 
 One complete package for Windows and Linux. No Node.js, Python, Git, npm, administrator access, or background server is needed to use the Chrome extension.
 
 ## Changes
+
+- Fix a stale running-test lock after RZone refresh, including after an extension reload. Confirm the live page before releasing old ownership.
+- Keep saved reports and daily choices; recover verified results and retain unfinished trials for review without automatic replay.
+- Ignore delayed old-page messages and protect genuinely active tests.
 
 - Open Vault now opens the exact portfolio report. If the visible completed report has not been saved, Vault saves it first. Already saved reports are not duplicated.
 - Use these settings now correctly restores real saved inputs into New test. The saved-run picker also includes eligible real reports.
@@ -11,7 +15,7 @@ One complete package for Windows and Linux. No Node.js, Python, Git, npm, admini
 
 ## Install
 
-Download **backtest-vault-0.18.2.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
+Download **backtest-vault-0.18.3.zip** when this release is published, extract everything, and open the **BacktestVault** folder.
 
 - **Windows:** double-click **Setup.cmd**.
 - **Linux:** run **bash setup.sh** from that folder.
