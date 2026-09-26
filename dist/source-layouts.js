@@ -11,7 +11,7 @@ function main(chart,relativeStrength=false){
  return freeze({stage:'momentum',chart,variant,relativeStrength:rs,count:(variant?58:52)+(rs?4:0),chartIndex:0,groupIndex:1,marketIndex:3,mtfIndex:2,rsIndex,timeframeIndex:33,radarGateIndex:34+shift,trendGateIndex:37+shift,trendValueIndex:38+shift,rows,benchmarkMarketIndex:rs?rsIndex+1:null,benchmarkIndex:rs?rsIndex+2:null,
   signalIndices:variant?[34,35]:[],sizeIndex:variant?54+(rs?2:0):null,modeIndex:variant?55+(rs?2:0):null,priceIndices:variant?[56+(rs?2:0),57+(rs?2:0)]:[],
   gates:[[4,5,6,7,8,9,10],...Array.from({length:4},(_,i)=>[11+i*2,12+i*2]),...Array.from({length:3},(_,i)=>[26+i*2,27+i*2]),[37+shift,38+shift],...rows.map(r=>[r.gateIndex,r.parentIndex,r.childIndex,...(r.valueIndex!==undefined?[r.valueIndex]:[])])],
-  refreshParents:[0,3,...rows.map(r=>r.parentIndex),...(rs?[rsIndex+1]:[]),...(chart==='Renko'?[55+(rs?2:0)]:[])],labelDependents:{[44+shift]:[47+shift,48+shift,49+shift,50+shift]}});
+  refreshParents:[0,3,...rows.map(r=>r.parentIndex),...(rs?[rsIndex+1]:[]),...(chart==='Renko'?[55+(rs?2:0)]:[])],labelDependents:{[44+shift]:[47+shift,48+shift,49+shift,50+shift],...(variant&&rs?{61:[56,57]}:{})}});
 }
 function execution(chart,selection='Price'){
  chartName(chart);if(!['Price','RS','Both'].includes(selection))throw Error('This selection layout is not available.');const variant=chart!=='Candle',chartShift=variant?4:0,rs=selection!=='Price',shift=chartShift+(rs?2:0),row={name:'Exit strategy',parentIndex:6+shift,childIndex:7+shift,gateIndex:5+shift};

@@ -85,12 +85,15 @@ function ruleCatalogues(input,stage,fields,options){
   }
   if(owns(categories,selected)&&!same(categories[selected],options[key]))throw Error('Cached strategy rules do not match the selected source category.');
   if(child.type==='text'&&child.value!==''&&!options[key]?.some(o=>o.value===child.value))throw Error('Selected source value is absent from its choices: '+child.label);
-  if(owns(entry,'labelDependents')&&(stage!=='momentum'||!owns(layout.labelDependents,key)||!same(entry.labelDependents,layout.labelDependents[key])||!fieldLabels||Object.values(fieldLabels).some(labels=>labels.some(label=>label!==labels[0]))))throw Error('Invalid strategy label dependencies.');
-  out[key]={parentIndex:shape.parentIndex,gateIndex:shape.gateIndex,categories,...(controlTypes?{controlTypes}:{}),...(searchQueries?{searchQueries}:{}),...(fieldLabels?{fieldLabels}:{}),...(owns(entry,'labelDependents')?{labelDependents:clone(entry.labelDependents)}:{})};
+  const rsConstruction=stage==='momentum'&&layout.variant&&shape.name==='Relative Strength',knownDependents=layout.labelDependents?.[key],prefix=fields[shape.parentIndex].label+' → ';
+  const dependencies=entry.labelDependents;
+  if(dependencies!==undefined&&(stage!=='momentum'||!owns(layout.labelDependents,key)||!same(dependencies,knownDependents)||!fieldLabels||Object.values(fieldLabels).some(labels=>(rsConstruction?labels.slice(0,2):labels).some(label=>label!==labels[0]))))throw Error('Invalid strategy label dependencies.');
+  out[key]={parentIndex:shape.parentIndex,gateIndex:shape.gateIndex,categories,...(controlTypes?{controlTypes}:{}),...(searchQueries?{searchQueries}:{}),...(fieldLabels?{fieldLabels}:{}),...(dependencies!==undefined?{labelDependents:clone(dependencies)}:{})};
  }
  for(const [key,catalogue] of Object.entries(out))if(catalogue.labelDependents){
   const prefix=fields[catalogue.parentIndex].label+' → ',child=layout.rows.find(row=>row.parentIndex===catalogue.labelDependents[0])?.childIndex,labels=out[child]?.fieldLabels;
-  if(!labels||catalogue.labelDependents.some(index=>!fields[index].label.startsWith(prefix)||fields[index].label.length===prefix.length)||Object.values(labels).some(row=>row.some(label=>!label.startsWith(prefix)||label.length===prefix.length)))throw Error('Invalid strategy label dependency evidence.');
+  const construction=shapes[key].name==='Relative Strength'&&layout.variant;
+  if(!construction&&!labels||catalogue.labelDependents.some(index=>!fields[index].label.startsWith(prefix)||fields[index].label.length===prefix.length)||labels&&Object.values(labels).some(row=>row.some(label=>!label.startsWith(prefix)||label.length===prefix.length)))throw Error('Invalid strategy label dependency evidence.');
  }
  return out;
 }
@@ -101,9 +104,12 @@ function projectRuleLabels(baseFields,catalogues,selectedFields,sourceStage){
   const observed=catalogue.fieldLabels?.[selectedFields[catalogue.parentIndex]?.value];if(!observed)continue;
   ruleRowIndices(stage,key,layout.rows.find(row=>row.childIndex===Number(key))).forEach((index,n)=>{labels[index]=observed[n];});
  }
- for(const catalogue of Object.values(catalogues||{}))if(catalogue.labelDependents){
+ for(const [key,catalogue] of Object.entries(catalogues||{})){
   const original=baseFields[catalogue.parentIndex].label+' → ',updated=labels[catalogue.parentIndex]+' → ';
-  for(const index of catalogue.labelDependents){
+  // Project the known legacy RS ancestor without changing archived templates.
+  const known=layout.labelDependents?.[key],rs=stage==='momentum'&&layout.variant&&layout.rows.find(row=>row.childIndex===Number(key))?.name==='Relative Strength';
+  const dependencies=catalogue.labelDependents||(rs&&known?.every(index=>labels[index].startsWith(original)&&labels[index].length>original.length)?known:[]);
+  for(const index of dependencies){
    if(!labels[index].startsWith(original)||labels[index].length===original.length)throw Error('Strategy label dependency changed. Reload the available setup.');
    labels[index]=updated+labels[index].slice(original.length);
    if(labels[index].length>2000)throw Error('Strategy field label is too long.');
@@ -179,7 +185,11 @@ function template(source){
  if(filters){t.supports.filters=[...filters];t.supports.blocked=t.supports.blocked.filter(value=>!filters.includes(value));}
  if(m[L.main(m[0].value).rsIndex].checked&&!t.stages.momentum.relativeStrength&&!filters?.includes('relative-strength'))throw Error('Load complete Relative Strength settings before continuing.');
  if(m[2].checked&&!t.stages.marketFilter&&!filters?.includes('market-filter'))throw Error('Load complete Market Trend Filter settings before continuing.');
- if(t.adapterVersion)t.supports.executeCharts=['Candle'];
+ if(t.adapterVersion){
+  const executionCharts=source.supports&&owns(source.supports,'executeCharts')?source.supports.executeCharts:['Candle'];
+  if(!Array.isArray(executionCharts)||executionCharts.some(chart=>!L.charts.includes(chart))||new Set(executionCharts).size!==executionCharts.length)throw Error('Invalid source execution capabilities.');
+  t.supports.executeCharts=[...executionCharts];
+ }
  return t;
 }
 function editorStages(t){
@@ -432,10 +442,22 @@ function validateBaseline(b){
  if(!same(b.parameters,rebuilt.parameters)||!same(b.setup,rebuilt.setup)||Object.keys(b).some(k=>!['id','name','demo','origin','setupVersion','parameters','setup'].includes(k)))throw Error('Vault setup settings or source template were altered.');
  return b;
 }
-function executionCapability(input){const t=template(input),available=t.stages.momentum.fields[0].value==='Candle'&&t.stages.execution.fields[3].value==='Candle';return {available,reason:available?'':'Automatic execution for P&F and Renko is awaiting verification. You can review their settings and choices.'};}
+function settingLabel(fields,index){
+ let label=V.clean(fields[index]?.label);let layout;
+ try{layout=L.stage('momentum',fields);}catch{return label;}
+ // RZone retains these mounted RS decorations after On → Off. Their text is
+ // not a setting; compare the original controls and keep raw archive labels.
+ if(!layout.relativeStrength&&index===layout.rsIndex)label=label.replace(/^(Relative Strength\s*:)\s*\/\s*(?:All|NSE|BSE|MF|EQW)$/,'$1');
+ if(layout.variant&&[layout.sizeIndex,layout.modeIndex].includes(index))label=label.replace(/^RS SB : \/ (?:Pre|My|Public|Popular)i → /,'');
+ return label;
+}
+function executionCapability(input){
+ const t=template(input),charts=t.supports.executeCharts||['Candle'],available=[t.stages.momentum.fields[0].value,t.stages.execution.fields[3].value].every(chart=>charts.includes(chart));
+ return {available,reason:available?'':'Refresh RZone and reconnect to use the updated P&F and Renko runner. Your settings are kept.'};
+}
 function demoTemplate({momentumChart='Candle',executionChart=momentumChart,momentumBrickMode,executionBrickMode}={}){
  const D=typeof module!=='undefined'?require('./demo.js'):root.VaultDemo;
- L.main(momentumChart);L.execution(executionChart);const samples=D.create(),r=samples.find(r=>r.parameters.strategy.main.fields[0].value===momentumChart&&r.parameters.strategy.main.fields.length===L.main(momentumChart).count),execution=samples.find(r=>r.parameters.strategy.execution.fields[3].value===executionChart),source={demo:true,adapterVersion:L.version,stages:{momentum:{fields:clone(r.parameters.strategy.main.fields)},execution:{fields:clone(execution.parameters.strategy.execution.fields)},portfolio:portfolioTemplate()}};
+ L.main(momentumChart);L.execution(executionChart);const samples=D.create(),r=samples.find(r=>r.parameters.strategy.main.fields[0].value===momentumChart&&r.parameters.strategy.main.fields.length===L.main(momentumChart).count),execution=samples.find(r=>r.parameters.strategy.execution.fields[3].value===executionChart),source={demo:true,adapterVersion:L.version,supports:{executeCharts:[...L.charts]},stages:{momentum:{fields:clone(r.parameters.strategy.main.fields)},execution:{fields:clone(execution.parameters.strategy.execution.fields)},portfolio:portfolioTemplate()}};
  // This helper builds fictional editor examples, not a copy of live source
  // state. Its initial price choice is deliberate; live flags are never fixed.
  for(const stage of ['momentum','execution']){const layout=stage==='momentum'?L.main(momentumChart):L.execution(executionChart),s=source.stages[stage],brickMode=stage==='momentum'?momentumBrickMode:executionBrickMode;s.options={[layout.chartIndex]:L.charts.map(value=>({value,label:value}))};if(layout.variant){s.fields[layout.priceIndices[0]].checked=true;s.fields[layout.priceIndices[1]].checked=false;s.options[layout.modeIndex]=(layout.chart==='Renko'?['Absolute','Percent','ATR','ATR %']:Array.from({length:14},(_,i)=>String(i+2))).map(value=>({value,label:value}));}if(brickMode!==undefined){const sizes={Absolute:'10',Percent:'1',ATR:'14','ATR %':'14'};if(layout.chart!=='Renko'||!owns(sizes,brickMode))throw Error('Choose an available Renko brick mode.');s.fields[layout.modeIndex].value=brickMode;s.fields[layout.sizeIndex].value=sizes[brickMode];}}
@@ -444,6 +466,6 @@ function demoTemplate({momentumChart='Candle',executionChart=momentumChart,momen
  Object.assign(source.stages.momentum.options,{1:[r.parameters.strategy.main.fields[1].value,'Demo universe 20','Demo universe 60'],3:['NSE'].map(value=>({value,label:value})),33:['Daily','Weekly'].map(value=>({value,label:value}))});
  return template(source);
 }
-const api={descriptorForFields,activeField,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,executionCapability,demoTemplate,mergeSymbolChoices};
+const api={descriptorForFields,activeField,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,settingLabel,executionCapability,demoTemplate,mergeSymbolChoices};
 if(typeof module!=='undefined')module.exports=api;root.VaultSetup=api;
 })(typeof window!=='undefined'?window:globalThis);

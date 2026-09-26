@@ -300,7 +300,13 @@ for(const initial2 of ['Pre','Public'])for(const initial3 of ['Pre','My']){
  for(const momentumChart of L.charts)for(const executionChart of L.charts){
   const t=S.demoTemplate({momentumChart,executionChart}),config=S.defaults(t),fields=S.fieldsForUI(t).flatMap(g=>g.fields),base=S.configToBaseline(config,t),unchanged=clone(t);
   assert.equal(base.parameters.strategy.main.fields[0].value,momentumChart);assert.equal(base.parameters.strategy.execution.fields[3].value,executionChart);S.validateBaseline(clone(base));assert.deepEqual(t,unchanged);
-  assert.equal(S.executionCapability(t).available,momentumChart==='Candle'&&executionChart==='Candle','Read/edit support cannot unlock a non-Candle live execution gate');
+  assert.equal(S.executionCapability(t).available,true,'The current source supports every main/execution chart pair');
+  assert.deepEqual(S.template(t).supports.executeCharts,[...L.charts],'Normalization preserves advertised chart capabilities');
+  const oldSource=clone(t);oldSource.supports.executeCharts=['Candle'];const oldBefore=clone(oldSource),oldCapability=S.executionCapability(oldSource),candleOnly=momentumChart==='Candle'&&executionChart==='Candle';
+  assert.equal(oldCapability.available,candleOnly,'An old source still blocks each unsupported main or execution chart');if(!candleOnly)assert.match(oldCapability.reason,/Refresh RZone and reconnect/);
+  assert.deepEqual(S.template(oldSource).supports.executeCharts,['Candle']);assert.deepEqual(oldSource,oldBefore,'Capability checks never rewrite old source metadata');
+  const legacySource=clone(t);delete legacySource.supports.executeCharts;assert.equal(S.executionCapability(legacySource).available,candleOnly,'Missing capability metadata cannot promote a legacy source');
+  const narrowed=clone(t);narrowed.supports.executeCharts=['P&F','Candle'];assert.equal(S.executionCapability(narrowed).available,momentumChart!=='Renko'&&executionChart!=='Renko','Both independent chart stages must be advertised');
   for(const stage of ['momentum','execution','portfolio']){const indices=fields.filter(f=>f.stage===stage).flatMap(f=>f.indices||[f.index]);assert.deepEqual(indices.slice().sort((a,b)=>a-b),t.stages[stage].fields.map(f=>f.index),'Every '+stage+' native control is represented exactly once');}
   for(const stage of ['momentum','execution']){const layout=L.stage(stage,t.stages[stage].fields),descriptor=fields.find(f=>f.key===stage+'.chart');assert.equal(descriptor.dynamic,true);assert.equal(descriptor.chartContext,true);assert.ok(descriptor.options.every(o=>!o.disabled));if(!layout.variant)continue;
    assert.equal(fields.find(f=>f.key===stage+(layout.chart==='P&F'?'.box.size':'.brick.size')).index,layout.sizeIndex);assert.equal(fields.find(f=>f.key===stage+(layout.chart==='P&F'?'.box.reversal':'.brick.mode')).index,layout.modeIndex);
@@ -310,6 +316,12 @@ for(const initial2 of ['Pre','Public'])for(const initial3 of ['Pre','My']){
   const bad=clone(t);bad.stages.execution.fields[0].type='text';assert.throws(()=>S.template(bad),/controls changed/);const blocked=clone(t);blocked.stages.momentum.fields[L.main(momentumChart).rsIndex].checked=true;assert.throws(()=>S.template(blocked),/Relative Strength (?:off|settings)|controls changed/);
  }
  for(const stage of ['momentum','execution'])for(const mode of ['Absolute','Percent','ATR','ATR %']){const t=S.demoTemplate({momentumChart:'Renko',executionChart:'Renko'}),layout=L.stage(stage,t.stages[stage].fields);t.stages[stage].fields[layout.modeIndex].value=mode;t.stages[stage].fields[layout.sizeIndex].value=mode.startsWith('ATR')?'14':mode==='Absolute'?'10':'1';const loaded=S.template(t),config=S.defaults(loaded),f=S.fieldsForUI(loaded).flatMap(g=>g.fields).find(f=>f.key===stage+'.brick.size');assert.equal(f.integer,mode.startsWith('ATR'));S.validateBaseline(S.configToBaseline(config,loaded));if(mode.startsWith('ATR'))assert.throws(()=>S.validateConfig({...config,[stage+'.brick.size']:1.5},loaded),/whole number/);assert.throws(()=>S.validateConfig({...config,[stage+'.brick.mode']:mode==='Percent'?'Absolute':'Percent'},loaded),/Refresh choices/);}
+ // Advertised capability metadata is input, not authority to invent an adapter.
+ for(const executeCharts of [null,'Candle',3,{},['Candle','Candle'],['Candle','Heikin Ashi'],['Candle',null]]){
+  const invalid=S.demoTemplate();invalid.supports.executeCharts=executeCharts;
+  assert.throws(()=>S.template(invalid),/Invalid source execution capabilities/);
+ }
+ const none=S.demoTemplate();none.supports.executeCharts=[];assert.equal(S.executionCapability(none).available,false,'An explicit empty advertisement does not silently restore Candle');
  // Text search children and observed nested labels use the chart's own rows.
  for(const chart of ['P&F','Renko'])for(const stage of ['momentum','execution']){
   const source=S.demoTemplate({momentumChart:chart,executionChart:chart}),s=source.stages[stage],layout=L.stage(stage,s.fields),categories=['Pre','My','Public','Popular'],option=value=>({value,label:value,disabled:false});s.ruleCatalogues={};
@@ -339,7 +351,7 @@ for(const initial2 of ['Pre','Public'])for(const initial3 of ['Pre','My']){
  const L=require('../dist/source-layouts.js');
  for(const momentumChart of L.charts)for(const executionChart of L.charts){
   const live=S.demoTemplate({momentumChart,executionChart}),saved=S.configToBaseline({...S.defaults(live),'momentum.period.1':252,'execution.from':'2020-01-01','portfolio.capital':450000},live),record={...clone(fixture),parameters:clone(saved.parameters)},config=S.configFromRun(record,live);
-  assert.deepEqual(S.configToBaseline(config,live).parameters,saved.parameters);assert.equal(S.executionCapability(live).available,momentumChart==='Candle'&&executionChart==='Candle','Reusing a variant is no new live execution approval');
+  assert.deepEqual(S.configToBaseline(config,live).parameters,saved.parameters);assert.equal(S.executionCapability(live).available,true,'Saved-input reuse retains current source capability across every chart pair');
   const context=S.savedRunContext(record);assert.equal(context.config['momentum.chart'],momentumChart);assert.equal(context.config['execution.chart'],executionChart);assert.ok(context.changes.every(change=>Object.values(change).flatMap(Object.keys).length===1));
   if(momentumChart!=='Candle'||executionChart!=='Candle')assert.throws(()=>S.configFromRun(record,S.demoTemplate()),/Load the saved/,'Independent main and execution contexts must be loaded before field positions are reused');
  }
@@ -382,3 +394,37 @@ console.log('PASS: exact saved-run re-use with current-menu validation, independ
  const mutation=clone(S.configToBaseline(config,t));mutation.parameters.strategy.marketTrend.fields[3].value='Changed';assert.throws(()=>S.validateBaseline(mutation),/altered/,'Auxiliary submission evidence is part of immutable setup reconstruction');
 }
 console.log('PASS: Relative Strength and independent market trend chart/mode/action projections, source identities, on-demand gates, current defaults and saved-run restoration.');
+
+// RS source headings prefix the variant construction controls in the observed native form.
+// Both current and legacy daily catalogues must project those labels without changing values.
+{
+ const F=require('./fixtures/filter-setup.cjs'),L=require('../dist/source-layouts.js'),choice=value=>({value,label:value});
+ for(const chart of ['P&F','Renko'])for(const explicitDependencies of [false,true]){
+  const input=F({chart}),rs=input.stages.momentum.relativeStrength,prefix=category=>'RS SB : / '+category+'i',suffixes=[rs.fields[56].label,rs.fields[57].label],gateLabel=rs.fields[53].label;
+  rs.fields[60].label=prefix('Pre');rs.fields[61].label=prefix('Pre');rs.options[60]=['Pre','Popular'].map(choice);
+  const categories={Pre:[choice('Demo relative rule')],Popular:[choice('Demo popular relative rule')]};
+  rs.options[61]=clone(categories.Pre);rs.ruleCatalogues||={};rs.ruleCatalogues[61]={parentIndex:60,gateIndex:53,categories,fieldLabels:{Pre:[prefix('Pre'),prefix('Pre'),gateLabel],Popular:[prefix('Popular'),prefix('Popular'),gateLabel]},...(explicitDependencies?{labelDependents:[56,57]}:{})};
+  for(const [n,index]of [56,57].entries())rs.fields[index].label=prefix('Pre')+' → '+suffixes[n];
+  const original=clone(input),template=S.template(input),normalized=template.stages.momentum.relativeStrength.ruleCatalogues[61];
+  assert.deepEqual(normalized.labelDependents,explicitDependencies?[56,57]:undefined,chart+' normalization preserves existing metadata without migrating legacy templates');
+  for(const category of ['Pre','Popular']){
+   const selected=clone(rs.fields);selected[60].value=category;selected[61].value=categories[category][0].value;
+   const projected=S.projectRuleLabels(rs.fields,template.stages.momentum.relativeStrength.ruleCatalogues,selected,'momentum');
+   for(const [n,index]of [56,57].entries())assert.equal(projected[index],prefix(category)+' → '+suffixes[n],'RS source change projects exactly its two dependent headings');
+   const fresh=clone(input),freshRS=fresh.stages.momentum.relativeStrength;freshRS.fields=selected.map((field,index)=>({...field,label:projected[index]}));freshRS.options[61]=clone(categories[category]);
+   const current=S.template(fresh),config={...S.defaults(current),'momentum.rs':true,'momentum.rs.source':category,'momentum.rs.rule':categories[category][0].value},baseline=S.configToBaseline(config,current),fields=baseline.parameters.strategy.main.fields;
+   for(const [n,index]of [56,57].entries()){assert.equal(fields[index].label,prefix(category)+' → '+suffixes[n]);assert.equal(fields[index].value,rs.fields[index].value,'Changing category preserves construction values');}
+   assert.equal(fields[53].label,gateLabel,'The RS checkbox does not share its System Builder heading');
+   for(const index of [58,59])assert.deepEqual(fields[index],rs.fields[index],'RS label projection leaves price controls untouched');
+   const archived=clone(baseline);assert.deepEqual(S.validateBaseline(archived),baseline,'Legacy baseline validates without adding dependency metadata or changing identity');if(!explicitDependencies)assert.equal(archived.setup.template.stages.momentum.relativeStrength.ruleCatalogues[61].labelDependents,undefined);
+  }
+  assert.deepEqual(input,original,'Normalization and category projection preserve raw captured source labels');
+  for(const mutate of [
+   s=>{s.ruleCatalogues[61].labelDependents=[56,58];},
+   s=>{s.ruleCatalogues[61].labelDependents=[57,56];},
+   s=>{s.ruleCatalogues[61].labelDependents=[56,57];s.fields[56].label='Wrong parent → '+suffixes[0];},
+   s=>{s.ruleCatalogues[61].labelDependents=[56,57];s.ruleCatalogues[61].fieldLabels.Popular[1]='Wrong source row';}
+  ]){const invalid=clone(input);mutate(invalid.stages.momentum.relativeStrength);assert.throws(()=>S.template(invalid),/label dependenc|field labels/,'Invalid RS dependency evidence cannot be normalized');}
+ }
+}
+console.log('PASS: P&F/Renko RS category label projection, legacy daily catalogue hydration, immutable construction/price values and strict dependency evidence.');

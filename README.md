@@ -96,7 +96,20 @@ If RZone is refreshed during a study, Vault recognizes the replacement page and 
 
 All source settings stay on one page. The journey shows progress through the work; it does not split the form into a mandatory questionnaire. Only an explicit run or resume action can start source calculations. After reviewing a completed study, **Test on another period** lets you prepare a separate validation test without changing the original results.
 
-**Candle, P&F and Renko have separate settings and choices.** Select the main and execution charts independently. P&F exposes box size and reversal; Renko exposes brick size and its construction mode. Each chart keeps its own rule selections and Test values. P&F/Renko settings are available to inspect and prepare; their automatic execution remains unavailable until separate live write tests pass.
+**Candle, P&F and Renko have separate settings and choices.** Select the main and execution charts independently. P&F exposes box size and reversal; Renko exposes brick size and Absolute, Percent, ATR or ATR % construction. Each chart keeps its own rule selections and Test values. Version 0.19.0 enables automatic P&F and Renko tests with the same submission and save checks as Candle. Three-trial batches for each chart family passed installed live verification.
+
+```mermaid
+flowchart LR
+    A[Choose entry chart\nCandle / P&F / Renko] --> B[Choose independent exit chart]
+    B --> C[Add Test values\nBox / brick size, periods and other inputs]
+    C --> D[Review the planned tests]
+    D --> E[Apply and read back exact settings]
+    E --> F[Wait for a fresh backtest result]
+    F --> G[Capture and save the portfolio report]
+    G --> H[Next test]
+```
+
+For example, select P&F and give box-size Test values of `0.25, 0.5, 1` to run three tests. Renko ATR and ATR % use an integer period; Percent uses a percentage and Absolute uses a price amount. Chart types, rule sources and Renko construction mode remain fixed within one study. Start a separate study to compare another construction mode. Results preserve each run's recorded chart settings.
 
 **Dropdown choices are saved for the local calendar day, including after RZone refreshes or opening another RZone tab.** This includes Group, Radar, strategy categories and already-read filter choices and symbol searches. The first connection checks all three charts; later connections read current settings without walking those menus again. A newly used filter context or search needs its first lookup. **Recheck all choices** refreshes the menus immediately, for example after changing rules or switching RZone accounts. A new day or adapter update starts a fresh check. No backtest starts during a choice check.
 
@@ -203,11 +216,11 @@ flowchart LR
 | Finite plans, reproducible samples, bounded adaptive neighborhood search | Local planner and isolated simulation tested |
 | Persistent queue, one source tab, save acknowledgement, pause/recovery | The preceding v0.7.3 saved-baseline flow completed three real Candle trials; this does not validate every new setup option |
 | Frozen decision rules, neighboring-setting checks, baseline/index context, validation and holdout stages | Descriptive research evidence; no predictive or pooled portfolio score |
-| P&F and Renko setup, independent execution chart and daily menus | Discovery/editing available; live execution gated pending separate write tests |
+| P&F and Renko setup, independent execution chart and daily menus | Three-trial P&F and Renko batches verified live; broader combinations covered by fixtures |
 
 ![Earlier study layout with synthetic trial rankings and queue progress](docs/images/10-experiments.png)
 
-No LLM setup is required. Current automatic setup uses **NSE**, **Candle** and **Price**. Relative Strength and Market Trend Filter have their own settings, choices and Test values, with complete settings captured for each run. P&F/Renko main or execution charts remain gated pending separate live acceptance. Existing captures from those chart families can still be inspected and compared. A [consolidated source-control audit](docs/EXPERIMENTS.md#chart-and-dependent-control-coverage) records the broader form dependencies separately from automation support.
+No LLM setup is required. Current automatic setup uses **NSE** and **Price selection**, with independent **Candle, P&F or Renko** main and exit charts. Relative Strength and Market Trend Filter have their own settings, choices and Test values, with complete settings captured for each run. An older connected RZone runner must be refreshed before it advertises the new chart support; valid daily menus remain reusable. A [consolidated source-control audit](docs/EXPERIMENTS.md#chart-and-dependent-control-coverage) records form dependencies and the live acceptance limits.
 
 ### Sample results or a real backtest?
 
@@ -505,18 +518,27 @@ A pending recovery exists only in that tab's memory. Refreshing or closing the t
 
 | Supported | Limits to keep visible |
 | --- | --- |
-| Vault-first Candle setup, manual saving and finite trial queues | New full-setup live acceptance pending; one earlier saved-baseline batch verified; no order execution |
+| Vault-first Candle, P&F and Renko setup, manual saving and finite trial queues | Live batches verified within the scope below; no order execution |
 | Settings recorded at submission | Named rules may not expose their underlying numerical definition |
 | Static report chart snapshots | No underlying price-series or hover-data capture |
 | Separate, comparable strategy groups | No promised future winner or combined-portfolio performance from averaged summaries |
 | Candle, P&F and Renko display adapters | Unknown layouts retain individual fields rather than guessed labels |
 | Brief animations respecting reduced motion | Financial values display immediately, without animated counting |
 
-**Validation evidence:** all nine local test suites passed for v0.7.3. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
+**Earlier validation evidence:** all nine local test suites passed for v0.7.3. They cover capture linkage, failed submissions, all trade pages, SVG sanitation, CSV formula safety, imports, formatting, CAGR fallback, comparisons, benchmark checks and demo isolation.
 
-On 2026-09-16, a real three-trial Candle experiment completed through the installed extension's **v0.7.3 saved-baseline flow**. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This establishes the tested older flow; it does not validate v0.9.0's new full setup, every source layout or P&F/Renko execution. Private reports remain outside this repository.
+On 2026-09-16, a real three-trial Candle experiment completed through the installed extension's **v0.7.3 saved-baseline flow**. Its exported plan, distinct submission receipts, source statistics, trade counts, six charts per run and save-before-next-trial sequence were verified. Two settings were also calculated independently for comparison. This establishes the tested older flow; the newer full-setup variant evidence is described below. Private reports remain outside this repository.
 
-Five exported live Candle runs previously matched their source evidence. Three P&F and three Renko runs were saved live; exported-archive comparison for that batch is pending. The user confirmed the updated saver works. Earlier dashboard revisions were checked in a standalone Chrome preview; the installed extension dashboard was not directly inspected by automation.
+The v0.19.0 installed **New test** flow completed three P&F trials (box sizes `0.25, 0.5, 1`) and three Renko trials (Percent brick sizes `0.5, 1, 2`). Exported records passed exact settings, unique submission IDs, fresh running-to-completed lifecycle, complete trade capture, six charts per run and durable-save-before-next checks. A separate P&F-entry/Renko-exit trial also passed. Equal returns across settings are not treated as proof of calculation correctness.
+
+| Evidence | Verified scope |
+| --- | --- |
+| Installed P&F batch | Three main box sizes; P&F exit |
+| Installed Renko batch | Three Percent main brick sizes; Renko exit |
+| Installed mixed-chart run | P&F main; Renko exit; Radar and a Popular exit rule enabled |
+| Automated fixtures | All nine main/exit chart pairs, four Renko construction modes, RS/Market Trend Filter dependencies, stale-result rejection and saved-settings reuse |
+
+These checks do not establish every live filter combination or independently audit RZone's calculations. Five earlier exported Candle runs matched their source evidence. The older manual P&F/Renko saves are separate from the verified v0.19.0 batches. Browser automation cannot directly inspect the installed Vault dashboard; the user started and exported the live batches. Private reports stay outside this repository.
 
 Definedge's Renko execution form can select **Close Only** and **High & Low** simultaneously. Vault preserves both and flags the ambiguous source state. [Known limitations](docs/LIMITATIONS.md)
 

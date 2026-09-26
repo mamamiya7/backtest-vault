@@ -164,7 +164,8 @@ function expected(e,t){
 function fieldEqual(a,b){if(a.type!==b.type)return false;if(['checkbox','radio'].includes(a.type))return a.checked===b.checked;const x=String(a.value).trim(),y=String(b.value).trim();if(a.type==='text'&&/^-?[\d,.]+$/.test(x)&&/^-?[\d,.]+$/.test(y))return V.number(x)===V.number(y);return x===y;}
 function verify(expectedFields,actualFields){
  if(!Array.isArray(actualFields)||expectedFields.length!==actualFields.length)throw Error('Settings layout changed. Review the source tab.');
- for(let i=0;i<expectedFields.length;i++){const a=expectedFields[i],b=actualFields[i];if(a.type!==b.type||V.clean(a.label)!==V.clean(b.label))throw Error('Setting label/layout changed at field '+(i+1)+'.');if(!fieldEqual(a,b))throw Error('Setting read-back differs: '+a.label+' (field '+(i+1)+').');}
+ const label=(fields,index)=>S?.settingLabel?S.settingLabel(fields,index):V.clean(fields[index]?.label);
+ for(let i=0;i<expectedFields.length;i++){const a=expectedFields[i],b=actualFields[i];if(a.type!==b.type||label(expectedFields,i)!==label(actualFields,i))throw Error('Setting label/layout changed at field '+(i+1)+'.');if(!fieldEqual(a,b))throw Error('Setting read-back differs: '+a.label+' (field '+(i+1)+').');}
  return true;
 }
 function verifySettings(planned,actual){

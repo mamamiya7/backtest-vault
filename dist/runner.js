@@ -474,6 +474,9 @@ function dailyStage(stage,descriptor,cached){
    return label;
   };
   cached=structuredClone(cached);
+  // Construction ancestors are removed from the comparison labels below.
+  // The raw descriptor re-infers this exact dependency after cache reuse.
+  if(stage==='momentum'&&layout.variant&&layout.relativeStrength)delete cached.ruleCatalogues?.[61]?.labelDependents;
   cached.signature.forEach((entry,index)=>{entry[1]=stableLabel(entry[1],index);});
   for(const row of layout.rows)for(const labels of Object.values(cached.ruleCatalogues[row.childIndex]?.fieldLabels||{}))ruleRowIndices(row).forEach((index,n)=>{labels[n]=stableLabel(labels[n],index);});
   const base=descriptor.fields.map((field,index)=>({...field,type:cached.signature[index][0],label:cached.signature[index][1]}));
@@ -696,7 +699,7 @@ async function configuration(requestedChanges,request={}){
   if(executionCache?.symbolOptions)mergeBenchmarks(execution,{options:structuredClone(executionCache.symbolOptions),symbolQueries:structuredClone(executionCache.symbolQueries||{})});
   if(JSON.stringify(C.fields(C.main()))!==JSON.stringify(momentum.fields))throw Error('RZone momentum settings changed while reading backtest choices. Review the source.');
   const portfolio=window.VaultSetup?.portfolioTemplate();if(!portfolio)throw Error('Vault setup template is unavailable. Reload the extension and RZone.');
-  check();config={schemaVersion:1,adapterVersion:L.version,session,capturedAt:new Date().toISOString(),stages:{momentum,execution,portfolio},supports:{charts:['Candle','P&F','Renko'],executeCharts:['Candle'],filters:['relative-strength','market-filter'],blocked:[]}};window.VaultSetup.template(config);
+  check();config={schemaVersion:1,adapterVersion:L.version,session,capturedAt:new Date().toISOString(),stages:{momentum,execution,portfolio},supports:{charts:[...L.charts],executeCharts:[...L.charts],filters:['relative-strength','market-filter'],blocked:[]}};window.VaultSetup.template(config);
   }finally{
    try{if(setup&&C.visible(setup)&&!interrupted){if(restoreExecution)await restoreStage(setup,'execution',warmExecution,started+50000);await close(setup,started+55000);}}
    catch(error){failed=true;throw error;}
@@ -789,7 +792,7 @@ function ruleTransition(expected,current,index,catalogues){
 }
 function layout(expected,current,catalogues,base,stage){
  const project=window.VaultSetup?.projectRuleLabels,from=base&&catalogues&&project?project(base,catalogues,current,stage):null,to=base&&catalogues&&project?project(base,catalogues,expected,stage):null;
- if(expected.length!==current.length||expected.some((f,i)=>f.type!==current[i].type&&!ruleTransition(expected,current,i,catalogues)||V.clean(f.label)!==V.clean(current[i].label)&&!(from?.[i]===current[i].label&&to?.[i]===f.label)))throw Error('Settings layout changed. Review the source tab.');
+ if(expected.length!==current.length||expected.some((f,i)=>f.type!==current[i].type&&!ruleTransition(expected,current,i,catalogues)||window.VaultSetup.settingLabel(expected,i)!==window.VaultSetup.settingLabel(current,i)&&!(from?.[i]===current[i].label&&to?.[i]===f.label)))throw Error('Settings layout changed. Review the source tab.');
 }
 function nodeField(node,field){return {...field,type:node.type,value:node.tagName==='SELECT'?[...node.selectedOptions].map(o=>V.clean(o.textContent)).join('; '):node.value,checked:['checkbox','radio'].includes(node.type)?node.checked:null,disabled:node.disabled};}
 function setupNodes(p,expected,catalogues){const nodes=inputs(p),current=nodes.map((n,i)=>nodeField(n,expected[i]));if(nodes.length!==expected.length||nodes.some((n,i)=>n.type!==expected[i].type&&(!ruleTransition(expected,current,i,catalogues)||!ruleShape(n))))throw Error('Settings layout changed. Review the source tab.');return nodes;}
@@ -873,7 +876,7 @@ async function setField(p,index,f,stage,until=Infinity,template){
  check();if(Date.now()>=until)throw Error('The source settings operation exceeded its deadline.');const node=inputs(p)[index];if(!node||node.type!==f.type)throw Error('Settings layout changed. Review the source tab.');const current=nodeField(node,f),source=sourceLayout(p,stage),search=stageRows(stage,p).some(row=>row.childIndex===index&&row.name!=='Radar')&&ruleSearch(node),symbol=symbolIndices(source).includes(index);if(sameValue(f,current)&&!(stage==='momentum'&&index===1)&&!((search||symbol)&&f.value.trim()&&!node.disabled))return;
  if(node.disabled)throw Error('Planned setting is disabled: '+f.label);
  if(['checkbox','radio'].includes(f.type)){if(f.type==='radio'&&!f.checked)return;ownClick(node);if(index===source?.rsIndex||stage==='marketFilter'&&[source?.indexModeIndex,source?.rsModeIndex].includes(index))await settledStage(p,stage,source.chart,until);const row=stageRows(stage,p).find(r=>r.gateIndex===index);if(row&&f.checked)await enabledRule(p,row,until);}
- else if(node.tagName==='SELECT'){const matches=[...node.options].filter(o=>!o.disabled&&V.clean(o.textContent)===String(f.value));if(matches.length!==1)throw Error('Planned dropdown value is unavailable: '+f.label);await selectValue(p,node,matches[0].value,sourceParent(p,stage,index),until);if(index===source?.chartIndex||source?.chart==='Renko'&&index===source.modeIndex)await settledStage(p,stage,index===source.chartIndex?String(f.value):source.chart,until);}
+ else if(node.tagName==='SELECT'){const matches=[...node.options].filter(o=>!o.disabled&&V.clean(o.textContent)===String(f.value));if(matches.length!==1)throw Error('Planned dropdown value is unavailable: '+f.label);await selectValue(p,node,matches[0].value,sourceParent(p,stage,index),until);if(index===source?.chartIndex||source?.chart==='Renko'&&[source.modeIndex,source.exitModeIndex].includes(index))await settledStage(p,stage,index===source.chartIndex?String(f.value):source.chart,until);}
  else if(stage==='momentum'&&index===1)await group(node,String(f.value),template?.stages?.momentum?.options?.[1]?.find(o=>o.value===String(f.value)&&!o.disabled)?.sourceValue);
  else if(symbol){if(f.value.trim()){const market=V.clean(inputs(p)[index-1].selectedOptions[0]?.textContent),choices=symbolOptions(template,stage,source,index),option=choices.find(o=>!o.disabled&&o.value===f.value&&(market==='All'||o.market===market));await searchSymbols(p,index,String(f.value),{choose:true,market,sourceValue:option?.sourceValue,expectedExchange:option?.market,until});}else Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,'');}
  else if(search){if(f.value.trim())await searchRules(p,index,String(f.value),{choose:true,until:Math.min(Date.now()+10000,until)});else {Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,'');node.blur();}}
@@ -952,7 +955,9 @@ async function run(job){
   if(C.awaitingResult())throw Error('An earlier source submission is still awaiting a confirmed result.');
   if(popups().length)throw Error('Close existing RZone dialogs before starting. Your open report was left intact.');
   C.status(e.name+' · Trial '+t.ordinal+' of '+e.trials.length);
-  const planned=E.expected(e,t);if(E.fields(planned,'momentum')[0]?.value!=='Candle'||E.fields(planned,'execution')[3]?.value!=='Candle')throw Error('P&F and Renko automatic execution is awaiting live acceptance. Their settings and choices can be prepared in Vault.');
+  const planned=E.expected(e,t);
+  L.validate('momentum',E.fields(planned,'momentum'));
+  if(L.validate('execution',E.fields(planned,'execution')).selection!=='Price')throw Error('Automatic execution currently requires Price selection.');
   await apply(C.main(),e,t,'momentum');
   const marketFields=E.fields(planned,'marketFilter');
   if(marketFields?.length){
