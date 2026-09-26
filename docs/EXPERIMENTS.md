@@ -32,7 +32,7 @@ In **My studies**, choose **Delete** beside a study, or open it and choose **Del
 
 Running work cannot be deleted. Choose **Stop after current**, wait for it to settle, then delete. The background worker checks current state again so an action in another tab cannot erase an active study. Interrupted work may need review before deletion is available.
 
-You can **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The user reports normal Candle tests working; broader chart execution still needs separate live acceptance. The preceding v0.7.3 saved-baseline flow passed an independently checked real three-trial Candle batch on 2026-09-16. The journey changes do not broaden that execution evidence.
+You can **start a new test in Vault without first saving a run in RZone**. Choose the strategy, backtest and portfolio settings, then run one test or a finite set of variations. RZone performs the calculations; Vault saves and compares the evidence. The user reports normal Candle tests working, and v0.19.0 P&F/Renko batches passed live verification as detailed below. Additional chart/filter combinations still need broader live coverage. The preceding v0.7.3 saved-baseline flow separately passed an independently checked real three-trial Candle batch on 2026-09-16.
 
 ## Trader workflow
 
