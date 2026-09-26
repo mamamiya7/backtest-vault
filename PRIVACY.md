@@ -2,6 +2,12 @@
 
 Backtest Vault has no account, analytics, advertising, telemetry, or remote storage service. Its runtime uses packaged code and assets.
 
+## Community and Pro pilot
+
+The v0.20.0 candidate verifies signed Pro pilot licenses locally using packaged public keys. License files include an identifier, recipient label, edition, features and validity dates. They are stored in this browser, excluded from research backups, and can be removed from the edition panel. This candidate does not contact a payment provider, licensing server or account service. A future online purchase flow will require an updated policy before activation.
+
+Research plan versions contain the saved baseline, test values, research question and decision rules. They stay locally in a separate research collection; normal Back up all includes them. Research plan backup/restore is also available independently. Pro research reports are generated locally as HTML and downloaded only when requested. These exports can contain private strategies and account-specific choices; the user chooses whether to share them. After license expiry, viewing and exporting saved work remains available. Fictional previews keep licenses and research plans only in memory.
+
 ## Stored locally
 
 The extension stores captured reports in Chrome local extension storage. The standalone viewer uses its own IndexedDB database on the current browser origin. Reports can include strategy settings, dates, universe names, trades, charts, run names, and research notes. Local data is not an independent backup.

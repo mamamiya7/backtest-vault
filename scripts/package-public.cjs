@@ -2,6 +2,8 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=path.resolve(__dirname,'..'),version=require('../package.json').version;
 const files=[
+ 'dist/license-keys.js','dist/editions.js','dist/research-pro.js','dist/research-pro-ui.js','dist/research-pro.css',
+ 'scripts/issue-license.cjs','scripts/build-store.cjs','scripts/preview-editions.cjs','tests/test-editions.cjs','tests/test-research-pro.cjs','tests/test-research-pro-ui.cjs','docs/EDITIONS.md','docs/DISTRIBUTION.md',
  'README.md','CONTRIBUTING.md','PRIVACY.md','SECURITY.md','CHANGELOG.md','LICENSE','.gitignore','package.json','package-lock.json',
  'dist/index.html','dist/vault.css','dist/dashboard.js','dist/core.js','dist/storage.js','dist/presentation.js','dist/demo.js','dist/intelligence.js','dist/intelligence-ui.js','dist/capture.js','dist/background.js','dist/manifest.json',
  'dist/date-range.js','dist/date-range.css','dist/workspace-motion.js','dist/workspace-motion.css','tests/test-date-range.cjs','tests/test-workspace-motion.cjs',

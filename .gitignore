@@ -16,3 +16,8 @@ scripts/validate-variant-archive.cjs
 PACKAGE-MANIFEST.json
 .DS_Store
 Thumbs.db
+
+# Issuer secrets and customer licenses must never enter source control.
+issuer-private.json
+*.vault-license.json
+private-pilot-issuer/

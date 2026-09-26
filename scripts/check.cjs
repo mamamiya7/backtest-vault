@@ -3,6 +3,9 @@ const root=path.resolve(__dirname,'..'),dist=path.join(root,'dist'),pkg=require(
 assert.equal(pkg.version,manifest.version,'Package and extension versions differ');
 const html=fs.readFileSync(path.join(dist,'index.html'),'utf8');
 const {runtimeFiles}=require('./build-release.cjs');
+const keyContext={window:{}};require('node:vm').runInNewContext(fs.readFileSync(path.join(dist,'license-keys.js'),'utf8'),keyContext,{timeout:100});
+assert.ok(Object.keys(keyContext.window.VaultLicenseKeys||{}).length,'At least one public issuer key is required');
+for(const key of Object.values(keyContext.window.VaultLicenseKeys)){assert.equal(key.kty,'EC');assert.equal(key.crv,'P-256');assert.ok(key.x&&key.y);assert.equal(Object.hasOwn(key,'d'),false,'Private issuer key must not be packaged');}
 // This runs on every OS: a Linux build must also catch Windows installer drift.
 const windowsSetup=fs.readFileSync(path.join(root,'installer','Setup.cmd'),'utf8'),windowsLists=[...windowsSetup.matchAll(/^set "BV_FILES=([^"\r\n]*)"\s*$/gim)];
 assert.equal(windowsLists.length,1,'Windows setup must declare exactly one runtime allowlist');

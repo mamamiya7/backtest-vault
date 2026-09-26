@@ -1,15 +1,15 @@
 /* Dependency-free, deterministic end-user ZIP. The explicit public allowlist is the boundary. */
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),zlib=require('node:zlib');
 const root=path.resolve(__dirname,'..');
-const runtimeFiles=['background.js','capture.js','core.js','dashboard.js','date-range.js','date-range.css','workspace-motion.js','workspace-motion.css','demo.js','experiment-coordinator.js','experiments-ui.js','experiments.css','research-workbench.css','experiments.js','index.html','intelligence-ui.js','intelligence.js','manifest.json','presentation.js','runner.js','setup.js','source-layouts.js','storage.js','vault.css'];
+const runtimeFiles=['background.js','capture.js','core.js','dashboard.js','date-range.js','date-range.css','workspace-motion.js','workspace-motion.css','demo.js','experiment-coordinator.js','experiments-ui.js','experiments.css','research-workbench.css','experiments.js','index.html','intelligence-ui.js','intelligence.js','manifest.json','presentation.js','runner.js','setup.js','source-layouts.js','storage.js','vault.css','license-keys.js','editions.js','research-pro.js','research-pro-ui.js','research-pro.css'];
 const installerFiles=['Setup.cmd','Update.cmd','setup.sh','update.sh','START-HERE.html'];
 const sha=data=>crypto.createHash('sha256').update(data).digest('hex');
 const crcTable=Array.from({length:256},(_,i)=>{let c=i;for(let n=0;n<8;n++)c=(c&1)?0xedb88320^(c>>>1):c>>>1;return c>>>0;});
 function crc32(data){let c=0xffffffff;for(const b of data)c=crcTable[(c^b)&255]^(c>>>8);return (c^0xffffffff)>>>0;}
-function zip(entries){
+function zip(entries,prefix='BacktestVault/'){
  const local=[],central=[];let offset=0;
  for(const [name,data] of [...entries].sort(([a],[b])=>a.localeCompare(b,'en'))){
-  const filename=Buffer.from('BacktestVault/'+name),compressed=zlib.deflateRawSync(data,{level:9}),crc=crc32(data);
+  const filename=Buffer.from(prefix+name),compressed=zlib.deflateRawSync(data,{level:9}),crc=crc32(data);
   const h=Buffer.alloc(30);h.writeUInt32LE(0x04034b50);h.writeUInt16LE(20,4);h.writeUInt16LE(0x800,6);h.writeUInt16LE(8,8);h.writeUInt16LE(33,12);h.writeUInt32LE(crc,14);h.writeUInt32LE(compressed.length,18);h.writeUInt32LE(data.length,22);h.writeUInt16LE(filename.length,26);
   local.push(h,filename,compressed);
   const c=Buffer.alloc(46);c.writeUInt32LE(0x02014b50);c.writeUInt16LE(0x314,4);c.writeUInt16LE(20,6);c.writeUInt16LE(0x800,8);c.writeUInt16LE(8,10);c.writeUInt16LE(33,14);c.writeUInt32LE(crc,16);c.writeUInt32LE(compressed.length,20);c.writeUInt32LE(data.length,24);c.writeUInt16LE(filename.length,28);c.writeUInt32LE(((name.endsWith('.sh')?0o100755:0o100644)*65536)>>>0,38);c.writeUInt32LE(offset,42);central.push(c,filename);offset+=h.length+filename.length+compressed.length;
@@ -35,4 +35,4 @@ function build(output){
  console.log('Built '+destination+' ('+archive.length+' bytes; '+entries.size+' files).');return {destination,entries,version:pkg.version};
 }
 if(require.main===module){const index=process.argv.indexOf('--output');build(index<0?path.join(root,'releases','backtest-vault-'+require('../package.json').version+'-download'):path.resolve(process.argv[index+1]));}
-module.exports={build,runtimeFiles,installerFiles,sha};
+module.exports={build,runtimeFiles,installerFiles,sha,zip};

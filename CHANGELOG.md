@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.20.0 candidate - 2026-09-26 (not published)
+
+- Keep all existing tools in Community; add optional Pro research tools without changing the source runner or daily cache.
+- Add signed offline pilot licenses with expiry, safe Community fallback and continued read/export access.
+- Add immutable research plan versions, draft reuse, matched-group sensitivity maps and HTML evidence reports.
+- Include research plans in full backups; licenses remain separate.
+- Add a Store upload ZIP builder alongside the complete Windows/Linux package. No live checkout or Store publication yet.
+
 ## 0.19.0 preview - 2026-09-26
 
 - Add NSE/Price execution for independently selected Candle, P&F and Renko main and exit charts, including their box, reversal, brick and price-mode settings.
