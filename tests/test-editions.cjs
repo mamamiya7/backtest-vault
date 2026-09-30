@@ -12,6 +12,6 @@ const directory=fs.mkdtempSync(path.join(os.tmpdir(),'vault-license-test-'));
  const restarted=E.client({chromeStore:local,keys,clock:()=>time});assert.equal((await restarted.status()).edition,'pro');time+=31*86400000;await assert.rejects(restarted.requireFeature('protocols'),/active Pro/);assert.equal((await restarted.status()).edition,'community');
  const demo=E.client({demo:true,keys,clock:()=>now,chromeStore:{get:()=>{throw Error('demo storage leak');},set:()=>{throw Error('demo storage leak');}}});await demo.activate(signed);assert.equal((await demo.status()).active,true);await demo.remove();assert.equal((await demo.status()).active,false);
  assert.throws(()=>issuer.init(path.resolve(__dirname,'../bad-private-issuer')),/outside/);
- assert.equal(Object.hasOwn(pub,'d'),false);assert.equal(E.plans.community.features.length,5);
+ assert.equal(Object.hasOwn(pub,'d'),false);assert.ok(E.plans.community.features.some(x=>x.includes('50 successful')));assert.ok(E.plans.pro.features.some(x=>x.includes('Reuse saved settings')));
  console.log('PASS: signed license validation, forgery rejection, expiry, persistent restart, demo isolation and external issuer keys.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

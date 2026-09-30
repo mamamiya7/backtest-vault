@@ -1,12 +1,16 @@
 # Privacy
 
-Backtest Vault has no account, analytics, advertising, telemetry, or remote storage service. Its runtime uses packaged code and assets.
+The v0.21.0 account edition uses verified email login and a billing service. Strategy reports, plans and charts remain local. It uses packaged code and has no analytics or advertising. This policy describes the implementation candidate; service URLs, operator identity, support contact and retention policy must be filled in before public deployment.
 
-## Community and Pro pilot
+## Account and payment data
 
-The v0.20.0 candidate verifies signed Pro pilot licenses locally using packaged public keys. License files include an identifier, recipient label, edition, features and validity dates. They are stored in this browser, excluded from research backups, and can be removed from the edition panel. This candidate does not contact a payment provider, licensing server or account service. A future online purchase flow will require an updated policy before activation.
+Supabase processes email/code login and sessions. The account API stores the verified user identifier, successful free-run count, minimal trial reservation IDs, subscription identifiers, billing status and paid-through dates. Razorpay hosts checkout and processes payment details. Vault never receives card details, RZone passwords, or broker credentials. No strategy parameters, metrics, charts or trades are sent to the account API.
 
-Research plan versions contain the saved baseline, test values, research question and decision rules. They stay locally in a separate research collection; normal Back up all includes them. Research plan backup/restore is also available independently. Pro research reports are generated locally as HTML and downloaded only when requested. These exports can contain private strategies and account-specific choices; the user chooses whether to share them. After license expiry, viewing and exporting saved work remains available. Fictional previews keep licenses and research plans only in memory.
+Access and refresh tokens live in trusted extension session storage and are excluded from research backups. They survive a service-worker restart, but a full browser restart requires email login again. Signing out clears the local session; local research remains. Account entitlement restores across installations, while research archives require backup/import.
+
+Account infrastructure logs and abuse controls may process network metadata. The operator must configure redaction, retention and support for account-data requests before public launch; the candidate does not implement automated account deletion. Deleting an extension does not erase the server ledger. Offline evaluation licences are used only in isolated development previews.
+
+Research reports and plans are generated/stored locally. Users choose whether to share them. Expired Pro accounts retain read/export access to saved work.
 
 ## Stored locally
 
@@ -34,7 +38,7 @@ A public copy of this source repository must not contain personal archives or re
 
 ## Experiment automation
 
-Experiment plans, ranges, decision rules, trial journals and temporary source-tab ownership are stored locally. When the user starts a plan, the content script changes approved settings and submits backtests to Definedge through its existing page. No source credentials are collected. There is no LLM service, telemetry, new host permission or external data transfer by Vault. Full backups include experiment journals; import always pauses them and removes source ownership. The localhost viewer cannot control an extension tab. Demo simulations stay entirely in memory.
+Experiment plans, ranges, decision rules, trial journals and temporary source-tab ownership are stored locally. When the user starts a plan, the content script changes approved settings and submits backtests to Definedge through its existing page. No source credentials are collected. There is no LLM service or research telemetry. The account edition adds one explicit HTTPS account-service origin for authentication, entitlement and minimal run-count metadata. Full backups include experiment journals; import always pauses them and removes source ownership. The localhost viewer cannot control an extension tab. Demo simulations stay entirely in memory.
 
 New test reads dropdown labels and available Group names from the signed-in RZone page, including offered categories for Radar, Strategy 1–3 and Exit Strategy. A daily menu cache is stored in Chrome extension storage, scoped to this browser profile, local calendar day and form adapter. It contains offered names and menu context, not saved results or a reusable settings snapshot. It is separate from research backups, survives source reloads and expires on a new day or adapter change. Recheck all choices invalidates the daily menus before scanning again.
 

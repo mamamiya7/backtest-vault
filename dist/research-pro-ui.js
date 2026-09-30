@@ -14,8 +14,9 @@ function download(name,content,type='application/json'){const url=URL.createObje
 function init({store,onStudy,onRun,onNotice}={}){
  const demo=store.demo===true,license=Editions.client({demo}),research=R.store({demo});
  const reportError=(container,fn)=>async()=>{try{await fn();}catch(error){let n=container.querySelector('[role="alert"]');if(!n){n=node('p',undefined,'research-error');n.setAttribute('role','alert');container.prepend(n);}n.textContent=error.message;}};
- async function badge(){const s=await license.status(),b=document.getElementById('vault-plan');if(b)b.textContent=s.active?'Pro':'Community';return s;}
+ async function badge(){const s=await license.status(),b=document.getElementById('vault-plan');if(b)b.textContent=!demo&&root.VaultAccountUI?.enabled()?(s.signedIn?(s.pro?'Pro':s.remaining+' free runs'):'Sign in'):(s.active?'Pro':'Community');return s;}
  async function plans(){
+  if(!demo&&root.VaultAccountUI?.enabled())return root.VaultAccountUI.open();
   const {body}=modal('Choose your Vault'),s=await badge();body.append(node('p','One installation. Your studies stay in the same archive.','muted'));
   const cards=node('div',undefined,'research-plans');for(const [key,p]of Object.entries(Editions.plans)){const c=node('section',undefined,'research-plan '+key);c.append(node('p',key===s.edition?'YOUR EDITION':'RESEARCH TOOLS','research-eyebrow'),node('h3',p.name),node('strong',key==='community'?'Free':'Paid pilot · invitation only'));const ul=node('ul');p.features.forEach(v=>ul.append(node('li',v)));c.append(ul);cards.append(c);}body.append(cards);
   body.append(node('p','Community includes every existing backtesting feature. Pro adds research tools. Public checkout is not open yet.','muted'));
@@ -26,7 +27,7 @@ function init({store,onStudy,onRun,onNotice}={}){
   body.append(field('Have a pilot license? Activate it here',input),node('p','Activation works locally. No payment details or research records are uploaded. After expiry, Community and access to saved research plans and reports remain available.','muted'));
   if(s.active)body.append(button('Remove license from this browser',reportError(body,async()=>{await license.remove();await badge();onNotice?.('License removed. Saved studies and research plans are unchanged.');body.closest('dialog').close();}),'quiet'));
  }
- function locked(body){body.append(node('p','This tool is included in Pro. Your current backtesting tools remain free.'),button('View editions',plans));}
+ function locked(body){body.append(node('p','This tool is included in Pro at ₹899/month.'),button('View editions',plans));}
  function trialList(container,items){for(const i of items){const c=node('div',undefined,'research-trial');c.append(node('strong','Trial '+i.trial.ordinal),node('p',i.eligible?'Meets the study’s rules':i.reasons.join(' · ')));if(i.run)c.append(button('Open saved report',()=>{container.closest('dialog').close();onRun?.(i.run);},'quiet'));container.append(c);}}
  async function tools(studyId){
   const studies=await store.allExperiments();let study=studies.find(e=>e.id===studyId)||studies[0];const {body}=modal('Research tools');

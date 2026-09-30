@@ -152,9 +152,10 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- function newTest(initial=null){
+ function newTest(initial=null,authorised=false){
   const savedContext=initial?S.savedRunContext(initial):null;
   if(initial&&(initial.demo===true)!==(store.demo===true))throw Error('Real and fictional saved settings cannot be mixed.');
+  if(initial&&!authorised&&!store.demo&&window.VaultAccountUI?.enabled())return window.VaultAccountUI.requireFeature('reuse').then(()=>newTest(initial,true));
   const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid()){setupPage();if(extension&&(wizard.choiceCache?.checkedAt&&!choicesFromToday(wizard.choiceCache)||wizard.choiceWarmAttempt&&wizard.choiceWarmAttempt.day!==localChoiceDay()))void action(()=>refreshSetupChoices());}return;}
   selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),contextDrafts:new Map(),choiceCache:null,warmingChart:null,ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(initial){setupDrafts.delete(store);wizard.reuseRun=structuredClone(initial);wizard.reuseApplied=false;wizard.name=((initial.name||'Saved run').slice(0,110)+' · copy');}
@@ -662,17 +663,17 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   function update(){if(!dialog.isConnected)return;try{const e=E.create(setupPlan(state)),capability=store.demo?null:S.executionCapability?.(state.template);preview.replaceChildren(el('strong',e.trials.length+' planned '+(e.trials.length===1?'test':'tests')),el('span',capability&&!capability.available?capability.reason:store.demo?'Fictional sample results. RZone will not run.':'Apply settings in RZone, run each test, and save completed reports.'));run.textContent=store.demo?'Generate '+e.trials.length+' sample '+(e.trials.length===1?'result':'results'):'Run '+e.trials.length+' '+(e.trials.length===1?'test':'tests');run.disabled=!!capability&&!capability.available;}catch(error){preview.replaceChildren(el('span',error.message));run.disabled=true;}}
   state.countUpdates.push(update);
   form.onsubmit=event=>{event.preventDefault();void action(async()=>{
-   if(state.submitting||!form.reportValidity()||!setupSourceValid()||wizard!==state)return;const capability=store.demo?null:S.executionCapability?.(state.template);if(capability&&!capability.available)throw Error(capability.reason);const p=setupPlan(state);E.create(p);state.submitting=true;setupDrafts.delete(store);run.disabled=true;let created;
+   if(state.submitting||!form.reportValidity()||!setupSourceValid()||wizard!==state)return;const capability=store.demo?null:S.executionCapability?.(state.template);if(capability&&!capability.available)throw Error(capability.reason);const p=setupPlan(state),planned=E.create(p);if(!store.demo)await window.VaultAccountUI?.start(planned.trials.length);if(wizard!==state||state.submitting)return;state.submitting=true;setupDrafts.delete(store);run.disabled=true;let created;
    try{
     if(store.demo){created=E.create({...p,id:crypto.randomUUID()});await store.putExperiment(created);await load();if(alive()&&wizard===state){wizard=null;detail(created.id);void simulate(created.id);}}
-    else{const source=tabs.find(t=>String(t.id)===state.sourceId);if(!source||(source.capable??source.ready)!==true)throw Error(source?.reason||'RZone is unavailable. Reconnect before running.');created=(await command('create',{plan:p})).experiment;sourceChoices.set(created.id,state.sourceId);try{await command('start',{id:created.id,tabId:source.id});}finally{await load();if(alive()&&wizard===state){wizard=null;detail(created.id);}}}
+    else{const source=tabs.find(t=>String(t.id)===state.sourceId);if(!source||(source.capable??source.ready)!==true)throw Error(source?.reason||'RZone is unavailable. Reconnect before running.');created=(await command('create',{plan:p,reuse:!!state.reuseRun})).experiment;sourceChoices.set(created.id,state.sourceId);try{await command('start',{id:created.id,tabId:source.id});}finally{await load();if(alive()&&wizard===state){wizard=null;detail(created.id);}}}
    }finally{state.submitting=false;if(!created&&wizard===state&&run.isConnected)update();}
   });};update();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
  }
 
  function builder(initial=baselineRun){
   if(extension||store.demo){
-   if(initial){newTest(initial);return;}
+   if(initial)return newTest(initial);
    keepSetup();clearCalendars();selected=null;wizard=null;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('Use a saved run',true),journey('setup'));
    const shell=el('div',undefined,'experiment-builder'),usable=runs.filter(r=>{try{S.savedRunContext(r);return (r.demo===true)===(store.demo===true);}catch{return false;}});content.append(shell);
    if(!usable.length){shell.append(el('p','No saved run has a complete supported setup yet.'),button('New test',()=>newTest(),'primary'));return;}
@@ -860,7 +861,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- await load();if(!alive())return;if(startNew)newTest();else if(baselineRun)builder(baselineRun);else if(studyId)detail(studyId);else list();
+ await load();if(!alive())return;if(startNew)newTest();else if(baselineRun)await builder(baselineRun);else if(studyId)detail(studyId);else list();
 
  timer=setInterval(async()=>{if(!alive()){dispose();return;}if(refreshing||deletionDialog||calendarOpen())return;refreshing=true;try{await load();if(!alive()||deletionDialog||calendarOpen())return;if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();if(!content.contains(document.activeElement)){if(selected&&renderedDetail!==stamp(experiments.find(e=>e.id===selected)))detail(selected);else if(!selected&&!wizard&&renderedList!==listStamp())list();}}catch(error){notice.textContent=error.message;}finally{refreshing=false;}},3000);
 

@@ -1,5 +1,5 @@
 'use strict';
-importScripts('core.js','presentation.js','intelligence.js','source-layouts.js','setup.js','experiments.js','experiment-coordinator.js');
+importScripts('core.js','presentation.js','intelligence.js','source-layouts.js','setup.js','experiments.js','commercial-config.js','accounts.js','experiment-coordinator.js');
 async function probe(tabId){
  let timeout;try{return await Promise.race([chrome.tabs.sendMessage(tabId,{type:'vault-runner-status'},{frameId:0}),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error('RZone did not respond.')),2500);})]);}finally{clearTimeout(timeout);}
 }
@@ -44,7 +44,8 @@ async function openSource(knownTabs){
  }
  const tab=await chrome.tabs.create({url:'https://zone.definedgesecurities.com/index.html#research'});return {tabId:tab.id};
 }
-const coordinator=VaultExperimentCoordinator.createCoordinator({storage:chrome.storage.local,runtime:chrome.runtime,probe,configure,openSource});
+const account=VaultAccounts.create();
+const coordinator=VaultExperimentCoordinator.createCoordinator({storage:chrome.storage.local,runtime:chrome.runtime,probe,configure,openSource,account});
 chrome.action.onClicked.addListener(() => chrome.tabs.create({url: chrome.runtime.getURL('index.html')}));
 async function openVault(message){
  let url=chrome.runtime.getURL('index.html');
@@ -60,6 +61,11 @@ async function openVault(message){
  return {ok:true};
 }
 chrome.runtime.onMessage.addListener((message, sender, reply) => {
+  if(message?.type==='vault-account'){
+    const url=chrome.runtime.getURL('index.html');
+    if(sender.id!==chrome.runtime.id||!(sender.url===url||sender.url?.startsWith(url+'?'))){reply({ok:false,error:'Only the Vault dashboard can access accounts.'});return false;}
+    account.handle(message).then(result=>reply({ok:true,result}),error=>reply({ok:false,error:error.message}));return true;
+  }
   if(message?.type==='vault-experiment'){coordinator.handle(message,sender).then(result=>{
     if(message.action==='start'&&result.ok)void chrome.tabs.sendMessage(message.tabId,{type:'vault-runner-wake'},{frameId:0}).catch(()=>{});
     reply(result);

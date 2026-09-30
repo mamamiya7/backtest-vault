@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.21.0 candidate - 2026-09-30 (not published)
+
+- Add email-code account login with trusted session storage and authenticated account API.
+- Count 50 successful automatic Community runs per account with atomic reservations and idempotent saved-result settlement.
+- Add ₹899/month subscription checkout, verified paid access, cancellation and signed billing notifications.
+- Gate history reuse and Pro research tools; retain access to saved work and exports.
+- Keep RZone adapters and daily choice cache unchanged. Provider deployment and live payment acceptance remain pending.
+
 ## 0.20.0 candidate - 2026-09-26 (not published)
 
 - Keep all existing tools in Community; add optional Pro research tools without changing the source runner or daily cache.

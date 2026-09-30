@@ -1,5 +1,6 @@
 .research-dialog{width:min(1060px,94vw);max-height:90vh;box-sizing:border-box;overflow:auto;color:var(--text,#e5f1f9);background:#101e2c;border:1px solid #3b5669;border-radius:18px;padding:28px;box-shadow:0 30px 100px #0009}
 .research-dialog::backdrop{background:#040a12c9;backdrop-filter:blur(5px)}
+.account-dialog{width:min(520px,94vw)}.account-dialog label{margin:18px 0}.account-dialog button{margin:8px 10px 8px 0}.account-dialog [role=alert]{color:#ffb8aa}.account-dialog h3{color:#9cebd4}
 .research-heading{display:flex;align-items:center;justify-content:space-between;gap:20px;margin-bottom:18px}.research-heading h2{margin:0;font-size:24px}
 .research-dialog label{display:grid;gap:8px;font-size:13px;color:#bdcede}.research-dialog input,.research-dialog select,.research-dialog textarea{width:100%;box-sizing:border-box;min-height:40px;color:#e5f1f9;background:#0a1623;border:1px solid #3b5365;border-radius:7px;padding:10px;font:inherit}
 .research-dialog textarea{resize:vertical}.research-dialog p{line-height:1.55}.research-dialog .muted{font-size:13px;color:#afc3d3}.research-dialog button{cursor:pointer}.research-dialog :focus-visible{outline:3px solid #9cebd4;outline-offset:3px}

@@ -2,7 +2,7 @@
 (function(root){
 'use strict';
 const features=['protocols','sensitivity','reports'];
-const plans={community:{name:'Community',features:['Unlimited local saved runs','Candle, P&F and Renko automation','All current setup controls and test values','Comparisons, validation and holdout','Backup, restore and existing exports']},pro:{name:'Pro',features:['Versioned research plans','Sensitivity maps for tested settings','Evidence-linked research reports']}};
+const plans={community:{name:'Community',features:['50 successful automatic runs per verified account','Candle, P&F and Renko setup and test values','Saved history and basic comparisons','Backup, restore and existing exports']},pro:{name:'Pro · ₹899/month',features:['Continued automation without a Vault run quota','Reuse saved settings to start another study','Versioned reusable research plans','Sensitivity maps for tested settings','Evidence-linked research reports']}};
 function decode(value){if(typeof value!=='string'||value.length>24000||!/^[A-Za-z0-9_-]+$/.test(value))throw Error('Invalid license file.');return Uint8Array.from(atob(value.replace(/-/g,'+').replace(/_/g,'/')),x=>x.charCodeAt(0));}
 async function verify(envelope,{keys=root.VaultLicenseKeys||{},now=Date.now(),crypto=root.crypto}={}){
  if(!envelope||envelope.format!=='backtest-vault-license'||envelope.version!==1||typeof envelope.keyId!=='string'||!Object.hasOwn(keys,envelope.keyId))throw Error('This license was not issued for this Vault release.');
@@ -16,6 +16,11 @@ async function verify(envelope,{keys=root.VaultLicenseKeys||{},now=Date.now(),cr
 }
 // Separate namespace: license files are excluded from research backups.
 function client({demo=false,chromeStore=root.chrome?.storage?.local,local=root.localStorage,keys=root.VaultLicenseKeys||{},clock=()=>Date.now()}={}){
+ if(!demo&&root.VaultAccountUI?.enabled())return {
+  status:async()=>{const s=await root.VaultAccountUI.command('status');return {...s,edition:s.pro?'pro':'community',active:s.pro===true,reason:s.signedIn?'account':'signed-out'};},
+  requireFeature:feature=>root.VaultAccountUI.requireFeature(feature),
+  activate:async()=>{throw Error('Sign in to activate your paid subscription.');},remove:()=>root.VaultAccountUI.command('sign-out')
+ };
  let memory=null;const key='vault:license:v1';
  async function read(){if(demo)return memory;return chromeStore?(await chromeStore.get(key))[key]||null:JSON.parse(local.getItem(key)||'null');}
  async function write(value){if(demo){memory=value;return;}if(chromeStore)return chromeStore.set({[key]:value});local.setItem(key,JSON.stringify(value));}

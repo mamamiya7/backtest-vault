@@ -5,9 +5,9 @@
 A local Chrome extension and research workspace for Definedge momentum and portfolio backtests. Start in Vault: choose your setup, run one test or several variations, and compare the saved evidence.
 
 [![Local checks](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml/badge.svg)](https://github.com/mamamiya7/backtest-vault/actions/workflows/checks.yml)
-**v0.20.0 Community / Pro pilot candidate** · Chrome · Local storage · MIT · No cloud account
+**v0.21.0 account edition candidate** · Chrome · Local research archive · Email login · ₹899/month Pro
 
-This candidate keeps every v0.19.0 feature in Community. Pro adds saved research plans, sensitivity maps and research reports through locally verified pilot licenses. Public checkout and a Chrome Web Store listing are not live. [Edition details](docs/EDITIONS.md) · [Distribution and launch steps](docs/DISTRIBUTION.md). The public download below remains the previous published release until this candidate passes release acceptance.
+This account candidate provides 50 successful automatic Community runs and ₹899/month Pro with continued automation, saved-settings reuse, research plans, sensitivity maps and research reports. Public checkout and a Chrome Web Store listing are not live. [Edition details](docs/EDITIONS.md) · [Distribution and launch steps](docs/DISTRIBUTION.md). The public download below remains the previous published release until this candidate passes release acceptance.
 
 New test now has clear Test setup, Portfolio, Strategy details, Entry conditions and Exit conditions sections. Radar, Relative Strength and its Builder sit together; Market Trend opens in its own settings window. Every eligible setting keeps its Test values.
 
@@ -496,7 +496,7 @@ The extension and standalone viewer have separate libraries. Transfer records wi
 | **Trades CSV** | Inspect trade rows | No |
 | **Chart SVG** | Save a static graphic | No |
 
-The extension has no cloud account, telemetry or research upload service. Its capture access is limited to the Definedge domain. **Browser-local storage needs an independent backup.** [Privacy](PRIVACY.md)
+The account edition uses verified email and a subscription service; research reports remain local. Its capture access is limited to the Definedge domain, and account requests use one configured HTTPS service. **Browser-local storage needs an independent backup.** [Privacy](PRIVACY.md)
 
 ## If a save fails
 

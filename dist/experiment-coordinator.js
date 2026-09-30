@@ -5,7 +5,7 @@ const E=typeof module!=='undefined'?require('./experiments.js'):root.VaultExperi
 const V=typeof module!=='undefined'?require('./core.js'):root.Vault;
 const L=typeof module!=='undefined'?require('./source-layouts.js'):root.VaultSourceLayouts;
 const S=typeof module!=='undefined'?require('./setup.js'):root.VaultSetup;
-function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=>Date.now(),uuid=()=>crypto.randomUUID()}){
+function createCoordinator({storage,runtime,probe,configure,openSource,account,clock=()=>Date.now(),uuid=()=>crypto.randomUUID()}){
  let serial=Promise.resolve();
  const get=async k=>(await storage.get(k))[k];
  const put=e=>storage.set({['experiment:'+e.id]:e});
@@ -203,7 +203,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    for(const t of e.trials){
     if(!E.active.includes(t.status)&&t.status!=='uncertain')continue;
     const saved=state['run:'+t.runId];let recovered=false;
-    if(saved){try{validateCapture(e,t,saved);recovered=true;}catch{/* Unproven results remain untouched for review. */}}
+    if(saved){try{validateCapture(e,t,saved);if(account?.enabled)await account.settle(t.runId,'saved');recovered=true;}catch{/* Unproven or unsettled results remain untouched for review. */}}
     t.status=recovered?'saved':'uncertain';
     t.error=recovered?null:'RZone was refreshed or reopened before this test finished. Check its saved result or skip this trial before resuming.';
    }
@@ -248,6 +248,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    await reviewSourceOwners();await reviewLease();const tabs=(await Promise.all((await collection('runner:tab:')).map(sourceStatus))).filter(Boolean);return {ok:true,experiments:await collection('experiment:'),tabs};
   }
   if(dashboard&&m.action==='create'){
+   if(m.reuse&&account?.enabled)await account.requireFeature('reuse');
    const e=E.create({...m.plan,id:uuid()});if(e.demo)throw Error('Fictional experiments cannot control RZone.');
    if(await get('experiment:'+e.id))throw Error('Experiment ID already exists.');await put(e);return {ok:true,experiment:e};
   }
@@ -342,6 +343,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
     if(!['draft','paused'].includes(e.status)||e.trials.some(t=>t.status==='uncertain'))throw Error('Review interrupted trials before resuming.');
     const tab=await sourceStatus(await get('runner:tab:'+m.tabId));if(!tab?.ready)throw Error(tab?.reason||'RZone is not responding. Open its Momentum BackTesting page with the updated extension, then try again.');
     if(e.demo||!e.trials.some(t=>t.status==='queued'))throw Error('There are no queued real trials.');
+    if(account?.enabled){for(const trial of e.trials.filter(t=>t.status==='saved')){const saved=await get('run:'+trial.runId);validateCapture(e,trial,saved);await account.settle(trial.runId,'saved');}await account.start(e.trials.filter(t=>t.status==='queued').length);}
     L.validate('momentum',E.fields(e.baseline,'momentum'));
     if(L.validate('execution',E.fields(e.baseline,'execution')).selection!=='Price')throw Error('Automatic execution currently requires Price selection.');
     e.owner={tabId:tab.id,session:tab.session};e.status='running';E.journal(e,'Started on selected RZone tab');await put(e);return {ok:true};
@@ -350,14 +352,16 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    if(m.action==='skip'){
     const t=e.trials.find(t=>t.id===m.trialId);if(!t||t.status!=='uncertain')throw Error('Only an interrupted trial can be skipped.');
     const l=await get('runner:lease');if(l?.experimentId===e.id&&clock()-l.seenAt<90000)throw Error('Wait for the interrupted source session to disconnect before skipping.');
+    if(account?.enabled){if(await get('run:'+t.runId))throw Error('A saved result exists. Check saved result before releasing this run.');await account.settle(t.runId,'released');}
     t.status='skipped';E.journal(e,'User skipped interrupted trial '+t.ordinal);e.status='paused';delete e.owner;await storage.set({['experiment:'+e.id]:e,...(l?.experimentId===e.id?{'runner:lease':null}:{})});return {ok:true};
    }
    if(m.action==='reconcile'){
     const lease=await get('runner:lease');if(lease&&lease.experimentId!==e.id)throw Error('Another experiment owns the source tab.');
     const t=e.trials.find(t=>t.id===m.trialId),r=t&&await get('run:'+t.runId);if(!t||t.status!=='uncertain'||!r)throw Error('No durable result is available to reconcile.');
-    validateCapture(e,t,r);t.status='saved';t.error=null;e.status='paused';delete e.owner;E.journal(e,'Recovered saved result for trial '+t.ordinal);await storage.set({['experiment:'+e.id]:e,'runner:lease':null});return {ok:true};
+    validateCapture(e,t,r);if(account?.enabled)await account.settle(t.runId,'saved');t.status='saved';t.error=null;e.status='paused';delete e.owner;E.journal(e,'Recovered saved result for trial '+t.ordinal);await storage.set({['experiment:'+e.id]:e,'runner:lease':null});return {ok:true};
    }
    if(m.action==='validate'){
+    if(account?.enabled)await account.requireFeature('reuse');
     const t=e.trials.find(t=>t.id===m.trialId),r=t&&await get('run:'+t.runId);if(!t||!E.result(e,t,r).eligible)throw Error('Choose a candidate that meets the fixed rules.');
     E.validation(e,t.id,m.period,m.phase);await put(e);return {ok:true};
    }
@@ -371,6 +375,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
    // Never overwrite an existing record under a queued trial's ID. This can
    // happen after a partial backup/import or a lost acknowledgement.
    if(await get('run:'+t.runId)){t.status='uncertain';t.error='A saved record already exists for this trial. Review it before continuing.';e.status='needs-review';E.journal(e,t.error);await put(e);return {ok:true,trial:null};}
+   if(account?.enabled){try{await account.reserve(t.runId);}catch(error){e.status='paused';delete e.owner;E.journal(e,'Account check stopped this trial: '+error.message);await put(e);throw error;}}
    const token=uuid();t.execution={sourceSession:m.session,claimedAt:new Date(clock()).toISOString()};E.transition(e,t,'applying');await storage.set({['experiment:'+e.id]:e,'runner:lease':{experimentId:e.id,trialId:t.id,token,tabId:sender.tab.id,session:m.session,seenAt:clock()}});
    return {ok:true,experiment:e,trial:t,token};
   }
@@ -380,7 +385,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,clock=()=
   if(m.action==='fail'){t.status='uncertain';t.error=String(m.error||'Interrupted').slice(0,1000);e.status='needs-review';E.journal(e,'Trial '+t.ordinal+': '+t.error);await put(e);return {ok:true};}
   if(m.action==='checkpoint'){
    if(!['running','pausing'].includes(e.status))throw Error('Experiment is paused for review.');
-   if(m.stage==='saved')validateCapture(e,t,await get('run:'+t.runId));
+   if(m.stage==='saved'){validateCapture(e,t,await get('run:'+t.runId));if(account?.enabled)await account.settle(t.runId,'saved');}
    E.transition(e,t,m.stage);
    if(m.stage==='saved'){const remaining=e.trials.some(x=>x.status==='queued');e.status=!remaining?'complete':e.status==='pausing'?'paused':'running';if(e.status!=='running')delete e.owner;await storage.set({['experiment:'+e.id]:e,'runner:lease':null});}
    else {l.seenAt=clock();await storage.set({['experiment:'+e.id]:e,'runner:lease':l});}

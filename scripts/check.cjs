@@ -17,7 +17,8 @@ for(const [,name] of html.matchAll(/(?:src|href)="([^"?#]+\.(?:js|css))"/g)){
 for(const file of fs.readdirSync(dist).filter(f=>f.endsWith('.js'))){const r=spawnSync(process.execPath,['--check',path.join(dist,file)],{encoding:'utf8'});assert.equal(r.status,0,r.stderr);}
 assert.deepEqual(manifest.content_scripts[0].matches,['https://zone.definedgesecurities.com/*']);
 assert.deepEqual(manifest.permissions,['storage','unlimitedStorage']);
-assert.match(manifest.content_security_policy.extension_pages,/connect-src 'none'/);
+const deployment={};require('node:vm').runInNewContext(fs.readFileSync(path.join(dist,'commercial-config.js'),'utf8'),deployment);const api=deployment.VaultCommercialConfig.apiOrigin;
+if(api){assert.equal(new URL(api).origin,api);assert.ok(api.startsWith('https://'));assert.deepEqual(manifest.host_permissions,[api+'/*']);assert.ok(manifest.content_security_policy.extension_pages.includes('connect-src '+api+';'));}else{assert.match(manifest.content_security_policy.extension_pages,/connect-src 'none'/);assert.equal(manifest.host_permissions,undefined);}
 for(const script of [...manifest.content_scripts.flatMap(x=>x.js),manifest.background.service_worker])assert.ok(fs.existsSync(path.join(dist,script)),script);
 assert.match(html,/demo\.js.*storage\.js/s);assert.match(html,new RegExp('v'+pkg.version.replaceAll('.','\\.')));
-console.log('PASS: runtime syntax, local assets, Windows installer allowlist, manifest entrypoints, version alignment, and unchanged origin/permissions.');
+console.log('PASS: runtime syntax, local assets, Windows installer allowlist, manifest entrypoints, version alignment, unchanged capture permissions and exact account-origin configuration.');
