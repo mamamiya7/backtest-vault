@@ -2,6 +2,8 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=path.resolve(__dirname,'..'),version=require('../package.json').version;
 const files=[
+ 'dist/icon16.png','dist/icon32.png','dist/icon48.png','dist/icon128.png','docs/images/vault-logo.svg','tests/test-store-assets.cjs',
+ 'render.yaml','server/.dockerignore','scripts/launch-preflight.cjs','tests/test-launch-preflight.cjs','docs/LAUNCH-OPERATIONS.md',
  "dist/commercial-config.js","dist/accounts.js","dist/account-ui.js","server/server.cjs","server/providers.cjs","server/schema.sql","server/.env.example","server/Dockerfile","scripts/configure-accounts.cjs","tests/test-accounts.cjs","tests/test-account-ui.cjs","docs/ACCOUNTS.md",
  'dist/license-keys.js','dist/editions.js','dist/research-pro.js','dist/research-pro-ui.js','dist/research-pro.css',
  'scripts/issue-license.cjs','scripts/build-store.cjs','scripts/preview-editions.cjs','tests/test-editions.cjs','tests/test-research-pro.cjs','tests/test-research-pro-ui.cjs','docs/EDITIONS.md','docs/DISTRIBUTION.md',

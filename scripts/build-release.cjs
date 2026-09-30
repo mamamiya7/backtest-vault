@@ -1,7 +1,7 @@
 /* Dependency-free, deterministic end-user ZIP. The explicit public allowlist is the boundary. */
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto'),zlib=require('node:zlib');
 const root=path.resolve(__dirname,'..');
-const runtimeFiles=["commercial-config.js","accounts.js","account-ui.js",'background.js','capture.js','core.js','dashboard.js','date-range.js','date-range.css','workspace-motion.js','workspace-motion.css','demo.js','experiment-coordinator.js','experiments-ui.js','experiments.css','research-workbench.css','experiments.js','index.html','intelligence-ui.js','intelligence.js','manifest.json','presentation.js','runner.js','setup.js','source-layouts.js','storage.js','vault.css','license-keys.js','editions.js','research-pro.js','research-pro-ui.js','research-pro.css'];
+const runtimeFiles=['icon16.png','icon32.png','icon48.png','icon128.png',"commercial-config.js","accounts.js","account-ui.js",'background.js','capture.js','core.js','dashboard.js','date-range.js','date-range.css','workspace-motion.js','workspace-motion.css','demo.js','experiment-coordinator.js','experiments-ui.js','experiments.css','research-workbench.css','experiments.js','index.html','intelligence-ui.js','intelligence.js','manifest.json','presentation.js','runner.js','setup.js','source-layouts.js','storage.js','vault.css','license-keys.js','editions.js','research-pro.js','research-pro-ui.js','research-pro.css'];
 const installerFiles=['Setup.cmd','Update.cmd','setup.sh','update.sh','START-HERE.html'];
 const sha=data=>crypto.createHash('sha256').update(data).digest('hex');
 const crcTable=Array.from({length:256},(_,i)=>{let c=i;for(let n=0;n<8;n++)c=(c&1)?0xedb88320^(c>>>1):c>>>1;return c>>>0;});
@@ -21,7 +21,7 @@ function build(output){
  if(pkg.version!==manifest.version||!/^\d+\.\d+\.\d+$/.test(pkg.version))throw Error('Release version mismatch');
  const entries=new Map();
  function add(source,name,normalize){const p=path.join(root,source);if(fs.lstatSync(p).isSymbolicLink())throw Error('Release symlink refused: '+source);let data=fs.readFileSync(p);if(normalize)data=Buffer.from(data.toString('utf8').replace(/\r\n/g,'\n').replace(/\n/g,normalize));entries.set(name,data);}
- for(const name of runtimeFiles)add('dist/'+name,'extension/'+name,'\n');
+ for(const name of runtimeFiles)add('dist/'+name,'extension/'+name,name.endsWith('.png')?undefined:'\n');
  for(const name of installerFiles)add('installer/'+name,name,name.endsWith('.cmd')?'\r\n':'\n');
  add('LICENSE','LICENSE','\n');
  entries.set('extension-files.txt',Buffer.from(runtimeFiles.join('\n')+'\n'));

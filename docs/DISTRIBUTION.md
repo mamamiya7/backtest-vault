@@ -1,6 +1,6 @@
 # Distribution and commercial launch
 
-Prepared 26 September 2026. Status: local v0.21.0 candidate, not submitted to Chrome Web Store and not accepting payments.
+Updated 30 September 2026. Status: local v0.21.0 candidate with Store icons, staging deployment blueprint and launch checks. The owner-private marketing preview is hosted separately. Not submitted to Chrome Web Store and not accepting payments.
 
 ## One extension, two editions
 

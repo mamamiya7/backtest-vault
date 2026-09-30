@@ -17,6 +17,7 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run test:unit
+      - run: npm run test:launch
       - run: npm run check
       - run: npm run package:public
   runner:

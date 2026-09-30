@@ -14,7 +14,9 @@
     "test:editions": "node tests/test-editions.cjs && node tests/test-research-pro.cjs && node tests/test-research-pro-ui.cjs",
     "package:store": "node scripts/build-store.cjs",
     "test:accounts": "node tests/test-accounts.cjs && node tests/test-account-ui.cjs",
-    "accounts:server": "node server/server.cjs"
+    "accounts:server": "node server/server.cjs",
+    "launch:check": "node scripts/launch-preflight.cjs",
+    "test:launch": "node tests/test-launch-preflight.cjs && node tests/test-store-assets.cjs"
   },
   "dependencies": {
     "jsdom": "^30.0.1"

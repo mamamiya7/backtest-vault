@@ -73,6 +73,8 @@ flowchart TD
 
 ## Owner deployment checklist
 
+The staging Docker blueprint, read-only provider checker and Store reviewer checklist are prepared in [Launch operations](LAUNCH-OPERATIONS.md). The candidate uses independent **Backtest Vault** branding and includes the four packaged icon sizes. A separately published owner-private launch website presents the planned pricing and draft policies; it does not enable payment or public signup.
+
 1. Create a Supabase project in your ownership. Configure production SMTP, the email OTP template, provider rate limits and an appropriate session policy. Run `server/schema.sql` in its SQL editor. The migration is repeatable. The application never uploads strategy data.
 2. Create and verify your Razorpay merchant account and enable subscriptions. Create a **monthly / interval 1 / INR / amount 89900** plan. Configure your customer support contact, invoicing, cancellation and refund policy for the public listing.
 3. Deploy the `server/` Dockerfile on a host with managed HTTPS. Add the settings shown in `server/.env.example` through the host's secret controls. Production refuses Razorpay test keys. `ALLOWED_ORIGINS` must contain the exact Store extension origin; add the existing unpacked ID only for an explicitly authorised migration test. Keep provider secrets out of chats and repository files.
