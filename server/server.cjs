@@ -1,10 +1,10 @@
 'use strict';
 const http=require('node:http'),crypto=require('node:crypto');
-function createServer({provider,origins=[],clock=()=>Date.now()}={}){
+function createHandler({provider,origins=[],clock=()=>Date.now()}={}){
  const attempts=new Map();function rate(key,limit){const now=clock(),old=attempts.get(key),s=old&&now-old.at<60000?old:{at:now,count:0};if(++s.count>limit)throw Object.assign(Error('Too many requests. Try again shortly.'),{status:429});attempts.set(key,s);if(attempts.size>10000)for(const [k,v]of attempts)if(now-v.at>=60000)attempts.delete(k);}
  const validId=s=>typeof s==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(s);
  const email=s=>typeof s==='string'&&s.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
- return http.createServer(async(req,res)=>{
+ return async(req,res)=>{
   const send=(status,data)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(JSON.stringify(data));};
   try{
    const origin=req.headers.origin;if(origin&&!origins.includes(origin))return send(403,{error:'This origin is not allowed.'});if(origin){res.setHeader('Access-Control-Allow-Origin',origin);res.setHeader('Vary','Origin');}
@@ -29,7 +29,8 @@ function createServer({provider,origins=[],clock=()=>Date.now()}={}){
    if(path==='/billing/refresh'&&req.method==='POST')return send(200,await provider.refreshBilling(u));
    return send(404,{error:'Unknown endpoint.'});
   }catch(e){const status=e.status&&e.status>=400&&e.status<500?e.status:503;send(status,{error:e instanceof SyntaxError?'Invalid JSON.':status===401?'Your session or payment signature could not be verified.':e.message||'Service is temporarily unavailable.'});}
- });
+ };
 }
+function createServer(options){return http.createServer(createHandler(options));}
 if(require.main===module){const env=process.env,origins=(env.ALLOWED_ORIGINS||'').split(',').filter(Boolean);if(!origins.length)throw Error('Set ALLOWED_ORIGINS to the exact installed extension origin.');const {providers}=require('./providers.cjs');createServer({provider:providers(env),origins}).listen(Number(env.PORT||8080),'0.0.0.0',()=>console.log('Vault account service is ready.'));}
-module.exports={createServer};
+module.exports={createServer,createHandler};

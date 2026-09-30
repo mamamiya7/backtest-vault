@@ -2,6 +2,7 @@
 const fs=require('node:fs'),path=require('node:path'),crypto=require('node:crypto');
 const root=path.resolve(__dirname,'..'),version=require('../package.json').version;
 const files=[
+ 'server/edge-adapter.cjs','scripts/build-supabase-function.cjs','supabase/config.toml','supabase/functions/vault-accounts/index.ts','tests/test-supabase-edge.cjs',
  'dist/icon16.png','dist/icon32.png','dist/icon48.png','dist/icon128.png','docs/images/vault-logo.svg','tests/test-store-assets.cjs',
  'render.yaml','server/.dockerignore','scripts/launch-preflight.cjs','tests/test-launch-preflight.cjs','docs/LAUNCH-OPERATIONS.md','server/verify-community.sql','server/email-templates/sign-in.html','server/email-templates/confirm-sign-up.html',
  "dist/commercial-config.js","dist/accounts.js","dist/account-ui.js","server/server.cjs","server/providers.cjs","server/schema.sql","server/.env.example","server/Dockerfile","scripts/configure-accounts.cjs","tests/test-accounts.cjs","tests/test-account-ui.cjs","docs/ACCOUNTS.md",

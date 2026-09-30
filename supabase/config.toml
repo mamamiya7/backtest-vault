@@ -1,0 +1,4 @@
+# Public health/login/webhook routes use application-level identity and signature checks.
+# PUBLIC_EMAIL_READY remains absent until public SMTP and origin acceptance pass.
+[functions.vault-accounts]
+verify_jwt = false
