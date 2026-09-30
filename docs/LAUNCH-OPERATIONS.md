@@ -12,6 +12,18 @@ The code is prepared; payment collection and public email login are not active u
 6. **Payment notifications:** configure `/billing/webhook`, a distinct strong secret and subscription/payment/refund events. In test mode verify a paid cycle, duplicate notifications, cancellation, expiry and refund. Do not simulate paid access in production by editing entitlement rows.
 7. **Live activation:** set live provider keys and the live fixed-price plan, `NODE_ENV=production`, and exact Store extension origins. Run preflight with `--live --remote`. Configure the extension's API origin with the existing build tool and package the exact configured build. Do not point customers at the unconfigured candidate.
 
+## Supabase first, while merchant verification is pending
+
+The server can run email login and the lifetime Community allowance with only Supabase and exact `ALLOWED_ORIGINS`. Leave **all four** `RAZORPAY_*` variables absent. Payment endpoints return an explicit unavailable error without contacting Razorpay or creating checkout reservations. Partial payment configuration deliberately prevents startup. Existing paid accounts cannot refresh billing without its provider configuration; this mode is for initial Community setup, not a shortcut around paid reconciliation.
+
+Run `node scripts/launch-preflight.cjs --community-only --live --remote --origin=https://YOUR_API` after secure hosting configuration. This checks Supabase and the API without requiring a Razorpay plan. The ordinary preflight still requires billing. A passing Community check never certifies paid launch.
+
+The Supabase free dashboard currently requires custom SMTP before editing email templates. Prepare a domain owned by the operator, verify its sender through the chosen email service, and enter its SMTP credentials directly in Supabase. No domain or sender has been selected yet. Buying a domain/service and creating credentials require the owner's involvement; never invent a sender or use someone else's domain.
+
+After SMTP is configured, install both templates: **Confirm sign up** → `server/email-templates/confirm-sign-up.html`, subject `Confirm your Backtest Vault email`; **Magic link or OTP** → `server/email-templates/sign-in.html`, subject `Your Backtest Vault sign-in code`. Both use `{{ .Token }}` because first-time and returning users can receive different templates. Keep email confirmation on, anonymous sign-in off, eight-digit OTPs and 600-second expiry. Confirm delivery for a new address and a returning address before customer distribution.
+
+The owned project's three account tables and eight restricted functions are deployed. SQL Editor verification confirmed RLS and denied direct reads for anonymous and authenticated roles, and execute permission only for the server role. `server/verify-community.sql` checks the deployed allowance inside a rolled-back transaction; it does not send email or retain its synthetic identity. Production SMTP delivery and the hosted API remain separate acceptance gates.
+
 ## Store reviewer instructions (draft)
 
 Purpose: independently archive RZone backtests and automate user-approved research batches. No broker orders or live execution are performed.

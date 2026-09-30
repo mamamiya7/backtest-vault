@@ -55,6 +55,18 @@ async function main(){
   await a.handle({action:'sign-out'});assert.equal((await a.status()).signedIn,false);assert.ok(!JSON.stringify(local.data).includes('access-A'));assert.ok(!JSON.stringify(local.data).includes('refresh-A'));
   await a.handle({action:'verify-code',email:'one@example.test',token:'123456'});assert.equal((await a.status()).used,50,'Fresh login and cleared client installation still use the server count');
   assert.throws(()=>providers({...env,NODE_ENV:'production'},remote),/live Razorpay/);
+  // Supabase Community access must not depend on merchant approval or payment keys.
+  const communityEnv={NODE_ENV:'production',SUPABASE_URL:env.SUPABASE_URL,SUPABASE_ANON_KEY:env.SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY:env.SUPABASE_SERVICE_ROLE_KEY};
+  const community=providers(communityEnv,remote),beforeBilling=calls.length;
+  await community.sendCode('two@example.test');await community.verify('two@example.test','123456');
+  assert.equal((await community.user('access-B')).id,other);
+  assert.equal((await community.account({id:other,email:'two@example.test'})).remaining,50);
+  await community.reserve({id:other},'community-only');await community.settle({id:other},'community-only','released');
+  assert.equal((await community.account({id:other})).remaining,50);
+  await community.refreshBilling({id:other});
+  for(const action of [()=>community.checkout({id:other}),()=>community.cancel({id:other}),()=>community.webhook(Buffer.from('{}'),'','test'),()=>community.refreshBilling({id:uid})])await assert.rejects(action(),/checkout is not available/);
+  assert.ok(!calls.slice(beforeBilling).some(c=>c.path.startsWith('/v1/')),'Community-only mode makes no payment-provider requests');
+  assert.throws(()=>providers({...communityEnv,RAZORPAY_KEY_ID:'rzp_live_partial'},remote),/Missing server setting: RAZORPAY_KEY_SECRET/,'Partial billing configuration fails closed');
   await coordinatorChecks();await senderChecks();console.log('PASS: actual PostgreSQL migrations/RLS/functions, account HTTP flow, atomic 50-run quota, failed-run release, paid unlimited runs, subscription checkout ownership, signed/replayed webhooks, refund/expiry access, session refresh, and queue integration.');
  }finally{if(server)await new Promise(r=>server.close(r));await db.close();}
 }
