@@ -1,6 +1,6 @@
 # Distribution and commercial launch
 
-Updated 30 September 2026. Status: local v0.21.0 candidate with Store icons, staging deployment blueprint and launch checks. The owner-private marketing preview is hosted separately. Not submitted to Chrome Web Store and not accepting payments.
+Updated 18 November 2026. Status: local v0.21.0 candidate with Store icons, staging deployment blueprint and launch checks. A public marketing preview is hosted at https://backtest-vault.pages.dev/ and clearly states that customer login/payments are pending. Supabase is hosted, restored and Healthy; account access remains closed. Not submitted to Chrome Web Store and not accepting payments. Shared login-limit changes are tested locally and still require deployment.
 
 ## One extension, two editions
 
@@ -68,8 +68,8 @@ The v0.21.0 candidate includes Supabase email OTP, server-authoritative PostgreS
 - Approved Store artwork, submission/review and migration acceptance.
 - Real installed-extension acceptance of the new local research tools; the prior v0.19.0 RZone execution evidence remains the source-engine baseline.
 
-These gates prevent charging or publishing prematurely. They do not block local Community/Pro implementation and evaluation.
+These gates prevent charging or publishing prematurely. They do not block local Community/Pro implementation and evaluation. The owner has not yet decided the public operator name or support address. An owned sender domain/public email remains postponed under the existing zero-cost instruction. Do not publish invented business/contact details or purchase a domain without the owner's decision.
 
 ## Selected commercial model
 
-Public launch, email-code login from the start, 50 successful automatic Community runs once per account, and ₹899/month Pro with continued automation and paid reuse/research tools. See [Accounts](ACCOUNTS.md) for the implementation and activation requirements. Account/provider infrastructure is not deployed.
+Public launch, email-code login from the start, 50 successful automatic Community runs once per account, and ₹899/month Pro with continued automation and paid reuse/research tools. See [Accounts](ACCOUNTS.md) for the implementation and activation requirements. A closed account service and database are hosted, and an INR899/month Razorpay plan exists; those facts do not establish live email, billing or public distribution readiness.

@@ -10,9 +10,16 @@ function providers(env=process.env,request=fetch){
  const requireBilling=()=>{if(!billingEnabled)throw Object.assign(Error('Pro checkout is not available yet. Community access is available while payment setup is completed.'),{status:503});};
  if(!/^https:\/\/[^/]+\.supabase\.co$/.test(env.SUPABASE_URL))throw Error('Use your hosted Supabase project URL.');
  if(billingEnabled&&env.NODE_ENV==='production'&&!env.RAZORPAY_KEY_ID.startsWith('rzp_live_'))throw Error('Production requires a live Razorpay account.');
+ const emailBudget=Number(env.AUTH_EMAIL_DAILY_LIMIT??80);
+ if(!Number.isInteger(emailBudget)||emailBudget<1||emailBudget>10000)throw Error('AUTH_EMAIL_DAILY_LIMIT must be an integer between 1 and 10000.');
  async function json(url,{method='GET',headers={},body}={}){const r=await request(url,{method,headers:{'Content-Type':'application/json',...headers},...(body===undefined?{}:{body:JSON.stringify(body)}),signal:AbortSignal.timeout(12000)});const d=await r.json();if(!r.ok){const e=Error(d.message||d.msg||d.error_description||d.error?.description||'Provider request failed.');e.status=r.status;throw e;}return d;}
  const auth=(path,body,token)=>json(env.SUPABASE_URL+'/auth/v1/'+path,{method:body===undefined?'GET':'POST',headers:{apikey:env.SUPABASE_ANON_KEY,...(token?{Authorization:'Bearer '+token}:{})},body});
  const rpc=(name,args)=>json(env.SUPABASE_URL+'/rest/v1/rpc/'+name,{method:'POST',headers:{apikey:env.SUPABASE_SERVICE_ROLE_KEY,Authorization:'Bearer '+env.SUPABASE_SERVICE_ROLE_KEY},body:args});
+ async function authAttempt(email,action){
+  const key=crypto.createHmac('sha256',env.SUPABASE_SERVICE_ROLE_KEY).update('vault-auth\0'+email.toLowerCase()).digest('hex');
+  const result=await rpc('vault_auth_attempt',{p_email_hash:key,p_action:action,p_daily_budget:emailBudget});
+  if(result?.allowed!==true)throw Object.assign(Error('Too many sign-in requests. Please try again later.'),{status:result?.allowed===false?429:503});
+ }
  const razor=(path,body)=>{requireBilling();return json('https://api.razorpay.com/v1/'+path,{method:body===undefined?'GET':'POST',headers:{Authorization:'Basic '+Buffer.from(env.RAZORPAY_KEY_ID+':'+env.RAZORPAY_KEY_SECRET).toString('base64')},body});};
  function safeSession(s){if(!s.access_token||!s.refresh_token||!s.expires_in)throw Error('Email verification did not return a session.');return {access_token:s.access_token,refresh_token:s.refresh_token,expires_at:s.expires_at||Math.floor(Date.now()/1000)+s.expires_in};}
  async function validatePlan(){const p=await razor('plans/'+encodeURIComponent(env.RAZORPAY_PLAN_ID));if(p.period!=='monthly'||p.interval!==1||p.item?.amount!==89900||p.item?.currency!=='INR')throw Error('The billing plan must be INR 899.00 per month.');}
@@ -23,8 +30,8 @@ function providers(env=process.env,request=fetch){
   await rpc('vault_subscription',{p_event:event,p_subscription:sub.id,p_status:sub.status,p_until:until?new Date(until*1000).toISOString():null,p_user:user,p_revision:claim.revision});
  }
  return {
- sendCode:async email=>{await auth('otp',{email,create_user:true});return {sent:true};},
- verify:async(email,token)=>safeSession(await auth('verify',{email,token,type:'email'})),
+ sendCode:async email=>{email=email.toLowerCase();await authAttempt(email,'send');await auth('otp',{email,create_user:true});return {sent:true};},
+ verify:async(email,token)=>{email=email.toLowerCase();await authAttempt(email,'verify');return safeSession(await auth('verify',{email,token,type:'email'}));},
  refresh:async token=>safeSession(await auth('token?grant_type=refresh_token',{refresh_token:token})),
  logout:async token=>{await auth('logout?scope=local',{},token);return {ok:true};},
  user:async token=>{const u=await auth('user',undefined,token);if(!u.email_confirmed_at)throw Object.assign(Error('Verify your email first.'),{status:401});return {id:u.id,email:u.email};},

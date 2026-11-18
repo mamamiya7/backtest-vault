@@ -99,3 +99,54 @@ end $$;
 
 revoke all on function public.vault_account(uuid),public.vault_reserve(uuid,text),public.vault_settle(uuid,text,text),public.vault_pending(uuid),public.vault_checkout(uuid,text),public.vault_attach_checkout(uuid,text,text),public.vault_billing_claim(text),public.vault_subscription(text,text,text,timestamptz,uuid,bigint) from public,anon,authenticated;
 grant execute on function public.vault_account(uuid),public.vault_reserve(uuid,text),public.vault_settle(uuid,text,text),public.vault_pending(uuid),public.vault_checkout(uuid,text),public.vault_attach_checkout(uuid,text,text),public.vault_billing_claim(text),public.vault_subscription(text,text,text,timestamptz,uuid,bigint) to service_role;
+
+-- Shared authentication budgets survive Edge instance restarts. No raw emails/IPs.
+create table if not exists public.vault_auth_limits (
+ policy text not null, subject_hash text not null check (subject_hash ~ '^[a-f0-9]{64}$'),
+ bucket_start timestamptz not null, expires_at timestamptz not null,
+ attempts integer not null default 0 check (attempts >= 0),
+ primary key(policy,subject_hash,bucket_start)
+);
+create index if not exists vault_auth_limits_expiry on public.vault_auth_limits(expires_at);
+alter table public.vault_auth_limits enable row level security;
+revoke all on public.vault_auth_limits from public,anon,authenticated;
+
+create or replace function public.vault_auth_attempt(p_email_hash text,p_action text,p_daily_budget integer default 80)
+returns jsonb language plpgsql security definer set search_path=public as $$
+declare
+ instant timestamptz:=clock_timestamp(); global_start timestamptz;
+ email_start timestamptz; global_policy text; email_policy text; period_seconds integer;
+ global_limit integer; email_limit integer; count_now integer;
+ global_hash text:=repeat('0',64);
+begin
+ if p_email_hash is null or p_email_hash !~ '^[a-f0-9]{64}$' or p_action is null or p_action not in ('send','verify')
+ or p_daily_budget is null or p_daily_budget not between 1 and 10000 then raise exception 'Invalid authentication budget'; end if;
+ delete from vault_auth_limits where expires_at < instant-interval '1 day';
+ global_start:=to_timestamp(floor(extract(epoch from instant)/86400)*86400);
+ global_policy:=p_action||'-global'; global_limit:=case when p_action='send' then p_daily_budget else 1000 end;
+ insert into vault_auth_limits(policy,subject_hash,bucket_start,expires_at)
+ values(global_policy,global_hash,global_start,global_start+interval '1 day') on conflict do nothing;
+ -- All instances acquire the global row before any email row. Rejections do not
+ -- spend the global allowance or create new email rows after budget exhaustion.
+ select attempts into count_now from vault_auth_limits where policy=global_policy and subject_hash=global_hash and bucket_start=global_start for update;
+ if count_now>=global_limit then return jsonb_build_object('allowed',false,'retryAfter',greatest(1,ceil(extract(epoch from global_start+interval '1 day'-instant)))); end if;
+ for period_seconds,email_limit,email_policy in
+  select * from (values
+   (case when p_action='send' then 60 else 600 end,case when p_action='send' then 1 else 10 end,p_action||'-short'),
+   (86400,case when p_action='send' then 5 else 50 end,p_action||'-day')
+  ) as limits(seconds,maximum,policy)
+ loop
+  email_start:=to_timestamp(floor(extract(epoch from instant)/period_seconds)*period_seconds);
+  insert into vault_auth_limits(policy,subject_hash,bucket_start,expires_at)
+  values(email_policy,p_email_hash,email_start,email_start+make_interval(secs=>period_seconds)) on conflict do nothing;
+  select attempts into count_now from vault_auth_limits where policy=email_policy and subject_hash=p_email_hash and bucket_start=email_start for update;
+  if count_now>=email_limit then return jsonb_build_object('allowed',false,'retryAfter',greatest(1,ceil(extract(epoch from email_start+make_interval(secs=>period_seconds)-instant)))); end if;
+ end loop;
+ update vault_auth_limits set attempts=attempts+1 where policy=global_policy and subject_hash=global_hash and bucket_start=global_start;
+ update vault_auth_limits set attempts=attempts+1 where subject_hash=p_email_hash and
+  ((policy=p_action||'-short' and bucket_start=to_timestamp(floor(extract(epoch from instant)/(case when p_action='send' then 60 else 600 end))*(case when p_action='send' then 60 else 600 end)))
+   or (policy=p_action||'-day' and bucket_start=global_start));
+ return jsonb_build_object('allowed',true,'retryAfter',0);
+end $$;
+revoke all on function public.vault_auth_attempt(text,text,integer) from public,anon,authenticated;
+grant execute on function public.vault_auth_attempt(text,text,integer) to service_role;
