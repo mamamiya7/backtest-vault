@@ -32,7 +32,7 @@ async function journeyStateTests(){
  const E=w.VaultExperiments,baseline=E.baseline(w.VaultDemo.create()[0]);baseline.demo=false;
  let plan;w.chrome={runtime:{sendMessage:async message=>{commands.push(message.action);assert.equal(message.action,'list','Reading progress and results must never run or resume a study');return {ok:true,experiments:[structuredClone(plan)],tabs:[]};}}};
  const store={demo:false,all:async()=>[],allBenchmarks:async()=>[]};
- const states=[['draft','queued','run'],['running','applying','run'],['pausing','capturing','run'],['paused','queued','run'],['needs-review','uncertain','run'],['complete','skipped','review'],['complete','queued','run'],['complete','uncertain','run'],['complete','capturing','run']];
+ const states=[['draft','queued','run'],['running','applying','run'],['pausing','capturing','run'],['paused','queued','run'],['needs-review','uncertain','run'],['complete','saved','review'],['paused','skipped','review'],['complete','queued','run'],['complete','uncertain','run'],['complete','capturing','run']];
  try{
   for(const [status,trialStatus,stage] of states){
    plan=E.create({id:'journey-state',name:'A saved study',baseline,dimensions:[{key:'momentum.period.1',values:'180'}]});plan.status=status;plan.trials[0].status=trialStatus;
@@ -40,7 +40,10 @@ async function journeyStateTests(){
    const original=JSON.stringify(plan);await w.VaultExperimentsUI.render({target:d.querySelector('main'),store,runs:[],onOpen:()=>{throw Error('Progress must not open a fabricated result');},onExit:()=>{},table:()=>d.createElement('table'),download:()=>{}});
    d.querySelector('.experiment-card').click();const journey=currentJourney(d,stage),commandCount=commands.length;
    journey.querySelectorAll('li').forEach(node=>node.click());await tick();assert.equal(commands.length,commandCount,'Progress clicks only describe the current state');assert.equal(JSON.stringify(plan),original,'Journey rendering cannot change the saved study');
-   if(stage==='review'){
+   if(trialStatus==='skipped'){
+    assert.equal(d.querySelector('.experiment-hero h3').textContent,'No results saved');
+    const back=[...d.querySelectorAll('button')].find(node=>node.textContent==='Back to My studies');assert.ok(back);back.click();assert.ok(d.querySelector('.experiment-card'));
+   }else if(stage==='review'){
     const view=[...d.querySelectorAll('button')].find(node=>node.textContent==='View results');assert.ok(view,'A completed study points to its results');view.click();await tick();
     const evidence=d.querySelector('.experiment-evidence');assert.equal(d.activeElement,evidence,'The result action moves keyboard focus into the ranking');assert.ok(scrolled.includes(evidence),'The result action brings the ranking into view');assert.equal(commands.length,commandCount,'Viewing results never submits, resumes, or reconciles');
    }
@@ -214,7 +217,7 @@ async function studyRefreshTests(){
   const firstHero=d.querySelector('.experiment-hero'),detailTrigger=d.querySelector('.experiment-actions [data-delete-study]');detailTrigger.focus();finish();await poll();
   assert.equal(d.activeElement,detailTrigger);assert.equal(d.querySelector('.experiment-hero'),firstHero,'Polling preserves a focused detail control');assert.match(firstHero.querySelector('.eyebrow').textContent,/RUNNING/);
   detailTrigger.click();assert.equal(d.querySelector('.study-delete-confirm').disabled,false,'An old detail control also reads the latest completed study');cancel();assert.equal(d.activeElement,detailTrigger);
-  outside.focus();await poll();assert.equal(d.activeElement,outside);assert.notEqual(d.querySelector('.experiment-hero'),firstHero);assert.match(d.querySelector('.experiment-hero .eyebrow').textContent,/COMPLETE/,'A deferred detail update survives further unchanged polls');
+  outside.focus();await poll();assert.equal(d.activeElement,outside);assert.notEqual(d.querySelector('.experiment-hero'),firstHero);assert.match(d.querySelector('.experiment-hero .eyebrow').textContent,/ALL TRIALS SKIPPED/,'A deferred detail update survives further unchanged polls');
   const freshHero=d.querySelector('.experiment-hero');await poll();assert.equal(d.querySelector('.experiment-hero'),freshHero,'Unchanged detail state is not repainted');
   const deletedTrigger=d.querySelector('.experiment-actions [data-delete-study]');deletedTrigger.focus();plans=[];await poll();assert.equal(d.activeElement,deletedTrigger);assert.ok(d.querySelector('.experiment-hero'));
   outside.focus();await poll();assert.equal(d.querySelector('.experiment-hero'),null);assert.ok(d.querySelector('.experiment-empty'),'Deletion in another view is applied after focus leaves the old detail');assert.equal(d.activeElement,outside);
@@ -436,7 +439,7 @@ async function sourcePickerTests(){
   tabs=[{id:7,chart:'Candle',ready:true},{id:9,chart:'Candle',ready:true}];await poll();assert.equal(picker.value,'9');start.click();await tick();assert.equal(starts,1);assert.match(d.querySelector('.notice').textContent,/Source no longer ready/);
   tabs=[{id:9,chart:'Candle',ready:false,reason:'Close the open report in RZone.'}];await poll();assert.equal(picker.value,'9');assert.equal(start.disabled,true);assert.match(d.querySelector('.experiment-actions').textContent,/Close the open report/);
   tabs=[];await render();d.querySelector('.experiment-card').click();const late=d.querySelector('[data-rzone]');assert.equal(late.value,'');tabs=[{id:12,chart:'Candle',ready:true}];await poll();assert.equal(late.value,'12','A source discovered later is auto-selected');
-  plan.status='running';plan.trials[0].status='portfolio-submitting';plan.trials[0].events=[{status:'applying',at:'2026-09-13T10:00:00Z'},{status:'portfolio-submitting',at:'2026-09-13T10:01:00Z'}];await render();d.querySelector('.experiment-card').click();assert.match(d.querySelector('.experiment-hero h3').textContent,/Trial 1 · Waiting for portfolio report/);assert.doesNotMatch(d.querySelector('.experiment-hero').textContent,/Ready to collect/);const evidence=[...d.querySelectorAll('details')].find(n=>n.querySelector('summary').textContent==='Execution evidence');assert.ok(evidence);assert.equal(evidence.open,false,'Detailed timings stay collapsed');assert.match(evidence.textContent,/Checking and applying settings/);
+  plan.status='running';plan.trials[0].status='portfolio-submitting';plan.trials[0].events=[{status:'applying',at:'2026-09-13T10:00:00Z'},{status:'portfolio-submitting',at:'2026-09-13T10:01:00Z'}];await render();d.querySelector('.experiment-card').click();assert.match(d.querySelector('.experiment-hero h3').textContent,/Trial 1 of 3 · Waiting for portfolio report/);assert.doesNotMatch(d.querySelector('.experiment-hero').textContent,/Ready to collect/);const evidence=[...d.querySelectorAll('details')].find(n=>n.querySelector('summary').textContent==='Execution evidence');assert.ok(evidence);assert.equal(evidence.open,false,'Detailed timings stay collapsed');assert.match(evidence.textContent,/Checking and applying settings/);
   plan.status='draft';plan.trials[0].status='queued';plan.trials[0].events=[];plan.demo=true;await render();d.querySelector('.experiment-card').click();assert.equal(d.querySelector('[data-rzone]'),null,'Imported samples cannot start real execution');assert.match(d.querySelector('.experiment-hero').textContent,/SAMPLE DATA/);assert.ok(![...d.querySelectorAll('button')].some(b=>/^Run [\d,]+ tests?$/.test(b.textContent)));assert.equal(starts,1);
  }finally{w.VaultExperimentsUI.dispose();dom.window.close();}
 }
@@ -615,6 +618,8 @@ async function localReviewTests(){
   assert.equal(warning().hidden,true);
   change('momentum.rs','true');
   assert.equal(warning().textContent,'Choose a Relative Strength rule.');
+  [...d.querySelectorAll('button')].find(button=>button.textContent==='Go to Relative Strength').click();
+  assert.equal(d.activeElement,field('momentum.rs.rule'),'The review blocker moves focus to the invalid rule');
   assert.equal(warning().hidden,false);assert.equal(field('momentum.rs.rule').getAttribute('aria-invalid'),'true');
   assert.match(field('momentum.rs.rule').getAttribute('aria-describedby'),/relative-strength-rule-warning/);
   assert.equal(reviewButton(d).disabled,true);

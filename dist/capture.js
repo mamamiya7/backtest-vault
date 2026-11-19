@@ -215,25 +215,65 @@
   }
   const cells=row=>[...row.cells].map(text);
   function rows(table) {return table ? [...table.rows].map(cells) : [];}
+  function drawingClips(chart) {
+    const clips = new Map([...chart.querySelectorAll('clipPath[id]')].map(clip=>[clip.id,clip]));
+    const plot = chart.querySelector('.highcharts-plot-background');
+    const plotWidth = Number(plot?.getAttribute('width'));
+    const plotHeight = Number(plot?.getAttribute('height'));
+    const drawing = new Map();
+    for(const group of chart.querySelectorAll('[clip-path]')){
+      const id = group.getAttribute('clip-path').match(/#([^)'"\s]+)['"]?\)$/)?.[1];
+      const rect = clips.get(id)?.querySelector('rect');
+      if (!rect) continue;
+      const width = Number(rect.getAttribute('width'));
+      // The ordinary horizontal series reveal starts at x=0 and grows to the
+      // full plot width. Older renders can use it without the animation class.
+      const standardReveal = plotWidth>0 && plotHeight>0 && Math.abs(Number(rect.getAttribute('height'))-plotHeight)<=2 &&
+        rect.hasAttribute('width') && width>=0 && width<plotWidth-2 &&
+        Number(rect.getAttribute('x'))===0 && !!group.querySelector('.highcharts-graph[d],.highcharts-area[d]');
+      if(standardReveal)drawing.set(id,plotWidth);
+      else if(rect.classList.contains('highcharts-animating')&&!drawing.has(id))drawing.set(id,null);
+    }
+    return drawing;
+  }
+  function chartReady(chart) {
+    const drawing=drawingClips(chart);
+    return !drawing.size || (document.hidden&&[...drawing.values()].every(width=>width!==null));
+  }
+  function readCharts(panel,finishBackground=false) {
+    return [...panel.querySelectorAll('svg.highcharts-root')].map((e,i)=>{
+      const box=e.closest('.equity-chart,.draw-down-chart,.charts-align');
+      const heading=box ? [...box.children].find(x=>!x.querySelector('svg.highcharts-root')) : null;
+      let graphic=e;
+      if(finishBackground&&document.hidden){
+        const drawing=drawingClips(e);
+        if(drawing.size){
+          // Chrome can pause animation frames in the background. Finish only
+          // known reveals on the SVG copy without changing any series data.
+          graphic=e.cloneNode(true);
+          for(const clip of graphic.querySelectorAll('clipPath[id]')){
+            const width=drawing.get(clip.id);
+            if(width)clip.querySelector('rect').setAttribute('width',String(width));
+          }
+        }
+      }
+      return {title:text(heading) || text(e.querySelector('title')) || `Chart ${i+1}`,svg:V.safeSvg(graphic.outerHTML)};
+    });
+  }
   function readReport(report) {
     const panel = report.querySelector('[role="tabpanel"]');
     if (!panel) throw new Error('Report content not found.');
     const quickStats = [...panel.querySelectorAll('.stats-card')].map(e=>({label:text(e.querySelector('.status')),value:text(e.querySelector('.amt'))})).filter(x=>x.label);
     const statistics = [...panel.querySelectorAll('.dropdown-table-body')].map(e=>({title:text(e.parentElement?.querySelector('.dropdown-head')) || 'Statistics',rows:rows(e)}));
     const monthly = [...panel.querySelectorAll('table')].filter(t=>!t.querySelector('table') && !t.matches('.dropdown-table-body,.rade-result-detail')).map(rows).filter(r=>r[0]?.length === 14);
-    const charts = [...panel.querySelectorAll('svg.highcharts-root')].map((e,i)=>{
-      const box=e.closest('.equity-chart,.draw-down-chart,.charts-align');
-      const heading=box ? [...box.children].find(x=>!x.querySelector('svg.highcharts-root')) : null;
-      return {title:text(heading) || text(e.querySelector('title')) || `Chart ${i+1}`,svg:V.safeSvg(e.outerHTML)};
-    });
-    return {quickStats, statistics, monthly, charts};
+    return {quickStats, statistics, monthly, charts:readCharts(panel)};
   }
   const captureSections=[
     ['Quick Stats',panel=>[...(panel?.querySelectorAll('.stats-card')||[])].some(card=>text(card.querySelector('.status')).toLowerCase()==='total no. of trades'&&Number.isInteger(V.number(text(card.querySelector('.amt')))))],
     ['Statistics',panel=>!!panel?.querySelector('.dropdown-table-body tr td')],
     ['Charts',panel=>{
       const charts=[...(panel?.querySelectorAll('svg.highcharts-root')||[])];
-      return charts.length===6&&charts.every(chart=>chart.querySelector('path,rect,text'));
+      return charts.length===6&&charts.every(chart=>chart.querySelector('path,rect,text')&&chartReady(chart));
     }],
     ['Trade Details',panel=>!!panel?.querySelector('table.rade-result-detail tr')]
   ];
@@ -297,18 +337,30 @@
     if(options.strict)capturingReport=report;
     let saved=false;
     try {
+      let charts;
       for(const [name,ready] of captureSections){
         const started=performance.now();
         status(`Reading ${name}…`);
         await chooseTab(report,name,options.strict?ready:undefined);
+        if(name==='Charts'){
+          const panel=report.querySelector('[role="tabpanel"]');
+          if(!options.strict)await waitFor(()=>{
+            if(!report.isConnected||!panel?.isConnected)throw Error('The report was closed during chart capture.');
+            return [...panel.querySelectorAll('svg.highcharts-root')].every(chartReady);
+          },'Charts are still drawing. Try saving the report again.');
+          if(panel)charts=readCharts(panel,true);
+        }
         options.measure?.(name,performance.now()-started);
       }
       const detailsStarted=performance.now();
       const extracted = readReport(report);
+      const proof=JSON.stringify(extracted);
+      if(charts)extracted.charts=charts;
       if(!extracted.quickStats.length || !extracted.statistics.length) throw new Error('Report statistics are missing. Nothing was saved.');
       const trades = await allTrades(report);
       options.measure?.('details',performance.now()-detailsStarted);
       const run = {schemaVersion:1,id:crypto.randomUUID(),name:`Momentum · ${now().slice(0,16).replace('T',' ')}`,savedAt:now(),source:'https://zone.definedgesecurities.com/index.html#research',provenance:linked?.strategy ? 'recorded-at-submit':'unverified',parameters:linked || null,observedMain:linked?.strategy ? null : snapshot(main()),...extracted,trades,warnings:[]};
+      if(charts?.length===6)run.chartCaptureVersion=1;
       if(!linked?.strategy) run.warnings.push('This report predates a confirmed strategy submission in this tab. Current visible inputs are reference only; do not treat them as the settings used. Run both backtests with the extension active for linked settings.');
       if(extracted.charts.length<6) run.warnings.push(`Captured ${extracted.charts.length} chart graphics; the inspected portfolio layout contains six. Review chart completeness.`);
       if(linked?.strategy?.auxiliarySettingsUncaptured) run.warnings.push('Market Trend Filter was enabled without a confirmed settings save. Open its settings, save them, then run the backtest again to capture the complete filter.');
@@ -324,7 +376,7 @@
       }
       if(options.runId){run.id=options.runId;run.name=options.name;run.experiment=options.experiment;}
       pendingRun=run;
-      pendingReport={report,generation:reportGeneration,proof:JSON.stringify(extracted)};
+      pendingReport={report,generation:reportGeneration,proof};
       const writeStarted=performance.now();
       const result=await persistPending(options.strict);
       options.measure?.('write',performance.now()-writeStarted);

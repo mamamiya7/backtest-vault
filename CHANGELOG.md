@@ -2,10 +2,14 @@
 
 ## Application development update - 2026-11-19
 
+- Save complete equity and drawdown graphics in new reports, including background runs. Older reports flag potentially incomplete chart snapshots.
+- Search and sort My studies, and find reusable reports by name, chart, universe or test dates.
+- Start fresh setups without an invalid Relative Strength default. Jump directly to a missing rule from the Review message.
+- See the current trial, total trials and active stage. Studies with every trial skipped now show that no results were saved.
 - Set up and review tests locally using saved RZone choices. Contact RZone when starting a run or explicitly searching for a missing choice.
 - Fix Renko choice discovery and saved-group lookup. Keep Relative Strength edits local, flag a missing rule beside the field and count only active variations.
 - Read report sections as soon as they are ready, reuse the approved study plan across checkpoints and start the next test after a confirmed save. Execution evidence shows where capture and save time is spent.
-- Preserve saved research and daily dropdown choices. These changes were verified in the local Chrome preview and are available in the development source.
+- Preserve saved research and daily dropdown choices. Verified the full saved equity and drawdown graphics against the source report in one live RZone Candle backtest.
 
 ## 0.21.0 candidate - 2026-09-30 (not published)
 

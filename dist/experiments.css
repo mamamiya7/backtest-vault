@@ -95,6 +95,11 @@ body:has(.has-workbench) main{max-width:none}
 .source-combination-count{display:flex;gap:12px;align-items:baseline;min-width:0}
 .source-combination-count strong{font-size:13px;color:#c6e9e1;white-space:nowrap}
 .source-combination-count span{font-size:12px;color:#a5b6c5}
+.saved-run-picker{display:grid;gap:14px}
+.saved-run-picker label{min-width:0}
+.saved-run-picker [role='status']{margin:0}
+.saved-run-picker [role='status']:empty{display:none}
+.saved-run-picker button{justify-self:start}
 .source-count-bar .primary{min-height:34px;min-width:125px;padding:6px 18px;border-radius:4px;background:#18558b;color:white;border:1px solid #246da9}
 .source-variation{position:relative;line-height:1}
 .source-workbench .source-test-values,.setup-backtest-dialog .source-test-values{font:10px "Segoe UI",system-ui,sans-serif;min-height:17px;padding:1px 0;margin:0;color:#91b5d5;background:none;border:0;border-radius:0;white-space:nowrap;justify-content:flex-start}

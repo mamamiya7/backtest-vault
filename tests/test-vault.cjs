@@ -6,6 +6,8 @@ const base = path.resolve(__dirname,'../dist');
 const V = require(path.join(base,'core.js'));
 const dom = new JSDOM('<!doctype html><body><h1>Momentum Trading BackTesting</h1><div class="account-right"><table><tr><td>Period :</td><td><input type="checkbox" checked><input value="252"></td><td>Retracement :</td><td><input value="20"></td></tr><tr><td>Weight :</td><td><input value="1"></td></tr></table><span id="completion"></span><button id="cancel" style="display:none">Cancel BackTest</button></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'});
 const w=dom.window, d=w.document;
+let background=false;
+Object.defineProperty(d,'hidden',{get:()=>background});
 global.DOMParser=w.DOMParser;global.XMLSerializer=w.XMLSerializer;
 assert.equal(V.number('₹ 1,25,256.58'),125256.58);
 assert.equal(V.number('36.44% ↑'),36.44);
@@ -54,6 +56,24 @@ w.eval(fs.readFileSync(path.join(base,'core.js'),'utf8'));w.eval(fs.readFileSync
   d.querySelector('.account-right input[value="252"]').value='120';
   const report=popup('Portfolio Backtesting Report','<div role="tablist">'+['Quick Stats','Statistics','Charts','Trade Details'].map((x,i)=>`<div role="tab" class="gwt-TabBarItem ${i===0?'gwt-TabBarItem-selected':''}">${x}</div>`).join('')+'</div><div role="tabpanel"><div class="stats-card"><div class="amt">4</div><div class="status">Total no. of Trades</div></div><div class="stats-card"><div class="amt">25.26%</div><div class="status">Gross Total Returns( % )</div></div><table class="dropdown-table-body"><tr><td>Group</td><td>Large Midcap 250</td></tr></table>'+Array.from({length:6},(_,i)=>`<svg xmlns="http://www.w3.org/2000/svg" class="highcharts-root" width="200" height="100"><title>Chart ${i+1}</title><path d="M0 90 L200 10" stroke="green"/></svg>`).join('')+'<table class="rade-result-detail"></table><span id="curPageTextEle">1</span><span id="lastPageTextEle">2</span><img src="/images/firstPage.png"><img src="/images/next.png"></div>');
   report.querySelectorAll('[role="tab"]').forEach(t=>t.onclick=()=>{report.querySelectorAll('[role="tab"]').forEach(x=>x.classList.remove('gwt-TabBarItem-selected'));t.classList.add('gwt-TabBarItem-selected');});
+  const chartsTab=[...report.querySelectorAll('[role="tab"]')].find(t=>t.textContent==='Charts');
+  const selectCharts=chartsTab.onclick;
+  let chartAnimation;
+  chartsTab.onclick=()=>{
+    selectCharts();
+    const charts=[...report.querySelectorAll('svg')].slice(0,2);
+    charts.forEach((chart,i)=>{
+      chart.innerHTML=`<rect class="highcharts-plot-background" width="200" height="100"/><defs><clipPath id="series-${i}"><rect ${i===0?'class="highcharts-animating"':''} x="0" width="8" height="100"/></clipPath></defs><g clip-path="url(#series-${i})"><path class="highcharts-graph" d="M0 90 L200 10"/></g>`;
+    });
+    if(background)return;
+    chartAnimation=setTimeout(()=>{
+      for(const chart of charts){const clip=chart.querySelector('clipPath rect');clip.removeAttribute('class');clip.setAttribute('width','200');}
+    },750);
+  };
+  const tradesTab=[...report.querySelectorAll('[role="tab"]')].find(t=>t.textContent==='Trade Details');
+  const selectTrades=tradesTab.onclick;
+  // The source can stop painting a chart once its tab is hidden.
+  tradesTab.onclick=()=>{clearTimeout(chartAnimation);selectTrades();};
   function page(n){report.querySelector('#curPageTextEle').textContent=n;report.querySelector('.rade-result-detail').innerHTML='<tr><th>Sr #</th><th>Symbol</th><th>Qty</th><th>P&L</th></tr>'+[n*2-1,n*2].map(i=>`<tr><td>${i}</td><td>STOCK${i}</td><td>${i===2?0:10}</td><td>100</td></tr>`).join('')+(n===2?'<tr><td></td><td> </td><td>&nbsp;</td><td></td></tr>'.repeat(3):'');}
   page(1);report.querySelector('img[src$="firstPage.png"]').onclick=()=>page(1);report.querySelector('img[src$="next.png"]').onclick=()=>page(2);
   await delay(800);const opensBeforeCapture=vaultOpens,opening=shadow.querySelector('#open').onclick();await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,opensBeforeCapture,'A concurrent Open click must not navigate while capture is in progress.');await opening;
@@ -61,6 +81,8 @@ w.eval(fs.readFileSync(path.join(base,'core.js'),'utf8'));w.eval(fs.readFileSync
   const run=Object.values(store)[0];V.validate(run);
   assert.deepEqual(vaultMessages.at(-1),{type:'open-vault',runId:run.id},'Open Vault saves the unsaved completed report and opens that exact run.');assert.equal(vaultOpens,opensBeforeCapture+1);assert.equal(writeCount,1,'Repeated clicks create only one archive.');
   assert.equal(run.provenance,'recorded-at-submit');assert.equal(run.trades.rows.length,4);assert.equal(run.charts.length,6);
+  for(const {svg} of run.charts.slice(0,2))assert.doesNotMatch(svg,/width="8"/,'The archived clip must expose the full series');
+  assert.equal(run.chartCaptureVersion,1);
   assert.equal(run.parameters.strategy.main.fields.find(f=>f.value==='252').value,'252');
   assert.equal(run.trades.rows[1][2],'0','Zero quantity trade must be preserved');
   assert.ok(run.trades.rows.every(row=>row.some(cell=>cell!=='')),'Final-page placeholders must not become trades');
@@ -77,7 +99,10 @@ w.eval(fs.readFileSync(path.join(base,'core.js'),'utf8'));w.eval(fs.readFileSync
   // Reproduce storage disappearing after an extension reload, without touching real browser storage.
   const next=d.createElement('img');next.src='/images/next.png';next.onclick=()=>page(2);report.querySelector('[role="tabpanel"]').append(next);
   const workingChrome=w.chrome;w.chrome={runtime:workingChrome.runtime};
+  background=true;
   const failedSave=shadow.querySelector('#save').onclick(),beforeBusy=vaultOpens;await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforeBusy);assert.match(shadow.querySelector('#status').textContent,/being saved/);await failedSave;
+  background=false;
+  assert.equal(report.querySelector('clipPath rect').getAttribute('width'),'8','Background capture must leave the source chart unchanged');
   assert.match(shadow.querySelector('#status').textContent,/Not saved to Vault.*disconnected.*Download recovery backup/);
   assert.doesNotMatch(shadow.querySelector('#status').textContent,/Cannot read properties/);assert.equal(Object.keys(store).length,1);
   assert.equal(shadow.querySelector('#recovery').hidden,false);assert.equal(shadow.querySelector('#save').textContent,'Retry captured run');
@@ -85,6 +110,7 @@ w.eval(fs.readFileSync(path.join(base,'core.js'),'utf8'));w.eval(fs.readFileSync
   const unrelated=popup('Portfolio Backtesting Report','<p>Different report</p>');report.hidden=true;await shadow.querySelector('#open').onclick();assert.equal(vaultOpens,beforePending);assert.match(shadow.querySelector('#status').textContent,/earlier capture.*Retry captured run/);unrelated.remove();report.hidden=false;
   shadow.querySelector('#recovery').click();const recovery=JSON.parse(await downloads.at(-1).text());
   assert.equal(recovery.format,'definedge-backtest-vault');assert.equal(recovery.runs.length,1);V.validate(recovery.runs[0]);
+  for(const {svg} of recovery.runs[0].charts.slice(0,2))assert.doesNotMatch(svg,/width="8"/,'A paused background animation must not clip the archived copy');
   assert.equal(recovery.runs[0].trades.rows.length,4);assert.equal(recovery.runs[0].charts.length,6);assert.equal(recovery.runs[0].parameters.strategy.main.fields.find(f=>f.value==='252').value,'252');
   assert.equal(downloadNames.at(-1),'backtest-vault-recovery-'+recovery.runs[0].id+'.json');
   // The actual dashboard import accepts this recovery envelope, and importing it twice keeps one run.
