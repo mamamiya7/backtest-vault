@@ -34,7 +34,7 @@ const setupDrafts=new WeakMap();
 async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,download,baselineRun,startNew=false,studyId=null}){
 
  cleanup();document.body.classList.add('experiments-mode');let timer,selected=null,experiments=[],tabs=[],disposed=false,simulation=false,refreshing=false;
- let refreshSource=()=>{},wizard=null,deletionDialog=null,renderedList='',renderedDetail='',loadGeneration=0;const sourceChoices=new Map(),decisionGroups=new Map();
+ let refreshSource=()=>{},wizard=null,deletionDialog=null,renderedList='',renderedDetail='',loadGeneration=0,localSetup=false,setupLibrary=null;const sourceChoices=new Map(),decisionGroups=new Map();
  const onOpen=run=>openSaved(run,selected);
  const stamp=e=>e?JSON.stringify([e.id,e.revision,e.status,e.owner,e.trials.map(t=>[t.status,t.error])]):'';
  const listStamp=()=>experiments.map(stamp).join('|');
@@ -56,9 +56,9 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  const clearCalendars=()=>{for(const calendar of calendars.splice(0))calendar.destroy();};
  const calendarOpen=()=>calendars.some(calendar=>calendar.button.getAttribute('aria-expanded')==='true');
  const attachCalendar=(container,fromInput,toInput,options={})=>{if(!root.VaultDateRange)return null;const calendar=root.VaultDateRange.attach({container,fromInput,toInput,...options});calendars.push(calendar);return calendar;};
- const keepSetup=()=>{if(!wizard||wizard.submitting)return;const {controls,countUpdates,fields,catalog,...draft}=wizard;if(wizard.connecting||wizard.ruleLookup)notice.textContent='';setupDrafts.set(store,structuredClone({...draft,connecting:false,warmingChart:null,loadingFilter:null,ruleLookup:null,reviewOpen:false,editorOpen:null,generation:draft.generation+1}));};
+ const keepSetup=()=>{if(!wizard||wizard.submitting)return;const {controls,countUpdates,fields,catalog,...draft}=wizard;if(wizard.connecting||wizard.ruleLookup)notice.textContent='';setupDrafts.set(store,structuredClone({...draft,connecting:false,warmingChart:null,loadingFilter:null,choiceCheckStatus:null,ruleLookup:null,reviewOpen:false,editorOpen:null,generation:draft.generation+1}));};
 
- const dispose=()=>{if(disposed)return;keepSetup();disposed=true;clearInterval(timer);clearCalendars();motion?.destroy();deletionDialog?.remove();deletionDialog=null;document.body.classList.remove('experiments-mode');};cleanup=dispose;
+ const dispose=()=>{if(disposed)return;keepSetup();disposed=true;clearInterval(timer);document.removeEventListener('visibilitychange',refresh);clearCalendars();motion?.destroy();deletionDialog?.remove();deletionDialog=null;document.body.classList.remove('experiments-mode');};cleanup=dispose;
 
  async function command(action,data={}){
 
@@ -77,7 +77,13 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- async function load(){const generation=++loadGeneration,data=extension?await command('list'):{experiments:await store.allExperiments(),tabs:[]},nextRuns=await store.all();if(generation!==loadGeneration||disposed)return;experiments=data.experiments;tabs=data.tabs;runs=nextRuns;motion?.observe(experiments);}
+ async function load(){
+  const generation=++loadGeneration,live=!!selected&&!wizard&&experiments.some(e=>e.id===selected&&['running','pausing','needs-review'].includes(e.status));
+  const data=extension?await command('list',{passive:!live}):{experiments:await store.allExperiments(),tabs:[]},nextRuns=await store.all();
+  if(generation!==loadGeneration||disposed)return;
+  localSetup ||= data.localSetup===true;
+  experiments=data.experiments;tabs=data.tabs;runs=nextRuns;motion?.observe(experiments);
+ }
 
  async function action(fn){try{notice.textContent='';notice.className='notice';await fn();}catch(e){notice.textContent=e.message;notice.className='notice error';}}
 
@@ -144,7 +150,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  function journey(stage){const nav=el('nav',undefined,'study-journey'),steps=el('ol'),names=[['setup','Set up'],['run','Run tests'],['review','Review results']],current=names.findIndex(([key])=>key===stage);nav.setAttribute('aria-label','Study progress');for(const [i,[key,title]] of names.entries()){const item=el('li');item.dataset.stage=key;item.className=i<current?'is-done':i===current?'is-current':'';if(i===current)item.setAttribute('aria-current','step');item.append(el('span',String(i+1),'journey-number'),el('strong',title),el('small',i===current?'You are here':i<current?'Complete':'','journey-state'));steps.append(item);}nav.append(steps);return nav;}
 
- function list(){keepSetup();clearCalendars();motion?.enter(content,'list');selected=null;wizard=null;renderedList=listStamp();environment.hidden=extension;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('My studies'));const intro=el('div',undefined,'experiment-intro');intro.append(el('p','Set up a test, follow its progress, then review the results.','muted'),button(setupDrafts.has(store)?'Continue setup':'New test',()=>newTest(),'primary'),button('Use a saved run',()=>builder(),'quiet'));content.append(intro);
+ function list(){keepSetup();clearCalendars();motion?.enter(content,'list');selected=null;wizard=null;renderedList=listStamp();environment.hidden=extension;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('My studies'));const intro=el('div',undefined,'experiment-intro');intro.append(el('p','Set up a test, follow its progress, then review the results.','muted'),button(setupDrafts.has(store)?'Continue setup':'New test',()=>action(()=>newTest()),'primary'),button('Use a saved run',()=>builder(),'quiet'));content.append(intro);
 
   if(!experiments.length){const empty=el('div',undefined,'experiment-empty');empty.append(el('h3','One setup. All your test results together.'),el('p','Start with one test or try several values. Vault keeps the settings, progress and results in one study.'));content.append(empty);}
 
@@ -152,24 +158,58 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- function newTest(initial=null,authorised=false){
+ async function newTest(initial=null,authorised=false){
   const savedContext=initial?S.savedRunContext(initial):null;
   if(initial&&(initial.demo===true)!==(store.demo===true))throw Error('Real and fictional saved settings cannot be mixed.');
   if(initial&&!authorised&&!store.demo&&window.VaultAccountUI?.enabled())return window.VaultAccountUI.requireFeature('reuse').then(()=>newTest(initial,true));
-  const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid()){setupPage();if(extension&&(wizard.choiceCache?.checkedAt&&!choicesFromToday(wizard.choiceCache)||wizard.choiceWarmAttempt&&wizard.choiceWarmAttempt.day!==localChoiceDay()))void action(()=>refreshSetupChoices());}return;}
+  const draft=!initial&&setupDrafts.get(store);if(draft){selected=null;wizard=structuredClone(draft);if(setupSourceValid()){setupPage();if(extension&&!localSetup&&(wizard.choiceCache?.checkedAt&&!choicesFromToday(wizard.choiceCache)||wizard.choiceWarmAttempt&&wizard.choiceWarmAttempt.day!==localChoiceDay()))void action(()=>refreshSetupChoices());}return;}
   selected=null;wizard={step:0,sourceId:'',sourceSession:null,template:null,config:null,dimensions:[],ruleDrafts:new Map(),ruleSearchDrafts:new Map(),contextDrafts:new Map(),choiceCache:null,warmingChart:null,ruleLookup:null,name:store.demo?'Sample momentum study':'Momentum study',mode:'grid',budget:30,objective:'returns',ceiling:25,minTrades:store.demo?10:30,seed:42,timeout:20,connecting:false,connectionError:'',autoConnectAttempted:false,generation:0,stale:false,reviewOpen:false,editorOpen:null};
   if(initial){setupDrafts.delete(store);wizard.reuseRun=structuredClone(initial);wizard.reuseApplied=false;wizard.name=((initial.name||'Saved run').slice(0,110)+' · copy');}
   if(store.demo){if(!S)throw Error('Test setup is unavailable. Refresh Vault.');const c=savedContext?.config;wizard.template=S.demoTemplate(c?{momentumChart:c['momentum.chart'],executionChart:c['execution.chart'],momentumBrickMode:c['momentum.brick.mode'],executionBrickMode:c['execution.brick.mode']}:{});wizard.config=initial?S.configFromRun(initial,wizard.template):S.defaults(wizard.template);wizard.reuseApplied=!!initial;wizard.step=1;}
+  if(localSetup){
+   const state=wizard;
+   setupLibrary ||= await command('setup-library');
+   if(wizard!==state||!alive())return;
+   const source=localTemplate(savedContext?.config);
+   if(source){
+    acceptSetupSource(state,source);
+    if(initial){state.config=S.configFromRun(initial,state.template);state.reuseApplied=true;}
+    state.step=1;
+   }
+  }
   setupPage();
  }
 
- async function prepareSavedContext(state,source,generation){
+ function localDescriptor(stage,config,preferred){
+  const chart=config?.[stage+'.chart'],mode=config?.[stage+'.brick.mode'],exitMode=config?.[stage+'.exit.brick.mode'];
+  const options=[preferred,...(setupLibrary?.templates||[])].filter(Boolean).map(t=>t.stages[stage]).filter(Boolean);
+  const matches=options.filter(descriptor=>{
+   const layout=root.VaultSourceLayouts.stage(stage,descriptor.fields);
+   return (!chart||layout.chart===chart)&&(!mode||descriptor.fields[layout.modeIndex]?.value===mode)&&(!exitMode||descriptor.fields[layout.exitModeIndex]?.value===exitMode);
+  });
+  return stage==='momentum'&&config?.['momentum.rs']?matches.find(d=>d.relativeStrength)||matches[0]:matches[0];
+ }
+ function localTemplate(config,preferred=setupLibrary?.templates[0]){
+  if(!preferred)return null;
+  const momentum=localDescriptor('momentum',config,preferred),execution=localDescriptor('execution',config,preferred),marketFilter=localDescriptor('marketFilter',config,preferred);
+  if(!momentum||!execution)return null;
+  return {...preferred,stages:{momentum,execution,portfolio:preferred.stages.portfolio,...(marketFilter?{marketFilter}:{})},nseBenchmarkSeeded:setupLibrary.nseBenchmarkSeeded};
+ }
+ function selectedSource(state){
+  const candidates=tabs.filter(tab=>tab.capable??tab.ready),tab=candidates.find(t=>String(t.id)===state.sourceId)||(candidates.length===1?candidates[0]:null);
+  if(!tab)throw Error('Open RZone’s Momentum BackTesting page and select its tab.');
+  state.sourceId=String(tab.id);state.sourceSession=tab.session;
+  return tab;
+ }
+
+ async function prepareSavedContext(state,source,generation,showPhase){
   if(!state.reuseRun)return source;
   const saved=S.savedRunContext(state.reuseRun),desired=state.reuseApplied?state.config:saved.config,session=source.session;
   for(const key of ['momentum.chart','momentum.market','execution.chart','momentum.brick.mode','execution.brick.mode']){
    if(!Object.hasOwn(desired,key))continue;
    const fields=S.fieldsForUI(S.template(source)).flatMap(group=>group.fields),field=fields.find(f=>f.key===key);
    if(!field||field.value===desired[key])continue;
+   showPhase('Restoring saved '+field.label.toLowerCase()+'…');
    const response=await command('configure',{tabId:Number(state.sourceId),changes:{[field.stage]:{[field.sourceIndex??field.index]:desired[key]}}});
    if(!alive()||wizard!==state||generation!==state.generation)return null;
    if(response.source?.session!==session)throw Error('RZone changed while loading the saved settings. Connect again.');source=response.source;
@@ -177,17 +217,19 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   for(const [key,loadFilter]of [['momentum.rs','relativeStrength'],['momentum.market-filter','marketFilter']]){
    if(!desired[key]&&!state.dimensions.some(d=>d.key===key&&Array.isArray(d.values)&&d.values.includes(true)))continue;
    const field=S.fieldsForUI(S.template(source)).flatMap(group=>group.fields).find(f=>f.key===key);if(!field?.needsDiscovery)continue;
+   showPhase('Loading '+field.label+' settings…');
    const response=await command('configure',{tabId:Number(state.sourceId),loadFilter});if(!alive()||wizard!==state||generation!==state.generation)return null;if(response.source?.session!==session)throw Error('RZone changed while loading the saved settings. Connect again.');source=response.source;
   }
   for(const key of ['momentum.rs.market','momentum.rs.source','marketFilter.chart','marketFilter.brick.mode','marketFilter.exit.brick.mode']){
-   if(!Object.hasOwn(desired,key))continue;const field=S.fieldsForUI(S.template(source)).flatMap(group=>group.fields).find(f=>f.key===key);if(!field||field.value===desired[key])continue;
+   if(!Object.hasOwn(desired,key))continue;const field=S.fieldsForUI(S.template(source)).flatMap(group=>group.fields).find(f=>f.key===key);if(!field||field.value===desired[key]||field.cachedCategories?.includes(desired[key]))continue;
+   showPhase('Restoring saved '+field.label.toLowerCase()+'…');
    const response=await command('configure',{tabId:Number(state.sourceId),changes:{[field.stage]:{[field.sourceIndex??field.index]:desired[key]}}});if(!alive()||wizard!==state||generation!==state.generation)return null;if(response.source?.session!==session)throw Error('RZone changed while loading the saved settings. Connect again.');source=response.source;
   }
   return source;
  }
 
  function setupSourceValid(){
-  if(!wizard||store.demo||!wizard.template)return true;
+  if(!wizard||store.demo||localSetup||!wizard.template)return true;
   const source=tabs.find(t=>String(t.id)===wizard.sourceId);
   if(!source||source.session!==wizard.sourceSession){
    wizard.generation++;wizard.template=null;wizard.sourceSession=null;wizard.step=0;wizard.stale=true;wizard.connecting=false;
@@ -237,7 +279,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   // A bounded recheck may return the main form before reloading an enabled
   // optional filter. Keep its existing draft until its controls arrive again.
   if(draft)for(const [key,value]of Object.entries(draft))if(!Object.hasOwn(config,key)&&(key.startsWith('momentum.rs.')||key.startsWith('marketFilter.')))config[key]=value;
-  state.template=template;state.sourceSession=source.session;state.config=config;state.stale=false;state.symbolSearchResults?.clear();state.ruleSearchFeedback?.clear();state.choiceCache=null;cacheReceipt(state,source);
+  state.template=template;state.nseBenchmarkSeeded=source.nseBenchmarkSeeded??0;state.sourceSession=source.session;state.config=config;state.stale=false;state.symbolSearchResults?.clear();state.ruleSearchFeedback?.clear();state.choiceCache=null;cacheReceipt(state,source);
  }
 
  async function warmSetupChoices(state,generation,{force=false}={}){
@@ -279,28 +321,45 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  async function refreshSetupChoices(changes,{recheckAllChoices=false,chartSwitch=null,loadFilter=null}={}){
   const state=wizard;if(!state||state.connecting||store.demo)return;if(!setupSourceValid())return;
+  const includeRelativeStrength=chartSwitch&&chartSwitch.key==='momentum.chart'&&setupEnabled(state,'momentum.rs');
   const generation=++state.generation;state.connecting=true;state.connectionError='';for(const control of content.querySelectorAll('.setup-form input,.setup-form select,.setup-form button,.setup-builder button'))control.disabled=true;
-  notice.textContent=recheckAllChoices?'Rechecking all choices from RZone…':loadFilter?'Loading '+(loadFilter==='relativeStrength'?'Relative Strength':'Market Trend Filter')+' settings…':chartSwitch?'Loading '+chartSwitch.value+' settings…':'Refreshing the choices from RZone…';
-  try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{}),...(recheckAllChoices?{recheckAllChoices:true}:{}),...(loadFilter?{loadFilter}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;if(chartSwitch){const config=S.defaults(S.template(response.source));if(config[chartSwitch.key]!==chartSwitch.value)throw Error('RZone did not switch to '+chartSwitch.value+'. Your previous settings are kept.');}acceptSetupSource(state,response.source);if(loadFilter&&S.fieldsForUI(state.template,state.config).flatMap(g=>g.fields).find(f=>f.key===(loadFilter==='relativeStrength'?'momentum.rs':'momentum.market-filter'))?.needsDiscovery)throw Error('RZone did not finish loading these filter settings. Try loading them again.');notice.textContent='';if(await loadEnabledFilters(state,generation))await warmSetupChoices(state,generation,{force:recheckAllChoices});}
+  state.choiceCheckStatus=recheckAllChoices?'Rechecking all choices from RZone…':loadFilter?'Loading '+(loadFilter==='relativeStrength'?'Relative Strength':'Market Trend Filter')+' settings…':chartSwitch?'Loading '+chartSwitch.value+' settings…':'Refreshing the choices from RZone…';
+  setupPage();
+  try{const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{}),...(includeRelativeStrength?{includeRelativeStrength:true}:{}),...(recheckAllChoices?{recheckAllChoices:true}:{}),...(loadFilter?{loadFilter}:{})});if(!alive()||wizard!==state||generation!==state.generation)return;if(chartSwitch){const config=S.defaults(S.template(response.source));if(config[chartSwitch.key]!==chartSwitch.value)throw Error('RZone did not switch to '+chartSwitch.value+'. Your previous settings are kept.');}acceptSetupSource(state,response.source);if(loadFilter&&S.fieldsForUI(state.template,state.config).flatMap(g=>g.fields).find(f=>f.key===(loadFilter==='relativeStrength'?'momentum.rs':'momentum.market-filter'))?.needsDiscovery)throw Error('RZone did not finish loading these filter settings. Try loading them again.');notice.textContent='';if(localSetup){setupLibrary.templates.unshift(response.source);state.pendingSourceSearch=null;}else if(await loadEnabledFilters(state,generation))await warmSetupChoices(state,generation,{force:recheckAllChoices});}
   catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;throw error;}
-  finally{state.connecting=false;if(alive()&&wizard===state)setupPage();}
+  finally{state.connecting=false;state.choiceCheckStatus=null;if(alive()&&wizard===state)setupPage();}
  }
 
  function switchSetupChart(state,field,value){
-  if(wizard!==state||state.connecting||state.ruleLookup||state.config[field.key]===value)return;
+  if(wizard!==state||state.connecting||state.ruleLookup)return;
+  if(state.config[field.key]===value){if(state.pendingSourceSearch){state.pendingSourceSearch=null;state.connectionError='';setupPage();}return;}
   if(store.demo){const options={momentumChart:state.config['momentum.chart'],executionChart:state.config['execution.chart'],marketFilterChart:state.config['marketFilter.chart']};for(const stage of ['momentum','execution','marketFilter'])if(options[stage+'Chart']==='Renko')options[stage+'BrickMode']=state.config[stage+'.brick.mode'];options.marketFilterExitBrickMode=state.config['marketFilter.exit.brick.mode'];options[field.stage+(field.key.endsWith('.chart')?'Chart':field.key.includes('.exit.')?'ExitBrickMode':'BrickMode')]=value;if(options[field.stage+'Chart']!=='Renko')delete options[field.stage+'BrickMode'];acceptSetupSource(state,S.demoTemplate(options));setupPage();return;}
-  return refreshSetupChoices({[field.stage]:{[field.sourceIndex??field.index]:value}},{chartSwitch:{key:field.key,value}});
+  const changes={[field.stage]:{[field.sourceIndex??field.index]:value}},chartSwitch={key:field.key,value};
+  if(localSetup){
+   const config={...state.config,[field.key]:value};
+   if(field.key.endsWith('.chart')){delete config[field.stage+'.brick.mode'];delete config[field.stage+'.exit.brick.mode'];}
+   const source=localTemplate(config,state.template);
+   if(source&&(field.stage!=='marketFilter'||source.stages.marketFilter)){
+    acceptSetupSource(state,source);state.pendingSourceSearch=null;state.connectionError='';
+   }else{
+    state.pendingSourceSearch={changes,chartSwitch};
+    state.connectionError='Vault has no saved choices for '+value+'. Search RZone for those choices to continue.';
+   }
+   setupPage();return;
+  }
+  return refreshSetupChoices(changes,{chartSwitch});
  }
 
  async function searchSetupRule(state,field,rawQuery){
   if(wizard!==state||state.connecting||state.ruleLookup||!setupSourceValid())return;
+  if(localSetup)selectedSource(state);
   const query=rawQuery.trim(),category=state.config[field.sourceKey],draftKey=field.key+'|'+category,generation=state.generation,session=state.sourceSession,sourceId=state.sourceId,template=state.template;
   if(!query||query.length>200||/[\u0000-\u001f\u007f]/.test(query)){const error='Enter a rule name to search (up to 200 characters).';(state.ruleSearchFeedback||=new Map()).set(draftKey,{query,error});setupPage();throw Error(error);}
   state.ruleSearchFeedback?.delete(draftKey);
   const request={fieldKey:field.key,category,query};state.ruleLookup=request;state.ruleSearchDrafts.set(draftKey,query);setupPage();
   const current=()=>alive()&&wizard===state&&state.generation===generation&&state.sourceSession===session&&state.sourceId===sourceId&&state.template===template&&state.config[field.sourceKey]===category&&state.ruleSearchDrafts.get(draftKey)?.trim()===query;
   try{
-   const response=await command('lookup-rule',{tabId:Number(sourceId),session,...(field.stage!=='momentum'?{stage:field.stage}:{}),parentIndex:field.index-1,category,query});if(!current()||!setupSourceValid())return;
+   const response=await command('lookup-rule',{tabId:Number(sourceId),session,...(field.stage!=='momentum'?{stage:field.stage}:{}),parentIndex:field.index-1,category,query,...(localSetup?{lookupTemplate:template}:{})});if(!current()||!setupSourceValid())return;
    const result=response.result;if(!result||(result.stage??'momentum')!==field.stage||result.parentIndex!==field.index-1||result.childIndex!==field.index||result.category!==category||result.query!==query||result.controlType!=='text'||!Array.isArray(result.options))throw Error('RZone returned choices for a different rule search. Search again.');
    const next=structuredClone(template),stage=field.sourceContainer?next.stages[field.stage][field.sourceContainer]:next.stages[field.stage],catalogue=stage.ruleCatalogues[field.index],options=structuredClone(result.options);
    if(stage.fields[field.index-1].value===category){
@@ -316,22 +375,54 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   finally{if(state.ruleLookup===request)state.ruleLookup=null;if(alive()&&wizard===state)setupPage();}
  }
 
- async function searchSetupSymbol(state,field,rawQuery){
+ async function searchSetupSymbol(state,field,rawQuery,{localOnly=false}={}){
   if(wizard!==state||state.connecting||state.ruleLookup||!setupSourceValid())return;
+  if(localSetup&&!localOnly)selectedSource(state);
   const query=rawQuery.trim();if(!query||query.length>200||/[\u0000-\u001f\u007f]/.test(query))throw Error('Enter a symbol name to search (up to 200 characters).');
   const market=state.config[field.marketKey],draftKey=field.key+'|'+market,generation=state.generation,session=state.sourceSession,sourceId=state.sourceId,template=state.template,request={fieldKey:field.key,market,query};state.ruleLookup=request;state.ruleSearchDrafts.set(draftKey,query);setupPage();content.querySelector('[data-symbol-search="'+field.key+'"]')?.focus();let accepted=false;
   const current=()=>alive()&&wizard===state&&state.generation===generation&&state.sourceSession===session&&state.sourceId===sourceId&&state.template===template&&state.config[field.marketKey]===market&&state.ruleSearchDrafts.get(draftKey)?.trim()===query;
   try{
-   const response=await command('lookup-symbol',{tabId:Number(sourceId),session,stage:field.stage,fieldIndex:field.index,market,query});if(!current()||!setupSourceValid())return;
+   const queryContext={stage:field.stage,fieldIndex:field.index,market,query};
+   const response=localOnly?await command('lookup-symbol-local',queryContext):await command('lookup-symbol',{tabId:Number(sourceId),session,...queryContext,...(localSetup?{lookupTemplate:template}:{})});if(!current()||!setupSourceValid())return;
    const result=response.result;if(!result||(result.session!==undefined&&result.session!==session)||result.stage!==field.stage||result.fieldIndex!==field.index||result.market!==market||result.query!==query||result.controlType!=='text'||!Array.isArray(result.options)||result.knownOptions!==undefined&&!Array.isArray(result.knownOptions))throw Error('RZone returned choices for a different symbol search. Search again.');
    const next=structuredClone(template),stage=field.sourceContainer?next.stages[field.stage][field.sourceContainer]:next.stages[field.stage],previous=stage.options[field.index]||[],known=result.knownOptions||[];
    const merged=S.mergeSymbolChoices(S.mergeSymbolChoices(previous,result.options,market),known,market),byLabel=new Map(merged.map(option=>[option.label,option])),dimension=state.dimensions.find(d=>d.key===field.key);
    const required=[state.config[field.key],stage.fields[field.index].value,...(Array.isArray(dimension?.values)?dimension.values:[])],priority=[...new Set([...required,...result.options.map(option=>option.label)])].filter(name=>byLabel.has(name));
    if(priority.length>3000)throw Error('Narrow the symbol search to keep your selected test values and every returned match.');
    const order=[...new Set([...priority,...known.map(option=>option.label),...merged.map(option=>option.label)])].filter(name=>byLabel.has(name)),options=order.slice(0,3000).map(name=>byLabel.get(name));
-   stage.options[field.index]=options;(stage.symbolQueries||={})[field.index]={market,query};state.template=S.template(next);(state.symbolSearchResults||=new Map()).set(draftKey,{query,labels:[...new Set(result.options.map(option=>option.label))],count:result.options.length,cached:result.cached===true,truncated:order.length>3000||result.knownOptionsTruncated===true});accepted=true;notice.textContent='';
+   stage.options[field.index]=options;(stage.symbolQueries||={})[field.index]={market,query};state.template=S.template(next);(state.symbolSearchResults||=new Map()).set(draftKey,{query,labels:[...new Set(result.options.map(option=>option.label))],count:result.options.length,cached:result.cached===true,preloaded:result.preloaded===true,truncated:order.length>3000||result.knownOptionsTruncated===true});accepted=true;notice.textContent='';
   }catch(error){if(current())throw error;}
   finally{const focusResults=accepted&&(!document.activeElement||document.activeElement===document.body||document.activeElement.dataset?.symbolSearch===field.key);if(state.ruleLookup===request)state.ruleLookup=null;if(alive()&&wizard===state){setupPage();if(focusResults)content.querySelector('[data-symbol-search="'+field.key+'"]')?.focus();}}
+ }
+
+ async function preloadNseBenchmarks(state,field){
+  if(wizard!==state||state.connecting||state.ruleLookup||!setupSourceValid()||state.config[field.marketKey]!=='NSE')return;
+  if(localSetup)selectedSource(state);
+  const session=state.sourceSession,generation=state.generation,request={fieldKey:field.key},queries=S.nseBenchmarkQueries;
+  state.ruleLookup=request;state.connecting=true;let truncated=false;
+  const current=()=>alive()&&wizard===state&&state.generation===generation&&state.sourceSession===session;
+  try{
+   const batchSize=5;
+   for(let i=0;i<queries.length;i+=batchSize){
+    state.choiceCheckStatus='Loading NSE benchmarks · '+(state.nseBenchmarkSeeded??0)+' of '+queries.length+' searches complete';
+    setupPage();
+    const seedQueries=queries.slice(i,i+batchSize);
+    const {result}=await command('lookup-symbol',{tabId:Number(state.sourceId),session,stage:field.stage,fieldIndex:field.index,market:'NSE',query:seedQueries[0],seedQueries,...(localSetup?{lookupTemplate:state.template}:{})});
+    if(!current())return;
+    if(!Array.isArray(result?.knownOptions)||!Number.isInteger(result.seeded)||result.seeded<0||result.seeded>queries.length)throw Error('RZone returned an invalid benchmark list.');
+    const next=structuredClone(state.template),descriptor=next.stages.momentum.relativeStrength,options=descriptor.options[field.index]||[];
+    const selected=new Set([state.config[field.key],descriptor.fields[field.index].value,...(state.dimensions.find(d=>d.key===field.key)?.values||[])]);
+    const merged=S.mergeSymbolChoices(options,result.knownOptions,'NSE');
+    descriptor.options[field.index]=[...merged.filter(option=>selected.has(option.value)),...merged.filter(option=>!selected.has(option.value)).reverse()].slice(0,3000).sort((a,b)=>a.label.localeCompare(b.label));
+    state.template=S.template(next);
+    state.nseBenchmarkSeeded=result.seeded;
+    truncated=!!result.knownOptionsTruncated||merged.length>3000;
+   }
+   notice.textContent=truncated?'Type a name to search the full preloaded list. RZone can look up any missing matches.':'NSE benchmarks are available in the Benchmark dropdown.';
+  }finally{
+   if(state.ruleLookup===request){state.ruleLookup=null;state.choiceCheckStatus=null;state.connecting=false;}
+   if(alive()&&wizard===state)setupPage();
+  }
  }
 
  function setupPage(){
@@ -341,43 +432,58 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   if(state.reuseRun){const from=el('div',undefined,'setup-reuse-context');from.append(el('strong','Based on '+(state.reuseRun.name||'saved run')),el('span','Edit the settings below. Running saves a new study.'));shell.append(from);}
   if(!store.demo&&!extension){shell.append(el('h3','Open your installed Vault'),el('p','New tests use the settings and available choices from your RZone session. Open Backtest Vault from Chrome’s extensions to connect it.','muted'),button('Use a saved run',()=>builder(),'quiet'));return;}
   if(state.step===0){
-   shell.append(el('h3','Connect to RZone'),el('p','Vault collects the available settings from your signed-in RZone tab. No backtest starts yet.','muted'));
+   shell.append(el('h3',localSetup?'Load setup choices':'Connect to RZone'),el('p',localSetup?'Vault has no saved choices for this setup yet. Search your signed-in RZone tab to load them.':'Vault collects the available settings from your signed-in RZone tab. No backtest starts yet.','muted'));
    if(state.stale)shell.append(el('p','Your previous entries will be available to review after reconnecting.','setup-kept'));
    const picker=select([['','Choose RZone tab']]),hint=el('p','','mini'),connectionError=el('p','','notice error setup-connection-error'),actions=el('div',undefined,'setup-actions'),connect=button('Connect RZone',()=>action(async()=>{
     const tab=tabs.find(t=>String(t.id)===state.sourceId);if(!tab||!(tab.capable??tab.ready))throw Error(tab?.reason||'Open RZone and sign in before connecting.');
-    const generation=++state.generation;state.autoConnectAttempted=true;state.connecting=true;state.connectionError='';sync();
+    const generation=++state.generation;state.autoConnectAttempted=true;state.connecting=true;state.connectionError='';sync();showPhase('Reading current settings from RZone…');
     try{
      const response=await command('configure',{tabId:tab.id});if(!alive()||wizard!==state||generation!==state.generation)return;
-     const source=await prepareSavedContext(state,response.source,generation);if(!source||!alive()||wizard!==state||generation!==state.generation)return;
-     acceptSetupSource(state,source);if(state.reuseRun&&!state.reuseApplied){state.config=S.configFromRun(state.reuseRun,state.template);state.reuseApplied=true;}state.step=1;state.connecting=false;notice.textContent='';setupPage();if(await loadEnabledFilters(state,generation))await warmSetupChoices(state,generation);
+     const source=await prepareSavedContext(state,response.source,generation,showPhase);if(!source||!alive()||wizard!==state||generation!==state.generation)return;
+     acceptSetupSource(state,source);if(state.reuseRun&&!state.reuseApplied){state.config=S.configFromRun(state.reuseRun,state.template);state.reuseApplied=true;}state.step=1;state.connecting=false;notice.textContent='';setupPage();if(localSetup)setupLibrary.templates.unshift(source);else if(await loadEnabledFilters(state,generation))await warmSetupChoices(state,generation);
     }catch(error){if(!alive()||wizard!==state||generation!==state.generation)return;state.connectionError=error.message;if(state.step!==0){state.step=0;state.template=null;state.sourceSession=null;state.connecting=false;setupPage();}throw error;}
     finally{state.connecting=false;if(wizard===state&&state.step===0)sync();}
    }),'primary');picker.dataset.rzone='setup';picker.setAttribute('aria-label','RZone tab');connectionError.setAttribute('role','alert');
+   const phase=el('p','','mini'),progress=el('progress');
+   phase.setAttribute('role','status');progress.setAttribute('aria-label','RZone connection progress');
+   function showPhase(text){if(phase.textContent!==text)phase.textContent=text;}
    function sync(){
-    if(wizard!==state||state.step!==0)return;const available=tabs.filter(t=>t.capable??t.ready);if(!state.sourceId&&available.length===1)state.sourceId=String(available[0].id);
+    if(wizard!==state||state.step!==0)return;
+    phase.hidden=progress.hidden=!state.connecting;if(!state.connecting)showPhase('');const available=tabs.filter(t=>t.capable??t.ready);if(!state.sourceId&&available.length===1)state.sourceId=String(available[0].id);
     if(document.activeElement!==picker){const options=[['','Choose RZone tab'],...tabs.map(t=>[String(t.id),'RZone'+((t.capable??t.ready)?'':' · unavailable')+' · tab '+t.id])];if(state.sourceId&&!tabs.some(t=>String(t.id)===state.sourceId))options.push([state.sourceId,'RZone · not connected']);if(JSON.stringify([...picker.options].map(o=>[o.value,o.textContent]))!==JSON.stringify(options))picker.replaceChildren(...[...select(options).options]);picker.value=state.sourceId;}
-    const source=tabs.find(t=>String(t.id)===state.sourceId);connect.disabled=state.connecting||!source||!(source.capable??source.ready);connect.textContent=state.connecting?'Reading available settings…':'Connect RZone';picker.disabled=state.connecting;hint.textContent=source?.reason||(!source?'Open RZone and sign in. Vault will detect the tab here.':'');hint.hidden=!hint.textContent;
+    const source=tabs.find(t=>String(t.id)===state.sourceId);connect.disabled=state.connecting||!source||!(source.capable??source.ready);connect.textContent=state.connecting?'Reading available settings…':localSetup?'Search RZone for setup choices':'Connect RZone';picker.disabled=state.connecting;hint.textContent=source?.reason||(!source?'Open RZone and sign in. Vault will detect the tab here.':'');hint.hidden=!hint.textContent;
     connectionError.textContent=state.connectionError;connectionError.hidden=!state.connectionError;
-    if(!state.autoConnectAttempted&&!state.stale&&!state.connecting&&available.length===1&&String(available[0].id)===state.sourceId){
+    if(!localSetup&&!state.autoConnectAttempted&&!state.stale&&!state.connecting&&available.length===1&&String(available[0].id)===state.sourceId){
      state.autoConnectAttempted=true;const sourceId=state.sourceId,generation=state.generation;
      queueMicrotask(()=>{if(alive()&&wizard===state&&state.step===0&&state.generation===generation&&state.sourceId===sourceId&&tabs.filter(t=>t.capable??t.ready).length===1&&!connect.disabled)connect.click();});
     }
    }
    picker.onchange=()=>{state.autoConnectAttempted=true;state.sourceId=picker.value;state.template=null;state.sourceSession=null;state.generation++;sync();};picker.onblur=sync;refreshSource=sync;sync();
-   actions.append(connect,button('Open RZone',()=>action(async()=>{await command('open-source');await load();sync();}),'quiet'));shell.append(label('Source',picker),hint,connectionError,actions);return;
+   actions.append(connect,button('Open RZone',()=>action(async()=>{await command('open-source');await load();sync();}),'quiet'));shell.append(label('Source',picker),hint,connectionError,phase,progress,actions);return;
   }
   if(!state.template){state.step=0;setupPage();return;}
-  if(extension){const sourceBar=el('div',undefined,'setup-source-bar'),cache=state.choiceCache;let status='Connected to RZone';if(state.loadingFilter)status='Loading '+state.loadingFilter+' settings…';else if(state.warmingChart)status='Checking '+state.warmingChart+' choices… ('+Math.min(3,(cache?.charts.length||0)+1)+' of 3)';else if(cache&&!cache.pendingCharts.length){const when=new Date(cache.checkedAt);status=choicesFromToday(cache)&&(cache.source==='cache'||['shared-native','daily'].includes(cache.scope))?'Using today’s dropdown choices':'Choices checked '+(choicesFromToday(cache)?'today':when.toLocaleDateString('en-IN'));}else if(cache?.charts.length)status='Choices ready: '+cache.charts.join(' · ');const refresh=button('Recheck all choices',()=>action(()=>refreshSetupChoices(undefined,{recheckAllChoices:true})),'quiet');refresh.disabled=state.connecting||!!state.ruleLookup;const receipt=el('span',status,'mini');receipt.setAttribute('role','status');receipt.setAttribute('aria-live','polite');if(cache?.checkedAt)receipt.title='Last checked '+new Date(cache.checkedAt).toLocaleString('en-IN');sourceBar.append(receipt,refresh);shell.append(sourceBar);}
+  if(extension){const sourceBar=el('div',undefined,'setup-source-bar'),cache=state.choiceCache;let status=localSetup?'Using saved choices · Checked in RZone when you run':'Connected to RZone';if(state.loadingFilter)status='Loading '+state.loadingFilter+' settings…';else if(state.warmingChart)status='Checking '+state.warmingChart+' choices… · '+(cache?.charts.length||0)+' of '+choiceCharts.length+' chart checks complete';else if(state.choiceCheckStatus)status=state.choiceCheckStatus;else if(cache&&!cache.pendingCharts.length){const when=new Date(cache.checkedAt);status=choicesFromToday(cache)&&(cache.source==='cache'||['shared-native','daily'].includes(cache.scope))?'Using today’s dropdown choices':'Choices checked '+(choicesFromToday(cache)?'today':when.toLocaleDateString('en-IN'));}else if(cache?.charts.length)status='Choices ready: '+cache.charts.join(' · ');const refresh=button(localSetup?'Search RZone for choices':'Recheck all choices',()=>action(async()=>{if(localSetup)selectedSource(state);const pending=state.pendingSourceSearch;return pending?refreshSetupChoices(pending.changes,{chartSwitch:pending.chartSwitch}):refreshSetupChoices(undefined,{recheckAllChoices:true});}),'quiet');refresh.disabled=state.connecting||!!state.ruleLookup;const receipt=el('span',status,'mini');receipt.setAttribute('role','status');receipt.setAttribute('aria-live','polite');if(cache?.checkedAt)receipt.title='Last checked '+new Date(cache.checkedAt).toLocaleString('en-IN');sourceBar.append(receipt);if(state.warmingChart||state.loadingFilter||state.choiceCheckStatus){const progress=el('progress');progress.setAttribute('aria-label','RZone choices check progress');if(state.warmingChart){progress.max=choiceCharts.length;progress.value=cache?.charts.length||0;}sourceBar.append(progress);}sourceBar.append(refresh);shell.append(sourceBar);}
   if(state.connectionError){const error=el('p',state.connectionError,'notice error setup-connection-error');error.setAttribute('role','alert');shell.append(error);}
   shell.classList.add('source-workbench');
+  if(localSetup&&tabs.filter(t=>t.capable??t.ready).length>1){const picker=select([['','Choose RZone tab'],...tabs.filter(t=>t.capable??t.ready).map(t=>[String(t.id),'RZone · tab '+t.id])]);picker.value=state.sourceId;picker.onchange=()=>{state.sourceId=picker.value;};shell.append(label('RZone tab',picker));}
   buildWorkbench(shell,state);
  }
 
  function setupPlan(state){
-  return {id:'preview',name:state.name,baseline:S.configToBaseline(state.config,state.template,{id:state.reuseRun?.id||'setup-preview',name:state.name,demo:store.demo}),dimensions:state.dimensions.map(d=>({key:d.key,values:d.values})),mode:state.mode,budget:state.budget,objective:state.objective,ceiling:state.ceiling,minTrades:state.minTrades,seed:state.seed,timeoutMinutes:state.timeout};
+  return {id:'preview',name:state.name,baseline:S.configToBaseline(state.config,state.template,{id:state.reuseRun?.id||'setup-preview',name:state.name,demo:store.demo}),dimensions:setupDimensions(state).map(d=>({key:d.key,values:d.values})),mode:state.mode,budget:state.budget,objective:state.objective,ceiling:state.ceiling,minTrades:state.minTrades,seed:state.seed,timeoutMinutes:state.timeout};
  }
 
  const setupEnabled=(state,key)=>!key||!!state.config[key]||state.dimensions.some(d=>d.key===key&&Array.isArray(d.values)&&d.values.includes(true));
+ const setupDimensions=state=>setupEnabled(state,'momentum.rs')?state.dimensions:state.dimensions.filter(d=>!d.key.startsWith('momentum.rs.'));
+ function relativeStrengthRuleIssue(state){
+  if(!setupEnabled(state,'momentum.rs'))return '';
+  const key='momentum.rs.rule',field=state.fields.get(key),dimension=state.dimensions.find(d=>d.key===key);
+  if(!field)return 'Load the Relative Strength choices to continue.';
+  const values=dimension?(Array.isArray(dimension.values)?dimension.values:[]):[state.config[key]];
+  if(values.length&&values.every(value=>S.availableRule(field,value)))return '';
+  if(field.searchable&&!field.options.some(option=>S.availableRule(field,option.value)))return 'Search RZone for a Relative Strength rule.';
+  return dimension&&values.length>1?'Choose an available Relative Strength rule for each test value.':'Choose a Relative Strength rule.';
+ }
  const setupFieldActive=(state,field)=>(field.activeWhen||[]).every(condition=>{const dimension=state.dimensions.find(d=>d.key===condition.key),values=dimension&&Array.isArray(dimension.values)?dimension.values:[state.config[condition.key]];return values.some(value=>condition.values.includes(value));});
  const priceKeys=key=>/^marketFilter(?:\.exit)?\.price-mode$/.test(key)?[key.slice(0,-'.price-mode'.length)+'.price.close-only',key.slice(0,-'.price-mode'.length)+'.price.high-low']:null;
  const setupFieldValue=(state,field)=>{const keys=priceKeys(field.key);return keys?(!!state.config[keys[0]]===!!state.config[keys[1]]?'':state.config[keys[0]]?'close-only':'high-low'):state.config[field.key];};
@@ -499,14 +605,14 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
     if(field.symbol&&extension){control.dataset.symbolSearch=field.key;control.placeholder='Search symbols';}
     menu.id='source-choices-'+key.replaceAll('.','-');menu.setAttribute('role','listbox');menu.setAttribute('aria-label',caption+' choices');menu.hidden=true;status.id=menu.id+'-status';status.setAttribute('role','status');status.hidden=true;
     control.setAttribute('role','combobox');control.setAttribute('aria-autocomplete','list');control.setAttribute('aria-controls',menu.id);control.setAttribute('aria-expanded','false');control.setAttribute('aria-describedby',status.id);control.autocomplete='off';control.maxLength=200;
-    const validity=()=>{const selected=field.symbol?String(state.config[key]??''):control.value,missing=!!selected&&!options.some(o=>String(o.value)===selected&&!o.disabled),query=state.ruleSearchDrafts.get(draftKey)?.trim(),result=field.symbol&&state.symbolSearchResults?.get(draftKey),currentResult=result&&result.query===query;control.setAttribute('aria-invalid',String(missing));wrap.classList.toggle('setup-unavailable',missing);status.textContent=missing?'Choose an available '+choiceName+'.':currentResult?result.count+' '+(result.count===1?'match':'matches')+' for “'+result.query+'”'+(result.cached?' · cached today':'')+(result.truncated?' · Search to retrieve other saved matches':''):!options.length?(field.symbol?'Search RZone to load symbols.':'No groups available in RZone.'):'';status.hidden=!status.textContent;};
+    const validity=()=>{const selected=field.symbol?String(state.config[key]??''):control.value,missing=!!selected&&!options.some(o=>String(o.value)===selected&&!o.disabled),query=state.ruleSearchDrafts.get(draftKey)?.trim(),result=field.symbol&&state.symbolSearchResults?.get(draftKey),currentResult=result&&result.query===query;control.setAttribute('aria-invalid',String(missing));wrap.classList.toggle('setup-unavailable',missing);status.textContent=missing?'Choose an available '+choiceName+'.':currentResult?result.count+' '+(result.count===1?'match':'matches')+' for “'+result.query+'”'+(result.preloaded?' · preloaded':result.cached?' · cached today':'')+(result.truncated?' · Search to retrieve other saved matches':''):!options.length?(field.symbol?'Search RZone to load symbols.':'No groups available in RZone.'):'';status.hidden=!status.textContent;};
     const close=()=>{menu.hidden=true;control.setAttribute('aria-expanded','false');control.removeAttribute('aria-activedescendant');active=-1;};
     const highlight=()=>{const nodes=[...menu.querySelectorAll('[role=option]')];nodes.forEach((n,i)=>n.classList.toggle('is-active',i===active));if(active<0)control.removeAttribute('aria-activedescendant');else{control.setAttribute('aria-activedescendant',nodes[active].id);nodes[active].scrollIntoView?.({block:'nearest'});}};
     const choose=option=>{if(control.disabled||option.disabled)return;if(field.symbol)state.ruleSearchDrafts.delete(draftKey);control.value=String(option.value);symbolChosen=true;control.dispatchEvent(new Event('change',{bubbles:true}));symbolChosen=false;validity();close();};
     const open=(filter=false)=>{if(control.disabled)return;const text=control.value.trim(),query=filter?text.toLocaleLowerCase():'',result=field.symbol&&filter&&state.symbolSearchResults?.get(draftKey),exact=result?.query===text;shown=exact?result.labels.map(name=>options.find(option=>option.label===name)).filter(Boolean):options.filter(o=>!query||String(o.label||o.value).toLocaleLowerCase().includes(query));active=-1;menu.replaceChildren();shown.forEach((option,i)=>{const n=el('div',option.label||String(option.value),'source-choice-option');n.id=menu.id+'-'+i;n.setAttribute('role','option');n.setAttribute('aria-selected',String(String(option.value)===(field.symbol?String(state.config[key]??''):control.value)));n.setAttribute('aria-disabled',String(!!option.disabled));n.onpointerdown=event=>event.preventDefault();n.onmousedown=event=>event.preventDefault();n.onclick=()=>choose(option);menu.append(n);});if(!shown.length)menu.append(el('div',exact?'No matching symbols':field.symbol&&extension?'Search RZone for more matches':options.length?'No matching '+choiceName+'s':'No groups available','source-choice-empty'));menu.hidden=false;control.setAttribute('aria-expanded','true');highlight();validity();};
-    const search=()=>{if(field.symbol&&extension&&!state.ruleLookup&&!control.disabled)void action(()=>searchSetupSymbol(state,field,state.ruleSearchDrafts.get(draftKey)??control.value));};
+    const search=()=>{if(field.symbol&&extension&&!state.ruleLookup&&!control.disabled)void action(()=>searchSetupSymbol(state,field,state.ruleSearchDrafts.get(draftKey)??control.value,{localOnly:localSetup}));};
     control.addEventListener('focus',()=>{if(field.symbol&&state.ruleSearchDrafts.has(draftKey))control.value=state.ruleSearchDrafts.get(draftKey);open(field.symbol&&state.ruleSearchDrafts.has(draftKey));});control.addEventListener('click',()=>{if(menu.hidden)open(field.symbol&&state.ruleSearchDrafts.has(draftKey));});control.addEventListener('input',()=>{if(field.symbol)state.ruleSearchDrafts.set(draftKey,control.value);validity();open(true);});control.addEventListener('change',validity);control.addEventListener('blur',()=>{close();if(field.symbol){control.value=String(state.config[key]??'');validity();}});
-    control.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();if(field.symbol){state.ruleSearchDrafts.delete(draftKey);control.value=String(state.config[key]??'');validity();}}else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();if(menu.hidden)open(field.symbol&&state.ruleSearchDrafts.has(draftKey));const direction=event.key==='ArrowDown'?1:-1;let next=active<0?(direction>0?0:shown.length-1):active+direction;while(next>=0&&next<shown.length&&shown[next].disabled)next+=direction;if(next>=0&&next<shown.length)active=next;highlight();}else if(event.key==='Enter'&&(!menu.hidden||field.symbol)){event.preventDefault();event.stopPropagation();if(active>=0&&!menu.hidden)choose(shown[active]);else if(field.symbol&&extension)search();else close();}});
+    control.addEventListener('keydown',event=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();close();if(field.symbol){state.ruleSearchDrafts.delete(draftKey);control.value=String(state.config[key]??'');validity();}}else if(event.key==='ArrowDown'||event.key==='ArrowUp'){event.preventDefault();if(menu.hidden)open(field.symbol&&state.ruleSearchDrafts.has(draftKey));const direction=event.key==='ArrowDown'?1:-1;let next=active<0?(direction>0?0:shown.length-1):active+direction;while(next>=0&&next<shown.length&&shown[next].disabled)next+=direction;if(next>=0&&next<shown.length)active=next;highlight();}else if(event.key==='Enter'&&(!menu.hidden||field.symbol)){event.preventDefault();event.stopPropagation();if(active>=0&&!menu.hidden)choose(shown[active]);else if(field.symbol&&extension){const local=shown.findIndex(o=>!o.disabled);if(local<0)search();else if(shown.filter(o=>!o.disabled).length===1)choose(shown[local]);else{active=local;highlight();}}else close();}});
     combo.append(control,menu,status);validity();
    }else{control=input(value??'',field.type==='number'?'number':field.type==='date'?'date':'text');if(field.min!==undefined)control.min=field.min;if(field.max!==undefined)control.max=field.max;if(field.type==='number')control.step=field.integer?'1':'any';}
    control.dataset.setupField=key;control.setAttribute('aria-label',caption);control.title=field.reason||field.help||(variableState?caption+': On uses it, Off skips it, Test both compares separate On and Off runs.':caption);if(key==='momentum.group')control.placeholder='Search Group';control.required=!field.disabled&&field.type!=='boolean';const inspectChart=key.endsWith('.chart')&&field.options?.length>1;control.disabled=state.connecting||!!(field.disabled&&!inspectChart)||!setupEnabled(state,field.enabledBy)||!setupFieldActive(state,field);
@@ -531,9 +637,14 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
      if(!switchRuleCategory(state,field,control.value))control.value=state.config[key];return;
     }
     if(field.cachedCategories)rememberRuleCategory(state,field);
-    update();if(field.needsDiscovery&&extension&&setupEnabled(state,field.key)){void action(()=>refreshSetupChoices(undefined,{loadFilter:field.key==='momentum.rs'?'relativeStrength':'marketFilter'}));return;}if(field.refreshOnChange&&extension)void action(()=>refreshSetupChoices({[field.stage]:{[field.sourceIndex??field.index]:control.value}}));
+    update();if(localSetup){if(field.refreshOnChange||field.needsDiscovery)setupPage();return;}if(field.needsDiscovery&&extension&&setupEnabled(state,field.key)){void action(()=>refreshSetupChoices(undefined,{loadFilter:field.key==='momentum.rs'?'relativeStrength':'marketFilter'}));return;}if(field.refreshOnChange&&extension)void action(()=>refreshSetupChoices({[field.stage]:{[field.sourceIndex??field.index]:control.value}}));
    });state.controls.push({field,control});
-   if(field.symbol&&extension){const market=state.config[field.marketKey],draftKey=field.key+'|'+market,pending=state.ruleLookup?.fieldKey===field.key&&state.ruleLookup.market===market,search=el('div',undefined,'source-rule-search'),find=button(pending?'Searching…':'Search RZone',()=>action(()=>searchSetupSymbol(state,field,state.ruleSearchDrafts.get(draftKey)??control.value)),'quiet');find.setAttribute('aria-label','Search RZone for '+caption+' in '+market);find.disabled=!!state.ruleLookup||state.connecting||!setupEnabled(state,field.enabledBy)||!setupFieldActive(state,field);state.controls.push({field,control:find,auxiliary:true,lookupButton:true});search.append(find);(combo||wrap).append(search);}
+   if(field.symbol&&extension){const market=state.config[field.marketKey],draftKey=field.key+'|'+market,pending=state.ruleLookup?.fieldKey===field.key&&state.ruleLookup.market===market,search=el('div',undefined,'source-rule-search'),find=button(pending?'Searching…':'Search RZone',()=>action(()=>searchSetupSymbol(state,field,state.ruleSearchDrafts.get(draftKey)??control.value)),'quiet');find.setAttribute('aria-label','Search RZone for '+caption+' in '+market);find.disabled=!!state.ruleLookup||state.connecting||!setupEnabled(state,field.enabledBy)||!setupFieldActive(state,field);state.controls.push({field,control:find,auxiliary:true,lookupButton:true});search.append(find);
+    if(key==='momentum.rs.benchmark'&&market==='NSE'&&(state.nseBenchmarkSeeded??0)<S.nseBenchmarkQueries.length){
+     const preload=button('Load NSE benchmark list',()=>action(()=>preloadNseBenchmarks(state,field)),'quiet');
+     state.controls.push({field,control:preload,auxiliary:true,lookupButton:true});search.append(preload);
+    }
+    (combo||wrap).append(search);}
   }
   if(!field.symbol&&field.searchable&&extension){
    const draftKey=field.key+'|'+field.categoryKey,search=el('div',undefined,'source-rule-search'),query=input(state.ruleSearchDrafts.get(draftKey)??field.searchQuery??''),pending=state.ruleLookup?.fieldKey===field.key&&state.ruleLookup.category===field.categoryKey,status=el('span','','source-choice-status');
@@ -567,8 +678,19 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   const charts=el('div',undefined,'research-chart-row');charts.append(field('momentum.chart',{variation:false}),field('momentum.timeframe'));charts.querySelector('[data-source-field="momentum.chart"] .source-control-label').textContent='Entry Chart Type';charts.querySelector('[data-setup-field="momentum.chart"]')?.setAttribute('aria-label','Entry Chart Type');if(state.fields.has('momentum.signal-mode'))charts.append(field('momentum.signal-mode'));const construction=chartSettingsFields(state,'momentum');if(construction)charts.append(construction);main.body.append(charts);
   const filters=el('div',undefined,'research-inline-filters'),radar=group('Radar Fundamentals',[rule('momentum.radar')]),relative=group('Relative Strength',[field('momentum.rs',{showLabel:false})]),builder=group('Relative Strength System Builder',[]);relative.dataset.filterSettings='momentum.rs';builder.dataset.filterSettings='momentum.rs';
   for(const f of [...state.fields.values()].filter(f=>f.key.startsWith('momentum.rs.')))(['momentum.rs.source','momentum.rs.rule'].includes(f.key)?builder:relative).append(field(f.key,{variation:f.key!=='momentum.rs.source',showLabel:false}));
+  const ruleWrap=builder.querySelector('[data-source-field="momentum.rs.rule"]'),ruleControl=ruleWrap?.querySelector('[data-setup-field]');
+  const ruleNotice=el('span','','source-choice-status');ruleNotice.id='relative-strength-rule-warning';ruleNotice.setAttribute('role','status');
+  (ruleWrap||builder).append(ruleNotice);
+  if(ruleControl){const description=ruleControl.getAttribute('aria-describedby');ruleControl.setAttribute('aria-describedby',[description,ruleNotice.id].filter(Boolean).join(' '));}
+  const updateRuleNotice=()=>{
+   const issue=relativeStrengthRuleIssue(state);
+   if(ruleNotice.textContent!==issue)ruleNotice.textContent=issue;
+   ruleNotice.hidden=!issue;
+   ruleControl?.setAttribute('aria-invalid',String(!!issue));
+   return issue;
+  };
   const rsGate=state.fields.get('momentum.rs');if(rsGate?.needsDiscovery)relative.append(el('p','Enable to load benchmark choices.','source-availability'));if(!builder.querySelector('.source-field'))builder.append(el('p',rsGate?.disabled?rsGate.reason:'Enable Relative Strength to load its rules.','source-availability'));
-  if(rsGate?.needsDiscovery&&setupEnabled(state,'momentum.rs'))relative.append(button('Load settings',()=>action(()=>refreshSetupChoices(undefined,{loadFilter:'relativeStrength'})),'quiet'));
+  if(rsGate?.needsDiscovery&&setupEnabled(state,'momentum.rs'))relative.append(button(localSetup?'Search RZone for Relative Strength choices':'Load settings',()=>action(()=>{if(localSetup)selectedSource(state);return refreshSetupChoices(undefined,{loadFilter:'relativeStrength'});}),'quiet'));
   filters.append(radar,relative,builder);main.body.append(filters);
   const entry=section('entry','Entry conditions','Rules that qualify an entry','research-entry'),strategies=el('div',undefined,'research-entries');entry.body.append(strategies);
   for(let i=1;i<=3;i++){const prefix='momentum.strategy.'+i,numeric=state.fields.has(prefix+'.input'),column=el('section',undefined,'research-entry-rule');column.setAttribute('aria-label','Strategy '+i);column.append(el('h4','Strategy '+i),field(prefix+(numeric?'.input':'.timeframe')),rule(prefix));strategies.append(column);}
@@ -577,7 +699,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   const capability=S.executionCapability?.(state.template);if(!store.demo&&capability&&!capability.available)exit.body.append(el('p',capability.reason,'source-availability source-execution-limit'));
   buildMarketFilterDialog(form,state,filterLaunch);
   const bar=el('div',undefined,'source-count-bar'),count=el('div',undefined,'source-combination-count'),backtest=button('Review tests',()=>openBacktest(state),'primary');bar.append(count,backtest);shell.append(bar);
-  const update=()=>{try{if(state.dimensions.length>6)throw Error('Restored test values exceed six changing settings. Remove a test range to continue.');const dimensions=state.dimensions.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget),unit=planned===1?'test':'tests';backtest.textContent='Review '+planned+' '+unit;count.replaceChildren(el('strong',planned+' '+unit+' planned'),el('span',dimensions.length?(dimensions.length===1?dimensions[0].label+' varies.':dimensions.length+' settings vary.')+' Other settings stay fixed.':'Current settings · saved together in one study'));if(state.mode!=='grid')count.append(el('span',combinations+' possible combinations','source-both-note'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){backtest.textContent='Review tests';count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting||!!state.ruleLookup;};state.countUpdates.push(update);update();
+  const update=()=>{const issue=updateRuleNotice();if(issue){backtest.textContent='Review tests';count.replaceChildren(el('strong','Review unavailable'),el('span',issue));backtest.disabled=true;return;}try{const active=setupDimensions(state);if(active.length>6)throw Error('Restored test values exceed six changing settings. Remove a test range to continue.');const dimensions=active.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget),unit=planned===1?'test':'tests';backtest.textContent='Review '+planned+' '+unit;count.replaceChildren(el('strong',planned+' '+unit+' planned'),el('span',dimensions.length?(dimensions.length===1?dimensions[0].label+' varies.':dimensions.length+' settings vary.')+' Other settings stay fixed.':'Current settings · saved together in one study'));if(state.mode!=='grid')count.append(el('span',combinations+' possible combinations','source-both-note'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){backtest.textContent='Review tests';count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting||!!state.ruleLookup;};state.countUpdates.push(update);update();
   if(state.reviewOpen)openBacktest(state);
  }
 
@@ -591,7 +713,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   const descriptors=[...state.fields.values()].filter(f=>f.key.startsWith('marketFilter.'));
   for(const field of descriptors){if(field.key.endsWith('.price.high-low'))continue;const tail=field.key.slice('marketFilter.'.length),kind=/^(exit|target|stop)\./.test(tail)||['target','stop'].includes(tail)?'exit':/^(index|numerator|denominator)\./.test(tail)?'benchmarks':['method','ema','dsmart','mast','ktqp'].includes(tail)?'method':tail==='action'?'action':'context';const node=field.key.endsWith('.price.close-only')?priceModeField(state,field.key.slice(0,-'.price.close-only'.length),kind==='exit'?'Exit price mode':'Filter price mode'):sourceField(state,field.key,{showLabel:true,text:field.type==='boolean'?field.label.replace(/^Use /,''):''});blocks.get(kind).fields.append(node);}
   const status=el('p','','source-availability');status.setAttribute('role','status');body.append(status);foot.append(button('Done',()=>close(),'primary'));
-  if(state.fields.get('momentum.market-filter')?.needsDiscovery&&setupEnabled(state,'momentum.market-filter'))body.append(button('Load settings',()=>action(()=>refreshSetupChoices(undefined,{loadFilter:'marketFilter'})),'quiet'));
+  if(state.fields.get('momentum.market-filter')?.needsDiscovery&&setupEnabled(state,'momentum.market-filter'))body.append(button(localSetup?'Search RZone for Market Trend choices':'Load settings',()=>action(()=>{if(localSetup)selectedSource(state);return refreshSetupChoices(undefined,{loadFilter:'marketFilter'});}),'quiet'));
   function close(){state.filterOpen=false;if(dialog.open&&typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');opener.setAttribute('aria-expanded','false');opener.focus();}
   function open(){if(!setupEnabled(state,'momentum.market-filter'))return;if(!dialog.open){if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');}opener.setAttribute('aria-expanded','true');}
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{state.filterOpen=false;});Object.defineProperty(state,'openMarketFilter',{value:open,configurable:true,enumerable:false});
@@ -646,27 +768,35 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  }
 
  function openBacktest(state){
-  if(wizard!==state||state.connecting||state.ruleLookup||!setupSourceValid())return;
+  if(wizard!==state||state.connecting||state.ruleLookup||relativeStrengthRuleIssue(state)||!setupSourceValid())return;
+  if(state.pendingSourceSearch){notice.textContent='Load the selected chart’s choices or select a chart already saved in Vault.';return;}
   const previous=content.querySelector('.setup-backtest-dialog');if(previous?.open)return;previous?.remove();state.reviewOpen=true;
   const dialog=el('dialog',undefined,'setup-backtest-dialog');dialog.setAttribute('aria-label','Review backtest');dialog.setAttribute('aria-modal','true');const title=el('div',undefined,'source-dialog-heading');title.append(el('h3','Review backtest'),button('Close',()=>closeDialog(),'quiet'));dialog.append(title);
   const form=el('form',undefined,'setup-form source-review-form');dialog.append(form);content.append(dialog);
   function closeDialog(){state.reviewOpen=false;if(typeof dialog.close==='function')dialog.close();dialog.remove();state.controls=state.controls.filter(c=>c.control.isConnected);state.countUpdates=state.countUpdates.filter(fn=>fn!==update);content.querySelector('.source-count-bar .primary')?.focus();}
   dialog.addEventListener('cancel',event=>{event.preventDefault();closeDialog();});dialog.addEventListener('close',()=>{state.reviewOpen=false;});
   const body=el('div',undefined,'source-dialog-body'),scope=el('dl',undefined,'source-review-scope');form.append(body);body.append(scope);
-  const varying=key=>state.dimensions.some(d=>d.key===key);
+  const reviewDimensions=setupDimensions(state),varying=key=>reviewDimensions.some(d=>d.key===key);
+  if(localSetup){
+   const rs=state.config['momentum.rs'],benchmark=varying('momentum.rs.benchmark')?'Multiple benchmarks':state.config['momentum.rs.benchmark'],rule=varying('momentum.rs.rule')?'Multiple rules':state.config['momentum.rs.rule'];
+   for(const [title,value] of [['Entry chart',state.config['momentum.chart']],['Exit chart',state.config['execution.chart']],['Relative Strength',varying('momentum.rs')?'Testing on and off':rs?[benchmark,rule].filter(Boolean).join(' · '):'Off']]){
+    const item=el('div');item.append(el('dt',title),el('dd',String(value??'')));scope.append(item);
+   }
+  }
   for(const [title,value] of [['Universe',varying('momentum.group')?'Multiple universes · see test values below':state.config['momentum.group']],['Timeframe',varying('momentum.timeframe')?'Multiple timeframes · see test values below':state.config['momentum.timeframe']],['Test period',varying('execution.period')?state.dimensions.find(d=>d.key==='execution.period').values.length+' date ranges':varying('execution.from')||varying('execution.to')?'Multiple periods · see test values below':dateRangeText(state.config['execution.from']+'/'+state.config['execution.to'])],['Initial capital',varying('portfolio.capital')?'Multiple amounts · see test values below':fmt(Number(state.config['portfolio.capital']))]]){const item=el('div');item.append(el('dt',title),el('dd',String(value??'')));scope.append(item);}
-  if(state.dimensions.length){const variations=el('dl',undefined,'source-review-variations');variations.setAttribute('aria-label','Test values');for(const dimension of state.dimensions){const field=state.catalog.find(f=>f.key===dimension.key),row=el('div');let values;try{values=E.values(dimension.values,field).map(value=>settingDisplay(field,value)).join(' · ');}catch{values='Review test values';}row.append(el('dt',field?.label||dimension.key),el('dd',values));variations.append(row);}body.append(variations);}
+  if(localSetup&&tabs.filter(t=>t.capable??t.ready).length>1){const picker=select([['','Choose RZone tab'],...tabs.filter(t=>t.capable??t.ready).map(t=>[String(t.id),'RZone · tab '+t.id])]);picker.required=true;picker.value=state.sourceId;picker.onchange=()=>{state.sourceId=picker.value;};body.append(label('Run in',picker));}
+  if(reviewDimensions.length){const variations=el('dl',undefined,'source-review-variations');variations.setAttribute('aria-label','Test values');for(const dimension of reviewDimensions){const field=state.catalog.find(f=>f.key===dimension.key),row=el('div');let values;try{values=E.values(dimension.values,field).map(value=>settingDisplay(field,value)).join(' · ');}catch{values='Review test values';}row.append(el('dt',field?.label||dimension.key),el('dd',values));variations.append(row);}body.append(variations);}
   const name=input(state.name);name.required=true;name.maxLength=120;name.oninput=()=>{state.name=name.value;workbenchChanged(state);};body.append(label('Test name',name));
   const rules=el('div',undefined,'experiment-form-grid');for(const [key,title,choices] of [['objective','Rank by',[['returns','Return · higher is better'],['calmar','Calmar · higher is better'],['drawdown','Drawdown · lower is better']]],['mode','Search',[['grid','All combinations'],['sample','Budgeted sample'],['adaptive','Adaptive · bounded neighborhood']]]]){const n=select(choices);n.value=state[key];n.onchange=()=>{state[key]=n.value;workbenchChanged(state);};rules.append(label(title,n));}
   for(const [key,title,min,max] of [['budget','Maximum runs',1,500],['ceiling','Max drawdown (%)',0,100],['minTrades','Minimum reported trades',0,1000000],['seed','Sample seed',0,4294967295],['timeout','Timeout per trial (minutes)',1,120]]){const n=input(state[key],'number');n.min=min;n.max=max;n.step='1';n.oninput=()=>{state[key]=+n.value;workbenchChanged(state);};rules.append(label(title,n));}body.append(disclosure('Decision rules & advanced',rules));
   const footer=el('div',undefined,'source-dialog-footer'),preview=el('div',undefined,'experiment-preview'),actions=el('div',undefined,'source-dialog-actions'),run=button('Run test',()=>{},'primary');run.type='submit';actions.append(button('Edit settings',()=>closeDialog(),'quiet'),run);footer.append(preview,actions);form.append(footer);
-  function update(){if(!dialog.isConnected)return;try{const e=E.create(setupPlan(state)),capability=store.demo?null:S.executionCapability?.(state.template);preview.replaceChildren(el('strong',e.trials.length+' planned '+(e.trials.length===1?'test':'tests')),el('span',capability&&!capability.available?capability.reason:store.demo?'Fictional sample results. RZone will not run.':'Apply settings in RZone, run each test, and save completed reports.'));run.textContent=store.demo?'Generate '+e.trials.length+' sample '+(e.trials.length===1?'result':'results'):'Run '+e.trials.length+' '+(e.trials.length===1?'test':'tests');run.disabled=!!capability&&!capability.available;}catch(error){preview.replaceChildren(el('span',error.message));run.disabled=true;}}
+  function update(){if(!dialog.isConnected)return;try{const e=E.create(setupPlan(state)),capability=store.demo?null:S.executionCapability?.(state.template);preview.replaceChildren(el('strong',e.trials.length+' planned '+(e.trials.length===1?'test':'tests')),el('span',capability&&!capability.available?capability.reason:store.demo?'Fictional sample results. RZone will not run.':localSetup?'RZone opens when you run. Vault verifies the settings before submitting each test.':'Apply settings in RZone, run each test, and save completed reports.'));run.textContent=store.demo?'Generate '+e.trials.length+' sample '+(e.trials.length===1?'result':'results'):'Run '+e.trials.length+' '+(e.trials.length===1?'test':'tests');run.disabled=!!capability&&!capability.available;}catch(error){preview.replaceChildren(el('span',error.message));run.disabled=true;}}
   state.countUpdates.push(update);
   form.onsubmit=event=>{event.preventDefault();void action(async()=>{
-   if(state.submitting||!form.reportValidity()||!setupSourceValid()||wizard!==state)return;const capability=store.demo?null:S.executionCapability?.(state.template);if(capability&&!capability.available)throw Error(capability.reason);const p=setupPlan(state),planned=E.create(p);if(!store.demo)await window.VaultAccountUI?.start(planned.trials.length);if(wizard!==state||state.submitting)return;state.submitting=true;setupDrafts.delete(store);run.disabled=true;let created;
+   if(state.submitting||!form.reportValidity()||!setupSourceValid()||wizard!==state)return;const capability=store.demo?null:S.executionCapability?.(state.template);if(capability&&!capability.available)throw Error(capability.reason);const tab=localSetup?selectedSource(state):null;const p=setupPlan(state),planned=E.create(p);if(!store.demo)await window.VaultAccountUI?.start(planned.trials.length);if(wizard!==state||state.submitting)return;state.submitting=true;setupDrafts.delete(store);run.disabled=true;let created;
    try{
     if(store.demo){created=E.create({...p,id:crypto.randomUUID()});await store.putExperiment(created);await load();if(alive()&&wizard===state){wizard=null;detail(created.id);void simulate(created.id);}}
-    else{const source=tabs.find(t=>String(t.id)===state.sourceId);if(!source||(source.capable??source.ready)!==true)throw Error(source?.reason||'RZone is unavailable. Reconnect before running.');created=(await command('create',{plan:p,reuse:!!state.reuseRun})).experiment;sourceChoices.set(created.id,state.sourceId);try{await command('start',{id:created.id,tabId:source.id});}finally{await load();if(alive()&&wizard===state){wizard=null;detail(created.id);}}}
+    else{const source=tab||tabs.find(t=>String(t.id)===state.sourceId);if(!source||(source.capable??source.ready)!==true)throw Error(source?.reason||'RZone is unavailable. Reconnect before running.');created=(await command('create',{plan:p,reuse:!!state.reuseRun})).experiment;sourceChoices.set(created.id,state.sourceId);try{await command('start',{id:created.id,tabId:source.id});}finally{await load();if(alive()&&wizard===state){wizard=null;detail(created.id);}}}
    }finally{state.submitting=false;if(!created&&wizard===state&&run.isConnected)update();}
   });};update();if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
  }
@@ -676,7 +806,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    if(initial)return newTest(initial);
    keepSetup();clearCalendars();selected=null;wizard=null;panel.classList.remove('is-setup','has-workbench');content.replaceChildren(heading('Use a saved run',true),journey('setup'));
    const shell=el('div',undefined,'experiment-builder'),usable=runs.filter(r=>{try{S.savedRunContext(r);return (r.demo===true)===(store.demo===true);}catch{return false;}});content.append(shell);
-   if(!usable.length){shell.append(el('p','No saved run has a complete supported setup yet.'),button('New test',()=>newTest(),'primary'));return;}
+   if(!usable.length){shell.append(el('p','No saved run has a complete supported setup yet.'),button('New test',()=>action(()=>newTest()),'primary'));return;}
    const picker=select(usable.map(r=>[r.id,(r.name||r.id)+' · '+new Date(r.savedAt).toLocaleDateString('en-IN')]));shell.append(label('Saved run',picker),button('Use these settings',()=>action(()=>newTest(usable.find(r=>r.id===picker.value))),'primary'));return;
   }
   keepSetup();clearCalendars();motion?.enter(content,'builder');
@@ -774,6 +904,15 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
      const cell=el('div'),time=el('time');time.dateTime=receipt[key];time.textContent=new Date(receipt[key]).toLocaleString();cell.append(el('dt',title),el('dd'));cell.lastChild.append(time);cells.append(cell);
     }
     section.append(cells,el('p','Submission IDs: '+receipt.strategySubmissionId+' / '+receipt.portfolioSubmissionId,'mini evidence-reference'));
+    if(t.captureTiming){
+     const phases=[['Quick Stats','Quick Stats'],['Statistics','Statistics'],['Charts','Charts'],['Trade Details','Trade Details'],['Read charts and trade pages','details'],['Waiting to save','checkpoint'],['Write report','write'],['Close RZone dialogs','close'],['Verify saved report','confirm']];
+     const timings=el('dl',undefined,'map-settings');
+     for(const [title,key] of phases){const ms=t.captureTiming[key];if(!Number.isSafeInteger(ms)||ms<0)continue;const cell=el('div');cell.append(el('dt',title),el('dd',ms<100?(ms+' ms'):((ms/1000).toFixed(1)+' s')));timings.append(cell);}
+     if(timings.childElementCount)section.append(timings);
+     const background=[['ack','Capture acknowledgement'],['queue','Worker queue'],['prepare','Load and check study'],['journal','Write capture checkpoint']];
+     const parts=background.filter(([key])=>Number.isSafeInteger(t.captureTiming[key])&&t.captureTiming[key]>=0).map(([key,title])=>title+' '+(t.captureTiming[key]/1000).toFixed(2)+' s');
+     if(parts.length)section.append(el('p',parts.join(' · '),'mini'));
+    }
    }else if(run)section.append(el('p',reason,'mini'));
    if(t.error)section.append(el('p',t.error,'mini'));
    const events=el('ol',undefined,'experiment-timeline');
@@ -861,9 +1000,11 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- await load();if(!alive())return;if(startNew)newTest();else if(baselineRun)await builder(baselineRun);else if(studyId)detail(studyId);else list();
+ await load();if(!alive())return;if(startNew)await action(()=>newTest());else if(baselineRun)await builder(baselineRun);else if(studyId)detail(studyId);else list();
 
- timer=setInterval(async()=>{if(!alive()){dispose();return;}if(refreshing||deletionDialog||calendarOpen())return;refreshing=true;try{await load();if(!alive()||deletionDialog||calendarOpen())return;if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();if(!content.contains(document.activeElement)){if(selected&&renderedDetail!==stamp(experiments.find(e=>e.id===selected)))detail(selected);else if(!selected&&!wizard&&renderedList!==listStamp())list();}}catch(error){notice.textContent=error.message;}finally{refreshing=false;}},3000);
+ async function refresh(){if(!alive()){dispose();return;}if(extension&&document.visibilityState==='hidden'||refreshing||deletionDialog||calendarOpen())return;refreshing=true;try{await load();if(!alive()||deletionDialog||calendarOpen())return;if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();if(!content.contains(document.activeElement)){if(selected&&renderedDetail!==stamp(experiments.find(e=>e.id===selected)))detail(selected);else if(!selected&&!wizard&&renderedList!==listStamp())list();}}catch(error){notice.textContent=error.message;}finally{refreshing=false;}}
+ timer=setInterval(refresh,3000);
+ if(extension)document.addEventListener('visibilitychange',refresh);
 
 }
 

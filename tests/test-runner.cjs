@@ -16,6 +16,7 @@ async function withFixtureTime(work){
 }
 function installFixtureTime(w){if(fixtureTime){w.Date=Date;w.setTimeout=setTimeout;w.clearTimeout=clearTimeout;w.setInterval=setInterval;w.clearInterval=clearInterval;}}
 const requestedCatalogue=process.argv.find(argument=>argument.startsWith('--catalogue-case='))?.slice('--catalogue-case='.length);
+const requestedChart=process.argv.find(argument=>argument.startsWith('--chart-case='))?.slice('--chart-case='.length);
 const fromCase=Number(process.argv.find(argument=>argument.startsWith('--from-case='))?.slice('--from-case='.length)||1);
 const toCaseArgument=process.argv.find(argument=>argument.startsWith('--to-case='))?.slice('--to-case='.length),toCase=toCaseArgument===undefined?Infinity:Number(toCaseArgument);
 if(!Number.isInteger(fromCase)||fromCase<1)throw Error('Runner starting case must be a positive integer.');
@@ -25,6 +26,7 @@ const searchCases=['search-complete','search-original-public','search-execute','
 if(requestedCatalogue&&!['complete','delayed','empty','radar-empty','rejected','radar-rejected','execute',...searchCases].includes(requestedCatalogue))throw Error('Unknown runner catalogue case: '+requestedCatalogue);
 const reordered=x=>Array.isArray(x)?x.map(reordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,reordered(x[k])])):x;
 async function scenario(options={}){
+ const {missingStart=false}=options;
  const {changeLocked=false,overlap=false,staleCompletion=false,rejected=false,reuseReport=false,noRunning=false,preexistingReport=false,vaultSetup=false,missingGroup=false,changedGroupIdentity=false,changedOptions=false,driftDuringRun=false,refreshParents=false,noOptionRefresh=false,emptyOptions=false,variableSet='',bridge=false,closeAfterWake=false,closeStuckAfterWake=false,closeSlowAnimation=false,closeBlockedByChild=false,groupCatalogue='',ruleCatalogue=''}=options;
  const dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting<div class="tooltip">i</div></h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document;
  let sourceCloseClicks=0;
@@ -154,6 +156,12 @@ async function scenario(options={}){
   if(contextVariations){submittedStageFields.execution.push(JSON.parse(JSON.stringify(w.VaultCapture.fields(p))));assert.equal(p.querySelector('select').value,'source:'+submittedStageFields.execution.at(-1)[0].value,'Rank criteria must select the exact native option, not assign display text as its value.');}
   if(['execute','search-execute','search-ambiguous','search-cross-row','exit-search-execute','exit-search-ambiguous'].includes(ruleCatalogue)){const controls=[...main.querySelectorAll('input,select')].filter(n=>n.type!=='hidden');strategyNativeSubmissions.push([35,39,43,47].map(index=>({category:controls[index].value,rule:controls[index+1].value,enabled:controls[index===35?34:index+3].checked})));for(const index of [40,44,48])if(controls[index].type==='text'&&controls[index+2].checked)assert.ok(controls[index].dataset.selectedRule,'Typing a rule without clicking its exact suggestion must never submit.');if(exitMode){const exitControls=[...p.querySelectorAll('input,select')].filter(n=>n.type!=='hidden');assert.equal(exitControls[7].dataset.selectedRule,'rule:exit:Public:first','Execution exit selection requires an exact native menu commitment.');}}
   if(submissions&&plan)savedBeforeNext.push(!!memory['run:'+plan.trials[submissions-1].runId]);submissions++;if(rejected){popup('Error');return;}
+  if(missingStart){
+   p.remove();
+   const now=w.Date.now.bind(w.Date);
+   nativeTimeout(()=>{w.Date.now=()=>now()+61000;},80);
+   return;
+  }
   if(driftDuringRun)nativeTimeout(()=>{main.querySelectorAll('input,select')[1].value='Manual drift';},100);
   if(!overlap&&!staleCompletion&&!noRunning)done.textContent='Processing';
   if(!noRunning)cancel.textContent='Cancel BackTest';
@@ -370,6 +378,13 @@ async function scenario(options={}){
    assert.equal(result.status,'needs-review',JSON.stringify(result.trials));assert.equal(runs.length,0);assert.equal(submissions,driftDuringRun?1:0);assert.equal(portfolios,0);
    assert.match(result.trials[0].error,missingGroup?/confirm that group/:changedGroupIdentity?/group.*(?:changed|match|identity)|(?:changed|match|identity).*group/i:changedOptions?/dropdown value is unavailable/:/read-back differs/);if(changedGroupIdentity)assert.equal(groupCommits,0,'An identically labelled but different native Group must not be committed or submitted.');
   }
+  else if(missingStart){
+   assert.equal(result.status,'needs-review',JSON.stringify(result.trials));
+   assert.match(result.trials[0].error,/Definedge did not confirm that the strategy started/);
+   assert.equal(submissions,1);
+   assert.equal(portfolios,0);
+   assert.equal(runs.length,0);
+  }
   else if(changeLocked||staleCompletion||rejected||reuseReport||noRunning||preexistingReport){
    assert.equal(result.status,'needs-review',JSON.stringify(result.trials));assert.equal(submissions,changeLocked?0:reuseReport?2:1);assert.equal(runs.length,reuseReport?1:0);assert.equal(portfolios,reuseReport?2:preexistingReport?1:0);
    if(reuseReport)assert.match(result.trials[1].error,/confirmed submissions/);
@@ -417,13 +432,13 @@ async function scenario(options={}){
 }
 // This fixture exercises the production runner/capture/coordinator lifecycle.
 // Its reports and source menus are fictional; it does not constitute live RZone acceptance.
-async function variantLifecycle({mainChart,exitChart,mainMode='Percent',exitMode='Percent',failure=''}){
+async function variantLifecycle({mainChart,exitChart,mainMode='Percent',exitMode='Percent',failure='',groupDelay=0,captureTiming=false}){
  const L=require('../dist/source-layouts.js'),dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document,main=d.querySelector('.account-right');
  installFixtureTime(w);w.structuredClone=structuredClone;
  Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});
  w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')?[{width:100,height:20}]:[];};
  const nodes=p=>[...p.querySelectorAll('input,select')],fields=p=>JSON.parse(JSON.stringify(w.VaultCapture.fields(p))),listeners=[],memory={},submissions=[],portfolioSubmissions=[],durableBeforeNext=[],nativeModes=[];
- let menus=[],oldReport,plan,reportCount=0,groupCommits=0,uid=0;
+ let menus=[],oldReport,plan,reportCount=0,groupCommits=0,uid=0;const reportClicks=[],captureAcks=[];
  const button=(p,label,fn)=>{const b=d.createElement('button');b.textContent=label;b.onclick=fn;p.append(b);return b;};
  function popup(title){const p=d.createElement('div');p.className='popupContent';const head=d.createElement('div');head.className='custom-dialog-header';const caption=d.createElement('div');caption.className='caption';caption.textContent=title;const close=d.createElement('a');close.className='close-buton';close.onclick=()=>p.remove();head.append(caption,close);p.append(head);d.body.append(p);return p;}
  function descriptor(stage,chart,mode){if(chart==='Renko'&&!mode)mode='Percent';return S.demoTemplate({momentumChart:chart,executionChart:chart,...(chart==='Renko'&&mode?{momentumBrickMode:mode,executionBrickMode:mode}:{})}).stages[stage];}
@@ -439,11 +454,33 @@ async function variantLifecycle({mainChart,exitChart,mainMode='Percent',exitMode
    if(chart==='Renko')current[layout.modeIndex].addEventListener('change',()=>{const value=current[layout.modeIndex].selectedOptions[0].textContent;nativeModes.push({stage,value});current[layout.sizeIndex].value=['ATR','ATR %'].includes(value)?'14':'1';});
   }
   if(stage==='momentum'){
-   const group=current[1];group.placeholder='Search Group';group.addEventListener('keyup',()=>{menus.forEach(m=>m.remove());const menu=d.createElement('div');menu.className='popupContent';menu.innerHTML='<ul class="ind-list"></ul>';const li=d.createElement('li');li.setAttribute('grpid','group:demo-40');li.textContent='Demo universe 40';li.onclick=()=>{group.value=li.textContent;group.dataset.groupId=li.getAttribute('grpid');groupCommits++;menu.remove();};menu.firstChild.append(li);menus.push(menu);d.body.append(menu);});
+   const group=current[1];group.placeholder='Search Group';group.addEventListener('keyup',()=>{
+    menus.forEach(m=>m.remove());
+    const show=()=>{
+     const menu=d.createElement('div');menu.className='popupContent';menu.innerHTML='<ul class="ind-list"></ul>';
+     const li=d.createElement('li');li.setAttribute('grpid','group:demo-40');li.textContent='Demo universe 40';
+     li.onclick=()=>{group.value=li.textContent;group.dataset.groupId=li.getAttribute('grpid');groupCommits++;menu.remove();};
+     menu.firstChild.append(li);menus.push(menu);d.body.append(menu);
+    };
+    if(groupDelay)w.setTimeout(show,groupDelay);else show();
+   });
   }
  }
  const runtime={id:'variant-test',getURL:p=>'chrome-extension://variant-test/'+p},source={id:runtime.id,url:w.location.href,tab:{id:9}},dashboard={id:runtime.id,url:runtime.getURL('index.html')},storage={get:async key=>reordered(E.clone(key?{[key]:memory[key]??null}:memory)),set:async value=>Object.assign(memory,E.clone(value))},coordinator=createCoordinator({storage,runtime,uuid:()=> 'variant-id-'+(++uid)});
- w.chrome={storage:{local:storage},runtime:{...runtime,sendMessage:message=>coordinator.handle(message,source),onMessage:{addListener:fn=>listeners.push(fn)}}};w.URL.createObjectURL=()=> 'blob:variant';w.URL.revokeObjectURL=()=>{};
+ const write=storage.set;
+ const local={...storage,set:async data=>{
+  if(captureTiming)for(const key of Object.keys(data))if(key.startsWith('run:'))assert.ok(captureAcks.includes(key.slice(4)),'Archive write must wait for the capture checkpoint.');
+  return write(data);
+ }};
+ w.chrome={storage:{local},runtime:{...runtime,sendMessage:async message=>{
+  const result=await coordinator.handle(message,source);
+  if(captureTiming&&message.stage==='capturing'){
+   await new Promise(resolve=>w.setTimeout(resolve,2000));
+   assert.equal(reportClicks[3*captureAcks.length],'Statistics','Start reading the report while the capture checkpoint is pending.');
+   captureAcks.push(message.trialId);
+  }
+  return result;
+ },onMessage:{addListener:fn=>listeners.push(fn)}}};w.URL.createObjectURL=()=> 'blob:variant';w.URL.revokeObjectURL=()=>{};
  for(const file of ['core.js','presentation.js','intelligence.js','source-layouts.js','setup.js','experiments.js','capture.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
  const raw=S.demoTemplate({momentumChart:mainChart,executionChart:exitChart,...(mainChart==='Renko'?{momentumBrickMode:mainMode}:{}),...(exitChart==='Renko'?{executionBrickMode:exitMode}:{})});raw.demo=false;
  // Record the observed DOM's disablement, as a real source read does, before
@@ -469,8 +506,9 @@ async function variantLifecycle({mainChart,exitChart,mainMode='Percent',exitMode
  });});
  button(main,'Portfolio Testing',()=>{const p=popup('Portfolio Backtesting');render(p,'portfolio');button(p,'Backtest',()=>{
   portfolioSubmissions.push(fields(p));if(failure==='duplicate'&&oldReport){d.body.append(oldReport);return;}
-  const report=popup('Portfolio Backtesting Report');oldReport=report;reportCount++;const tabs=d.createElement('div');for(const name of ['Quick Stats','Statistics','Charts','Trade Details']){const tab=d.createElement('div');tab.setAttribute('role','tab');tab.textContent=name;tab.onclick=()=>{for(const t of tabs.children)t.className='';tab.className='selected';};tabs.append(tab);}report.append(tabs);
+  const report=popup('Portfolio Backtesting Report');oldReport=report;reportCount++;const tabs=d.createElement('div');for(const name of ['Quick Stats','Statistics','Charts','Trade Details']){const tab=d.createElement('div');tab.setAttribute('role','tab');tab.textContent=name;if(captureTiming&&name==='Quick Stats')tab.className='selected';tab.onclick=()=>{for(const t of tabs.children)t.className='';tab.className='selected';reportClicks.push(name);if(captureTiming&&name==='Charts')w.setTimeout(()=>panel.append(...graphics),900);};tabs.append(tab);}report.append(tabs);
   const panel=d.createElement('div');panel.setAttribute('role','tabpanel');panel.innerHTML='<div class="stats-card"><div class="status">Total no. of Trades</div><div class="amt">4</div></div><div class="stats-card"><div class="status">Gross Total Returns( % )</div><div class="amt">'+reportCount+'%</div></div><table class="dropdown-table-body"><tr><td>Group</td><td>Demo universe 40</td></tr></table>'+Array.from({length:6},(_,i)=>'<svg class="highcharts-root" xmlns="http://www.w3.org/2000/svg"><title>Chart '+i+'</title><path d="M0 0 L20 10"/></svg>').join('')+'<table class="rade-result-detail"></table><span id="curPageTextEle">1</span><span id="lastPageTextEle">2</span><img src="/firstPage.png"><img src="/next.png">';report.append(panel);
+  const graphics=[...panel.querySelectorAll('svg')];if(captureTiming)graphics.forEach(chart=>chart.remove());
   function page(n){panel.querySelector('#curPageTextEle').textContent=n;panel.querySelector('.rade-result-detail').innerHTML='<tr><th>Sr #</th><th>Symbol</th><th>Qty</th></tr>'+[n*2-1,n*2].map(i=>'<tr><td>'+i+'</td><td>FICTIONAL'+i+'</td><td>'+(i===2?0:10)+'</td></tr>').join('');}panel.querySelector('img[src$="firstPage.png"]').onclick=()=>page(1);panel.querySelector('img[src$="next.png"]').onclick=()=>page(2);page(1);
  });});
  w.eval(fs.readFileSync(path.join(base,'runner.js'),'utf8'));
@@ -488,6 +526,15 @@ async function variantLifecycle({mainChart,exitChart,mainMode='Percent',exitMode
    const evidence=run.experiment.evidence;assert.equal(evidence.sourceSession,memory['runner:tab:9'].session);assert.equal(evidence.strategySubmissionId,run.parameters.strategy.id);assert.equal(evidence.portfolioSubmissionId,run.parameters.id);const times=['strategySubmittedAt','strategyStartedAt','strategyCompletedAt','portfolioSubmittedAt','reportOpenedAt','capturedAt'].map(k=>Date.parse(evidence[k]));assert.ok(times.every((t,i)=>Number.isFinite(t)&&(!i||t>=times[i-1])));
   }
   assert.equal(new Set(runs.map(r=>r.experiment.evidence.strategySubmissionId)).size,3);assert.equal(new Set(runs.map(r=>r.experiment.evidence.portfolioSubmissionId)).size,3);assert.equal(memory['runner:lease'],null);
+  if(captureTiming){
+   assert.deepEqual(reportClicks,Array.from({length:3},()=>['Statistics','Charts','Trade Details']).flat(),'Wait for slow charts and skip both clicks on the initial Quick Stats tab.');
+   for(const trial of result.trials)for(const key of ['Quick Stats','Statistics','Charts','Trade Details','details','checkpoint','write','close','confirm','ack','queue','prepare','journal'])assert.ok(Number.isSafeInteger(trial.captureTiming[key])&&trial.captureTiming[key]>=0,key);
+   for(const [i,trial] of result.trials.slice(1).entries()){
+    const previous=Date.parse(result.trials[i].events.find(event=>event.status==='saved').at);
+    const next=Date.parse(trial.events.find(event=>event.status==='applying').at);
+    assert.ok(next-previous<250,'The next claim follows the durable save without waiting for the three-second poll.');
+   }
+  }
   for(const [stage,chart,mode]of [['momentum',mainChart,mainMode],['execution',exitChart,exitMode]])if(chart==='Renko'&&mode!=='Percent')assert.ok(nativeModes.some(item=>item.stage===stage&&item.value===mode),'Exercise native '+stage+' Renko mode reset before size assignment.');
  }finally{dom.window.close();}
 }
@@ -531,6 +578,34 @@ async function backgroundFocusChecks(){
   if(['user-switch','closed-vault','changed-vault','moved-vault','unrelated-tab'].includes(mode))assert.deepEqual(actions,[9],mode+' must not restore focus to a tab the user did not request.');
   assert.equal(timers.size,0);
  }
+ let active=10,listener;
+ const tabs=new Map([[9,{id:9,windowId:1,url:sourceURL}],[10,{id:10,windowId:1,url:dashboardURL}],[11,{id:11,windowId:1,url:'https://example.org/'}]]);
+ const actions=[];
+ const chrome={
+  storage:{local:{}},action:{onClicked:{addListener:()=>{}}},
+  runtime:{getURL:file=>'chrome-extension://test-ext/'+file,onMessage:{addListener:fn=>{listener=fn;}}},
+  tabs:{get:async id=>tabs.get(id),query:async()=>[tabs.get(active)],update:async id=>{active=id;actions.push(id);}}
+ };
+ const context=vm.createContext({chrome,importScripts:()=>{},VaultAccounts:{create:()=>({})},
+  VaultExperimentCoordinator:{createCoordinator:()=>({handle:async message=>message.fixtureResult})}});
+ vm.runInContext(fs.readFileSync(path.join(base,'background.js'),'utf8'),context);
+ const send=(action,fixtureResult,stage)=>new Promise(resolve=>listener({type:'vault-experiment',action,id:'study',fixtureResult,stage},{tab:tabs.get(9)},resolve));
+ await send('claim',{ok:false});
+ assert.deepEqual(actions,[],'A rejected claim never activates the source.');
+ await send('claim',{ok:true,trial:{}});
+ await send('checkpoint',{ok:true,status:'running'},'saved');
+ await send('claim',{ok:true,trial:{}});
+ assert.deepEqual(actions,[9],'The source stays active between saved trials in a batch.');
+ await send('checkpoint',{ok:true,status:'complete'},'saved');
+ assert.deepEqual(actions,[9,10],'A finished batch returns to the original Vault tab.');
+ await send('claim',{ok:true,trial:{}});
+ active=11;
+ await send('fail',{ok:true});
+ assert.deepEqual(actions,[9,10,9],'A user who switches tabs keeps their chosen tab after a failure.');
+ active=10;
+ await send('claim',{ok:true,trial:{}});
+ await send('fail',{ok:true});
+ assert.deepEqual(actions,[9,10,9,9,10],'A failed trial also returns to Vault when RZone is still active.');
 }
 // Complete fictional native forms exercise independent chart contexts without
 // granting the still-closed live execution capability for P&F or Renko.
@@ -546,7 +621,8 @@ async function chartScenario(chartCase,dailySeed){
  const L=require('../dist/source-layouts.js'),dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document,main=d.querySelector('.account-right'),listeners=[],counts={categories:0,groups:0,submissions:0},menus=new Set();
  installFixtureTime(w);
  w.structuredClone=structuredClone;Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')?[{width:100,height:20}]:[];};
- const initial=chartCase==='Renko'?'Renko':['warm-reversal','exit-context'].includes(chartCase)?'P&F':'Candle',daily=['daily-categories','saved-visited-layout'].includes(chartCase);let executionState=null,privateRadarChoices=chartCase==='cache-reconnect'||daily?['Fictional private radar']:[];const categoryRequests=[],groupRows=['Demo universe 40','Other fictional group'];
+ const slowWarm=chartCase==='warm-slow-renko';
+ const initial=chartCase==='Renko'?'Renko':['warm-reversal','exit-context','warm-slow-renko'].includes(chartCase)?'P&F':'Candle',daily=['daily-categories','saved-visited-layout'].includes(chartCase);let executionState=null,privateRadarChoices=chartCase==='cache-reconnect'||daily?['Fictional private radar']:[];const categoryRequests=[],groupRows=['Demo universe 40','Other fictional group'];
  const state=(stage,chart)=>JSON.parse(JSON.stringify(S.demoTemplate({momentumChart:chart,executionChart:chart}).stages[stage]));
  function nodes(p){return [...p.querySelectorAll('input,select')].filter(n=>n.type!=='hidden');}
  function optionsFor(stage,layout,index,field,descriptor){const row=layout.rows.find(row=>row.parentIndex===index);return row?(row.name==='Radar'?['Pre','My']:['Pre','My','Public','Popular']):index===layout.chartIndex?L.charts:descriptor.options[index]?.map(o=>o.label)||[field.value];}
@@ -564,7 +640,7 @@ async function chartScenario(chartCase,dailySeed){
    };
    populate();current[row.parentIndex].addEventListener('change',()=>{counts.categories++;categoryRequests.push({stage,row:row.name,category:current[row.parentIndex].selectedOptions[0].textContent});if(chartCase==='dependent-timeout'&&stage==='momentum'&&row.name==='Strategy 1')return;w.setTimeout(populate,150);});
   }
-  const chart=current[layout.chartIndex];chart.addEventListener('change',()=>{const target=chart.selectedOptions[0].textContent,group=stage==='momentum'?current[1].value:null;w.setTimeout(()=>{const next=state(stage,target);if(stage==='momentum')next.fields[1].value=group;render(p,stage,next);},100);});
+  const chart=current[layout.chartIndex];chart.addEventListener('change',()=>{const target=chart.selectedOptions[0].textContent,group=stage==='momentum'?current[1].value:null;w.setTimeout(()=>{const next=state(stage,target);if(stage==='momentum')next.fields[1].value=group;render(p,stage,next);},slowWarm?1000:100);});
   if(layout.chart==='Renko')current[layout.modeIndex].addEventListener('change',()=>{current[layout.sizeIndex].value=({Absolute:'10',Percent:'1',ATR:'14','ATR %':'14'})[current[layout.modeIndex].selectedOptions[0].textContent];});
   const outside=current[layout.chartIndex].closest('tr').firstElementChild;outside.addEventListener('click',()=>{for(const menu of menus)menu.remove();});
   if(stage==='momentum'){
@@ -576,7 +652,7 @@ async function chartScenario(chartCase,dailySeed){
  w.chrome={storage:{local:{get:async()=>({}),set:async()=>{}}},runtime:{id:'chart-fixture',getURL:f=>'chrome-extension://chart-fixture/'+f,sendMessage:async()=>({ok:true}),onMessage:{addListener:fn=>listeners.push(fn)}}};
  w.URL.createObjectURL=()=> 'blob:fictional';w.URL.revokeObjectURL=()=>{};
  for(const file of ['core.js','presentation.js','intelligence.js','source-layouts.js','setup.js','experiments.js','capture.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
- const initialMain=state('momentum',initial);if(chartCase==='exit-context')executionState=state('execution','Candle');if(chartCase==='warm-reversal'){initialMain.fields[55].value='5';executionState=state('execution',initial);executionState.fields[5].value='5';}render(main,'momentum',initialMain);const open=d.createElement('button');open.textContent='BackTest';open.onclick=openExecution;main.append(open);const runnerCode=fs.readFileSync(path.join(base,'runner.js'),'utf8');w.eval(chartCase==='daily-passive-state'?runnerCode.replace('window.VaultRunner={','window.VaultCacheFixture={cachedStage,choiceStageCache};window.VaultRunner={'):runnerCode);
+ const initialMain=state('momentum',initial);if(chartCase==='exit-context')executionState=state('execution','Candle');if(chartCase==='warm-reversal'||slowWarm){initialMain.fields[55].value='5';executionState=state('execution',initial);executionState.fields[5].value='5';}render(main,'momentum',initialMain);const open=d.createElement('button');open.textContent='BackTest';open.onclick=openExecution;main.append(open);const runnerCode=fs.readFileSync(path.join(base,'runner.js'),'utf8');w.eval(chartCase==='daily-passive-state'?runnerCode.replace('window.VaultRunner={','window.VaultCacheFixture={cachedStage,choiceStageCache};window.VaultRunner={'):slowWarm?runnerCode.replace('window.VaultRunner={','window.VaultTransitionFixture={settledStage};window.VaultRunner={'):runnerCode);
  const request=message=>new Promise(resolve=>{for(const listener of listeners)listener({type:'vault-runner-config',...message},{id:'chart-fixture'},resolve);});
  try{
   if(chartCase==='dependent-timeout'){
@@ -671,7 +747,27 @@ async function chartScenario(chartCase,dailySeed){
    const stale=structuredClone(forced.choiceCache);stale.session='different-document';const oldCounts={...counts},renewed=await request({cachedChoices:[stale]});assert.equal(renewed.ok,true,renewed.error);assert.equal(renewed.choicesFromCache,false);assert.ok(counts.categories>oldCounts.categories);return;
   }
   if(chartCase.startsWith('warm')){
-   const target=chartCase==='warm-reversal'?'Renko':'P&F',originalExecution=JSON.stringify(executionState.fields),warm=await request({warmChart:target});assert.equal(warm.ok,true,warm.error);assert.equal(warm.config.stages.momentum.fields[0].value,target);assert.equal(warm.config.stages.execution.fields[3].value,target);assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before,'A warm chart scan restores every original main value and gate.');assert.equal(JSON.stringify(executionState.fields),originalExecution,'The independent original execution chart and controls are restored.');if(chartCase==='warm-reversal'){assert.equal(nodes(main)[55].selectedOptions[0].textContent,'5');assert.equal(executionState.fields[5].value,'5','Nondefault P&F reversal must be restored after warming another chart.');}assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);return;
+   const warmStarted=w.Date.now(),target=chartCase==='warm-reversal'||slowWarm?'Renko':'P&F',originalExecution=JSON.stringify(executionState.fields),warm=await request({warmChart:target});
+   assert.equal(warm.ok,true,warm.error);
+   assert.equal(warm.config.stages.momentum.fields[0].value,target);
+   assert.equal(warm.config.stages.execution.fields[3].value,target);
+   assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before,'A warm chart scan restores every original main value and gate.');
+   assert.equal(JSON.stringify(executionState.fields),originalExecution,'The independent original execution chart and controls are restored.');
+   if(chartCase==='warm-reversal'||slowWarm){
+    assert.equal(nodes(main)[55].selectedOptions[0].textContent,'5');
+    assert.equal(executionState.fields[5].value,'5','Nondefault P&F reversal must be restored after warming another chart.');
+   }
+   if(slowWarm){
+    assert.ok(w.Date.now()-warmStarted<60000,'Delayed chart discovery and exact restoration stay inside the worker deadline.');
+    assert.equal(counts.submissions,0,'Choice discovery never submits a backtest.');
+    const selector=nodes(main)[0],original=selector.value,stalledAt=w.Date.now();
+    selector.value='native:Renko';
+    await assert.rejects(w.VaultTransitionFixture.settledStage(main,'momentum','Renko'),/did not finish changing its chart settings/);
+    assert.ok(w.Date.now()-stalledAt>=8000&&w.Date.now()-stalledAt<8500,'A permanently incompatible layout must still stop at the original eight-second limit.');
+    selector.value=original;
+    assert.equal(JSON.stringify(w.VaultCapture.fields(main)),before);
+   }
+   assert.equal(w.VaultCapture.popup('Momentum Trading BackTest'),undefined);return;
   }
   // Follow the coordinator contract: every successive configure receives the
   // current day's persisted menus. A raw second request otherwise rescans the
@@ -801,6 +897,20 @@ async function filterScenario(mode,dailySeed){
   }
   const normalized=S.template(template),config=S.defaults(normalized);assert.equal(submissions,0);assert.equal(portfolios,0);assert.equal(orderClicks,0);
   if(variantRS){
+   const beforeCombined={...scans},combined=await request({
+    type:'vault-runner-config',changes:{momentum:{0:rsChart}},includeRelativeStrength:true,
+    cachedChoices:readerResponses.map(response=>response.choiceCache)
+   });
+   assert.equal(combined.ok,true,combined.error);
+   assert.equal(combined.config.stages.momentum.relativeStrength.fields[0].value,rsChart);
+   assert.equal(combined.relativeChoiceCache.stages.momentum.context.relativeStrength,true);
+   assert.deepEqual(scans,beforeCombined,'A combined check uses both of today’s cached layouts.');
+   assert.equal(JSON.stringify(fields(main)),initial);
+   const benchmarkIndex=L.main(rsChart,true).benchmarkIndex;
+   const seeded=await request({type:'vault-runner-symbol-search',stage:'momentum',fieldIndex:benchmarkIndex,market:'NSE',query:'A',seedQueries:['A','B'],session:template.session});
+   assert.equal(seeded.ok,true,seeded.error);
+   assert.deepEqual(Array.from(seeded.result.seeded,entry=>[entry.query,entry.options[0].label]),[['A','A'],['B','B']]);
+   assert.equal(JSON.stringify(fields(main)),initial);assert.equal(selectionIDs(),originalSelectionIDs);noSymbolMenus();
    let selectedTemplate=normalized;const saved=[];
    for(const [index,[on,category]]of [[true,'Pre'],[false,'Pre'],[true,'Popular']].entries()){
     if(category==='Popular'){const refreshed=await request({type:'vault-runner-config',changes:{momentum:{60:'Popular'}}});assert.equal(refreshed.ok,true,refreshed.error);selectedTemplate=S.template(refreshed.config);}
@@ -841,16 +951,17 @@ async function filterScenario(mode,dailySeed){
   {chartCase:'daily-categories'},{filterCase:'daily-cache'},{vaultSetup:true,closeSlowAnimation:true},{vaultSetup:true,closeBlockedByChild:true},{filterCase:'market-late-symbol'},{filterCase:'rs-warm'},{filterCase:'symbol-no-match'},{chartCase:'daily-storage-order'},{filterCase:'symbol-catalogue'},{chartCase:'exit-context'},{chartCase:'dependent-timeout'},{chartCase:'daily-passive-state'},{chartCase:'saved-visited-layout'},
   ...['Candle','P&F','Renko'].flatMap(mainChart=>['Candle','P&F','Renko'].filter(exitChart=>mainChart!=='Candle'||exitChart!=='Candle').map(exitChart=>({variantLifecycle:{mainChart,exitChart}}))),
   ...['Absolute','ATR','ATR %'].map(mode=>({variantLifecycle:{mainChart:'Renko',exitChart:'Renko',mainMode:mode,exitMode:mode}})),
-  {variantLifecycle:{mainChart:'P&F',exitChart:'Renko',failure:'stale'}},{variantLifecycle:{mainChart:'Renko',exitChart:'P&F',failure:'duplicate'}},{filterCase:'market-renko-delayed'},{filterCase:'relative-strength-pnf'},{filterCase:'relative-strength-renko'}
+  {variantLifecycle:{mainChart:'P&F',exitChart:'Renko',failure:'stale'}},{variantLifecycle:{mainChart:'Renko',exitChart:'P&F',failure:'duplicate'}},{filterCase:'market-renko-delayed'},{filterCase:'relative-strength-pnf'},{filterCase:'relative-strength-renko'},{chartCase:'warm-slow-renko'}, {missingStart:true},
+  {variantLifecycle:{mainChart:'Candle',exitChart:'P&F',groupDelay:6500,captureTiming:true}}
  ];
- if(fromCase===1&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus, rule/symbol/filter routing and deadline checks (12 cases).');}
- const selected=cases.filter(o=>(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake||o.closeSlowAnimation||o.closeBlockedByChild));
+ if(fromCase===1&&!requestedChart&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus, rule/symbol/filter routing and deadline checks (12 cases).');}
+ const selected=cases.filter(o=>(!requestedChart||o.chartCase===requestedChart)&&(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake||o.closeSlowAnimation||o.closeBlockedByChild));
  if(fromCase>selected.length)throw Error('Runner starting case exceeds the selected scenarios.');
  if(toCase!==Infinity&&toCase>selected.length)throw Error('Runner ending case exceeds the selected scenarios.');
  const lastCase=Math.min(toCase,selected.length);
  for(const [index,options]of selected.slice(fromCase-1,lastCase).entries()){
   const run=()=>options.variantLifecycle?variantLifecycle(options.variantLifecycle):options.filterCase?filterScenario(options.filterCase):options.chartCase?chartScenario(options.chartCase):scenario(options);
-  if(options.variantLifecycle||['P&F','Renko','dependent-timeout','daily-passive-state','saved-visited-layout'].includes(options.chartCase)||['rs-warm','market-renko-delayed','relative-strength-pnf','relative-strength-renko'].includes(options.filterCase))await withFixtureTime(run);else await run();console.log('PASS: runner '+(index+fromCase)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
+  if(options.chartCase==='warm-slow-renko'||options.variantLifecycle||['P&F','Renko','dependent-timeout','daily-passive-state','saved-visited-layout'].includes(options.chartCase)||['rs-warm','market-renko-delayed','relative-strength-pnf','relative-strength-renko'].includes(options.filterCase))await withFixtureTime(run);else await run();console.log('PASS: runner '+(index+fromCase)+'/'+selected.length+' '+(Object.keys(options).length?JSON.stringify(options):'baseline sequence'));
  }
  console.log('PASS: '+(lastCase-fromCase+1)+' runner scenarios, including source receipts, empty-library setup, dependent rule refresh, group resolution, control read-back and rejection guards. Live GWT/extension acceptance remains separate.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

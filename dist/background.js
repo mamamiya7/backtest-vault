@@ -45,7 +45,26 @@ async function openSource(knownTabs){
  const tab=await chrome.tabs.create({url:'https://zone.definedgesecurities.com/index.html#research'});return {tabId:tab.id};
 }
 const account=VaultAccounts.create();
-const coordinator=VaultExperimentCoordinator.createCoordinator({storage:chrome.storage.local,runtime:chrome.runtime,probe,configure,openSource,account});
+const tabExists=async id=>{try{return !!await chrome.tabs.get(id);}catch{return false;}};
+const coordinator=VaultExperimentCoordinator.createCoordinator({storage:chrome.storage.local,runtime:chrome.runtime,probe,configure,openSource,account,tabExists});
+const trialFocus=new Map();
+const isVaultPage=url=>typeof url==='string'&&url.split(/[?#]/,1)[0]===chrome.runtime.getURL('index.html');
+async function focusTrialSource(id,source){
+ if(trialFocus.has(id)||!source)return;
+ const [previous]=await chrome.tabs.query({active:true,windowId:source.windowId});
+ if(!isVaultPage(previous?.url)||previous.pendingUrl&&!isVaultPage(previous.pendingUrl))return;
+ await chrome.tabs.update(source.id,{active:true});
+ trialFocus.set(id,{sourceId:source.id,windowId:source.windowId,vaultId:previous.id});
+}
+async function returnFromTrial(id){
+ const focus=trialFocus.get(id);
+ trialFocus.delete(id);
+ if(!focus)return;
+ const vault=await chrome.tabs.get(focus.vaultId);
+ if(vault.windowId!==focus.windowId||!isVaultPage(vault.url)||vault.pendingUrl&&!isVaultPage(vault.pendingUrl))return;
+ const [active]=await chrome.tabs.query({active:true,windowId:focus.windowId});
+ if(active?.id===focus.sourceId)await chrome.tabs.update(focus.vaultId,{active:true});
+}
 chrome.action.onClicked.addListener(() => chrome.tabs.create({url: chrome.runtime.getURL('index.html')}));
 async function openVault(message){
  let url=chrome.runtime.getURL('index.html');
@@ -66,7 +85,9 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
     if(sender.id!==chrome.runtime.id||!(sender.url===url||sender.url?.startsWith(url+'?'))){reply({ok:false,error:'Only the Vault dashboard can access accounts.'});return false;}
     account.handle(message).then(result=>reply({ok:true,result}),error=>reply({ok:false,error:error.message}));return true;
   }
-  if(message?.type==='vault-experiment'){coordinator.handle(message,sender).then(result=>{
+  if(message?.type==='vault-experiment'){coordinator.handle(message,sender).then(async result=>{
+    if(result.ok&&message.action==='claim'&&result.trial)await focusTrialSource(message.id,sender.tab).catch(()=>{});
+    if(result.ok&&(message.action==='fail'||message.action==='checkpoint'&&message.stage==='saved'&&result.status!=='running'))await returnFromTrial(message.id).catch(()=>{});
     if(message.action==='start'&&result.ok)void chrome.tabs.sendMessage(message.tabId,{type:'vault-runner-wake'},{frameId:0}).catch(()=>{});
     reply(result);
   },error=>reply({ok:false,error:error.message}));return true;}

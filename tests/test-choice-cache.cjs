@@ -50,7 +50,7 @@ async function optional(h,stage,chart='Candle'){
  const h=await harness(),first=await h.call();assert.deepEqual(h.calls[0].options,{cachedChoices:[],forceChoices:false});assert.deepEqual(first.source.choiceCache.charts,['Candle']);assert.deepEqual(first.source.choiceCache.pendingCharts,['P&F','Renko']);assert.equal(first.source.choiceCache.scope,'daily');assert.equal(first.source.choiceCache.complete,false);assert.equal(h.memory[key].records.length,2);
  const initialTime=first.source.choiceCache.checkedAt;h.setTime(h.getTime()+60000);const second=await h.call();assert.equal(h.calls.at(-1).options.cachedChoices.length,2);assert.equal(second.source.choiceCache.source,'cache');assert.equal(second.source.choiceCache.checkedAt,initialTime);assert.notEqual(second.source.stages.momentum.fields[12].value,first.source.stages.momentum.fields[12].value,'Current source inputs are read on every connection');
  await h.call({warmChart:'P&F'});const complete=await h.call({warmChart:'Renko'});assert.deepEqual(complete.source.choiceCache.charts,L.charts);assert.deepEqual(complete.source.choiceCache.pendingCharts,[]);assert.equal(complete.source.choiceCache.complete,true);assert.equal(h.memory[key].records.length,6);
- assert.deepEqual(Object.keys(h.memory).sort(),[key,'runner:lookup:'+tabId,'runner:tab:'+tabId].sort(),'Reading choices creates no runs, studies or leases');assert.deepEqual(Object.keys(h.memory['runner:lookup:'+tabId]).sort(),['rules','session','symbols']);
+ assert.deepEqual(Object.keys(h.memory).sort(),[key,'runner:lookup:'+tabId,'runner:setup-profiles','runner:tab:'+tabId].sort(),'Reading choices creates no runs, studies or leases');assert.deepEqual(Object.keys(h.memory['runner:lookup:'+tabId]).sort(),['rules','session','symbols']);
  const baselineJSON=JSON.stringify(h.memory[key]);assert.match(baselineJSON,/Fictional private group/);assert.match(baselineJSON,/saved My keyword/);assert.match(baselineJSON,/saved Public keyword/);assert.doesNotMatch(baselineJSON,/"fields"|"current"|"nativeValues"|"session"|"checked"|"capturedAt"/);
  // Registered reload/new tab gets complete metadata; fresh form keeps new session.
  const at=complete.source.choiceCache.checkedAt;await h.reload('reloaded-source');const reload=await h.call();assert.equal(h.calls.at(-1).options.cachedChoices.length,6);assert.ok(h.calls.at(-1).options.cachedChoices.every(p=>p.daily===true&&!Object.hasOwn(p,'session')));assert.match(JSON.stringify(h.calls.at(-1).options.cachedChoices),/Fictional private group/);assert.deepEqual(reload.source.choiceCache.charts,L.charts);assert.equal(reload.source.choiceCache.checkedAt,at);assert.equal(reload.source.session,'reloaded-source');
@@ -108,6 +108,40 @@ async function optional(h,stage,chart='Candle'){
   const malformed=await harness();await malformed.call();malformed.memory[symbolKey]=clone(validReceipt);corrupt(malformed.memory[symbolKey]);replySymbols(malformed,[alpha]);const result=await lookup(malformed,'momentum',rs.benchmarkIndex,'Fictional');assert.equal(result.result.cached,false,'Malformed metadata must trigger a fresh lookup');assert.equal(malformed.calls.at(-1).lookup.query,'Fictional');
  }
  const nextDay=await harness();await nextDay.call();nextDay.memory[symbolKey]=clone(validReceipt);nextDay.setTime(new Date(2026,8,17,0,0,1).getTime());replySymbols(nextDay,[alpha]);assert.equal((await lookup(nextDay,'momentum',rs.benchmarkIndex,'Fictional')).result.cached,false,'Yesterday’s query is read again');assert.equal(nextDay.memory[symbolKey].day,'2026-09-17');
+ const seeded=await harness();await seeded.call();
+ const seed={action:'lookup-symbol',session,stage:'momentum',fieldIndex:rs.benchmarkIndex,market:'NSE',query:'A',seedQueries:['A','B']};
+ seeded.respond(call=>({ok:true,session,result:{stage:'momentum',fieldIndex:rs.benchmarkIndex,market:'NSE',seeded:call.lookup.seedQueries.map((query,i)=>({query,options:i?[]:[alpha]}))}}));
+ const loaded=await seeded.call(seed);assert.equal(loaded.result.seeded,2);assert.ok(loaded.result.knownOptions.some(option=>option.label===alpha.label));
+ const seedCalls=seeded.calls.length;await seeded.call(seed);assert.equal(seeded.calls.length,seedCalls,'Completed benchmark batches resume without live calls.');
+ await assert.rejects(seeded.call({...seed,seedQueries:['arbitrary']}),/supported NSE benchmark/);
+ seeded.respond(()=>{throw Error('A preloaded benchmark must be found without opening RZone.');});
+ const localMatch=await lookup(seeded,'momentum',rs.benchmarkIndex,'alpha');
+ assert.equal(localMatch.result.preloaded,true);assert.deepEqual(localMatch.result.options,[alpha]);assert.equal(seeded.calls.length,seedCalls);
+ const offline=await seeded.call({action:'lookup-symbol-local',stage:'momentum',fieldIndex:rs.benchmarkIndex,market:'NSE',query:'alpha'});
+ assert.deepEqual(offline.result.options,[alpha]);
+ const offlineMiss=await seeded.call({action:'lookup-symbol-local',stage:'momentum',fieldIndex:rs.benchmarkIndex,market:'NSE',query:'unlisted'});
+ assert.deepEqual(offlineMiss.result.options,[]);assert.equal(seeded.calls.length,seedCalls,'A local benchmark miss never opens RZone.');
+ const seedStorage=seeded.memory['runner:benchmark-seed:nse'];
+ seedStorage.records[1].options=Array.from({length:3000},(_,i)=>symbol('Preview filler '+i));
+ seeded.respond(null);
+ const limitedPreview=await seeded.call();assert.ok(!limitedPreview.source.stages.momentum.relativeStrength.options[rs.benchmarkIndex].some(option=>option.label===alpha.label));
+ const recovered=await lookup(seeded,'momentum',rs.benchmarkIndex,'alpha');
+ assert.equal(recovered.result.preloaded,true);assert.ok(recovered.result.options.some(option=>option.label===alpha.label),'Local search reaches the full pool outside the bounded preview.');
+ seedStorage.records[1].options=[];
+ seeded.setTime(new Date(2026,8,17,0,0,1).getTime());seeded.respond(null);
+ const persistent=await seeded.call({recheckAllChoices:true});
+ assert.equal(persistent.source.nseBenchmarkSeeded,2);
+ assert.ok(persistent.source.stages.momentum.relativeStrength.options[rs.benchmarkIndex].some(option=>option.label===alpha.label),'Preloaded symbols survive the daily refresh.');
+ const joined=await harness();
+ joined.respond(call=>{
+  assert.equal(call.options.includeRelativeStrength,true);
+  return {ok:true,session,config:joined.freshConfig(),choiceCache:payload(),relativeChoiceCache:optionalPayload('momentum')};
+ });
+ await joined.call({changes:{momentum:{0:'Candle'}},includeRelativeStrength:true});
+ assert.equal(joined.calls.length,1);assert.equal(joined.memory[key].records.length,3,'One chart request retains both ordinary and Relative Strength choices.');
+ assert.equal((await joined.call({action:'list',passive:true})).localSetup,true);
+ assert.equal((await joined.call({action:'setup-library'})).templates.length,1);
+ assert.equal(joined.calls.length,1,'Opening the saved setup library never configures RZone.');
  // Bounded unions keep fresh query choices and report truncation honestly.
  const large=await harness();await large.call();const lots=Array.from({length:3000},(_,i)=>symbol('Fictional old '+i));replySymbols(large,lots);await lookup(large,'momentum',rs.benchmarkIndex,'Fictional old');replySymbols(large,[alpha]);const bounded=await lookup(large,'marketFilter',filterLayout.indexSymbolIndex,'Fictional Alpha');assert.equal(bounded.result.knownOptions.length,3000);assert.equal(bounded.result.knownOptionsTruncated,true);assert.ok(bounded.result.knownOptions.some(option=>option.sourceValue===alpha.sourceValue));assert.deepEqual(bounded.result.options,[alpha]);assert.ok(JSON.stringify(large.memory[symbolKey]).length<=2000000);
  const limited=await harness();await limited.call();limited.memory[symbolKey]={...clone(validReceipt),records:Array.from({length:128},(_,i)=>({...clone(validReceipt.records[0]),query:'Old query '+i,options:[]}))};replySymbols(limited,[]);await lookup(limited,'momentum',rs.benchmarkIndex,'Newest query');assert.equal(limited.memory[symbolKey].records.length,128);assert.equal(limited.memory[symbolKey].records[0].query,'Old query 1');assert.equal(limited.memory[symbolKey].records.at(-1).query,'Newest query');

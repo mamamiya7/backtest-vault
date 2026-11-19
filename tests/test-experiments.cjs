@@ -188,7 +188,17 @@ async function refreshedSourceRecoveryTests(){
  async function fixture(){
   const memory={},runtime={id:'refresh-extension',getURL:p=>'chrome-extension://refresh-extension/'+p},dashboard={id:runtime.id,url:runtime.getURL('index.html')},source={id:runtime.id,url:'https://zone.definedgesecurities.com/index.html#research',tab:{id:7}};
   let time=100000,session='original-document',rejectProbe=false,rejectWrite=false,configured=0,ids=0,ready=true;
-  const storage={get:async key=>clone(key?{[key]:memory[key]??null}:memory),set:async values=>{if(rejectWrite)throw Error('Storage unavailable');Object.assign(memory,clone(values));}};
+  memory['run:unrelated-archive']={charts:['Unrelated report content']};
+  const storage={
+   getKeys:async()=>Object.keys(memory),
+   get:async keys=>{
+    assert.ok(keys,'Queue work should only read the storage keys it needs.');
+    const requested=Array.isArray(keys)?keys:[keys];
+    assert.ok(!requested.includes('run:unrelated-archive'),'Source recovery should not load unrelated runs.');
+    return clone(Object.fromEntries(requested.filter(key=>Object.hasOwn(memory,key)).map(key=>[key,memory[key]])));
+   },
+   set:async values=>{if(rejectWrite)throw Error('Storage unavailable');Object.assign(memory,clone(values));}
+  };
   const make=()=>createCoordinator({storage,runtime,clock:()=>time,uuid:()=> 'refresh-'+(++ids),probe:async()=>{if(rejectProbe)throw Error('No reply');return {session,ready,capable:ready,chart:'Candle',reason:ready?'':'Open Momentum BackTesting in RZone.'};},configure:async()=>{configured++;const config=S.demoTemplate();config.demo=false;config.session=session;return {ok:true,session,config};}});
   let c=make();const call=(action,data={},sender=dashboard)=>c.handle({action,...data},sender),real=clone(b);real.demo=false;
   const plan=(await call('create',{plan:{...config,baseline:real}})).experiment;
@@ -297,6 +307,16 @@ function setupVariationTests(){
  ]);
  assert.equal(plan.trials.length,64);assert.deepEqual(plan.dimensions.find(f=>f.key==='momentum.strategy.1.rule').values,['Demo trend rule','Trend, Momentum'],'Comma-containing rule names remain one enum value');
  assert.equal(E.validate(reordered(plan)).id,plan.id);
+ const validateStudy=E.createValidator(),validateBaseline=S.validateBaseline;
+ let rebuilds=0;S.validateBaseline=baseline=>{rebuilds++;return validateBaseline(baseline);};
+ try{
+  const running=reordered(plan);validateStudy(running);const initialChecks=rebuilds;assert.ok(initialChecks>0);
+  E.transition(running,running.trials[0],'applying');validateStudy(reordered(clone(running)));
+  assert.equal(rebuilds,initialChecks,'Journal updates and reordered storage keys reuse the verified plan.');
+  running.trials[0].patch['momentum.ema.1']=999;assert.throws(()=>validateStudy(running),/queue was altered/);assert.equal(rebuilds,initialChecks);
+  running.baseline.parameters.settings.fields[2].value='999';assert.throws(()=>validateStudy(running),/settings or source template were altered/);assert.equal(rebuilds,initialChecks+1);
+  assert.equal(validateStudy(reordered(plan)).id,plan.id);assert.equal(rebuilds,initialChecks+1,'A failed check cannot replace the last verified plan.');
+ }finally{S.validateBaseline=validateBaseline;}
  for(const trial of plan.trials){const expected=E.expected(plan,trial),m=E.fields(expected,'momentum');S.validateBaseline(expected);assert.equal(m[13].checked,trial.patch['momentum.period.2.enabled']);assert.equal(m[14].disabled,!m[13].checked);assert.equal(m[27].value,String(trial.patch['momentum.ema.1']));assert.equal(m.filter((f,i)=>i>=7&&i<=10&&f.checked).length,1);assert.equal(m[Number(trial.patch['momentum.retracement.reference'])].checked,true);assert.equal(m[Number(trial.patch['momentum.volume.reference'])].checked,true);assert.equal(m[40].value,trial.patch['momentum.strategy.1.rule']);assert.equal(E.fields(expected,'execution')[8].checked,trial.patch['execution.target.enabled']);}
  assert.deepEqual(base,unchanged,'Expected trials never mutate their immutable setup baseline');
  assert.throws(()=>make([{key:'momentum.strategy.1.rule',values:'Demo trend rule,Trend, Momentum'}]),/source values/,'Enums cannot be parsed by splitting labels on commas');

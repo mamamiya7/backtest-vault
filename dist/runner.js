@@ -195,7 +195,11 @@ const stageRows=(stage,p)=>sourceLayout(p,stage)?.rows||[];
 const sourceParent=(p,stage,index)=>{const row=stageRows(stage,p).find(row=>row.parentIndex===index);return row?{gate:row.gateIndex,child:row.childIndex}:null;};
 async function settledStage(p,stage,chart,until=Infinity){
  const deadline=Math.min(Date.now()+8000,until);let signature='',stableAt=Date.now();
- while(Date.now()<deadline){check();const nodes=inputs(p),layout=sourceLayout(p,stage),next=JSON.stringify(nodes.map(n=>[n.type,n.value,n.checked??null,n.disabled,n.tagName==='SELECT'?[...n.options].map(o=>[o.value,V.clean(o.textContent),o.disabled]):null]));if(next!==signature){signature=next;stableAt=Date.now();}if(layout?.chart===chart&&nodes.length===layout.count&&Date.now()-stableAt>=750){L.stage(stage,C.fields(p));return;}await delay(100);}
+ while(Date.now()<deadline){check();const nodes=inputs(p),layout=sourceLayout(p,stage),next=JSON.stringify(nodes.map(n=>[n.type,n.value,n.checked??null,n.disabled,n.tagName==='SELECT'?[...n.options].map(o=>[o.value,V.clean(o.textContent),o.disabled]):null]));if(next!==signature){signature=next;stableAt=Date.now();}if(layout?.chart===chart&&nodes.length===layout.count&&Date.now()-stableAt>=750){
+   // P&F and Renko have the same control count. The selector changes before
+   // GWT replaces the construction controls; wait for a valid new layout.
+   try{L.stage(stage,C.fields(p));return;}catch{/* Keep the existing bounded wait. */}
+  }await delay(100);}
  throw Error('RZone did not finish changing its chart settings. Refresh the source before reconnecting.');
 }
 const selectedRules=new WeakMap();
@@ -578,29 +582,42 @@ async function benchmarkChoices(p,stage,until,cached,cachedLayout,known=[]){
  return out;
 }
 function mergeBenchmarks(d,proof){d.options={...d.options,...proof.options};d.symbolQueries={...d.symbolQueries,...proof.symbolQueries};return d;}
-async function filterConfiguration(requestedChanges,request={}){
- if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
- const feature=request.loadFilter||(requestedChanges?.momentum?'relativeStrength':'marketFilter'),changes=requestedChanges||{};
- if(!['relativeStrength','marketFilter'].includes(feature)||Object.keys(changes).some(key=>key!=='marketFilter'&&key!=='momentum')||Object.values(changes).reduce((n,v)=>n+Object.keys(v).length,0)>1)throw Error('Load one optional filter at a time.');
- if(!lastConfig)throw Error('Connect RZone before loading filter choices.');
- if(!currentChoiceDay())throw Error('A new day has started. Connect RZone again to update today’s choices.');
- checkOptionalDay(request.forceChoices===true);const records=request.forceChoices?[]:[...optionalMenus,...(request.cachedChoices||[])],symbols=knownSymbols(records,request.cachedSymbols||[],request.forceChoices===true);configuring=true;interrupted=false;const started=Date.now(),until=started+42000;let p,snapshot,relativeSnapshot,originalMain,result,reusedChoices=false,choiceCache;
+async function readRelativeStrength(base,changes,records,symbols,force,until,restoreUntil){
+ const originalMain=restorableStage(C.main(),'momentum');let relativeSnapshot;
  try{
-  await prepare();await settledMain();originalMain=restorableStage(C.main(),'momentum');
-  const base=lastConfig.stages.momentum;if(!jsonSame(originalMain.fields,base.fields))throw Error('RZone settings changed. Connect again before loading this filter.');
-  const config=structuredClone(lastConfig);C.status('Reading '+(feature==='relativeStrength'?'Relative Strength':'Market Trend Filter')+' settings…');
-  if(feature==='relativeStrength'){
    const off=L.main(base.fields[0].value),wasOn=originalMain.fields[off.rsIndex].checked;
    if(wasOn){await setField(C.main(),off.rsIndex,{...originalMain.fields[off.rsIndex],checked:false},'momentum',until);}
    const without={...descriptor(C.main()),supportedMarkets:['NSE'],ruleCatalogues:Object.fromEntries(Object.entries(base.ruleCatalogues||{}).filter(([key])=>Number(key)!==L.main(off.chart,true).rows.at(-1).childIndex))};without.options[1]=structuredClone(base.options[1]);
    await setField(C.main(),off.rsIndex,{...C.fields(C.main())[off.rsIndex],checked:true},'momentum',until);
    relativeSnapshot=restorableStage(C.main(),'momentum');
    for(const [raw,value]of Object.entries(changes.momentum||{})){const index=Number(raw),layout=L.stage('momentum',C.fields(C.main()));if(![layout.benchmarkMarketIndex,layout.rows.at(-1).parentIndex].includes(index)||typeof value!=='string'||!value||value.length>200)throw Error('This Relative Strength selector cannot refresh the source.');await setField(C.main(),index,{...C.fields(C.main())[index],value},'momentum',until);}
-   const relative={...descriptor(C.main()),supportedMarkets:['NSE']};relative.options[1]=structuredClone(base.options[1]);const previous=cachedStage('momentum',relative,records,request.forceChoices===true);reuseInactiveChoices('momentum',relative,previous);reusedChoices=!!previous;relative.ruleCatalogues=previous?previous.ruleCatalogues:{...without.ruleCatalogues,...await strategyCatalogues(C.main(),until,'momentum',null,['Relative Strength'])};
+   const relative={...descriptor(C.main()),supportedMarkets:['NSE']};relative.options[1]=structuredClone(base.options[1]);const previous=cachedStage('momentum',relative,records,force);reuseInactiveChoices('momentum',relative,previous);relative.ruleCatalogues=previous?previous.ruleCatalogues:{...without.ruleCatalogues,...await strategyCatalogues(C.main(),until,'momentum',null,['Relative Strength'])};
    for(const [child,c]of Object.entries(relative.ruleCatalogues))relative.options[child]=c.categories[relative.fields[c.parentIndex].value];
    mergeBenchmarks(relative,await benchmarkChoices(C.main(),'momentum',until,previous,undefined,symbols));
-   choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',relative)}};optionalMenus.push(choiceCache);if(optionalMenus.length>128)optionalMenus.shift();
-   config.stages.momentum.relativeStrength=relative;config.stages.momentum.withoutRelativeStrength=without;
+   const choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',relative)}};optionalMenus.push(choiceCache);if(optionalMenus.length>128)optionalMenus.shift();
+   return {relative,without,choiceCache,reusedChoices:!!previous};
+ }finally{
+  if(!interrupted){try{
+   if(relativeSnapshot)await restoreStage(C.main(),'momentum',relativeSnapshot,restoreUntil);
+   await restoreStage(C.main(),'momentum',originalMain,restoreUntil);
+  }catch(error){failed=true;throw error;}}
+ }
+}
+async function filterConfiguration(requestedChanges,request={}){
+ if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
+ const feature=request.loadFilter||(requestedChanges?.momentum?'relativeStrength':'marketFilter'),changes=requestedChanges||{};
+ if(!['relativeStrength','marketFilter'].includes(feature)||Object.keys(changes).some(key=>key!=='marketFilter'&&key!=='momentum')||Object.values(changes).reduce((n,v)=>n+Object.keys(v).length,0)>1)throw Error('Load one optional filter at a time.');
+ if(!lastConfig)throw Error('Connect RZone before loading filter choices.');
+ if(!currentChoiceDay())throw Error('A new day has started. Connect RZone again to update today’s choices.');
+ checkOptionalDay(request.forceChoices===true);const records=request.forceChoices?[]:[...optionalMenus,...(request.cachedChoices||[])],symbols=knownSymbols(records,request.cachedSymbols||[],request.forceChoices===true);configuring=true;interrupted=false;const started=Date.now(),until=started+42000;let p,snapshot,originalMain,result,reusedChoices=false,choiceCache;
+ try{
+  await prepare();await settledMain();originalMain=restorableStage(C.main(),'momentum');
+  const base=lastConfig.stages.momentum;if(!jsonSame(originalMain.fields,base.fields))throw Error('RZone settings changed. Connect again before loading this filter.');
+  const config=structuredClone(lastConfig);C.status('Reading '+(feature==='relativeStrength'?'Relative Strength':'Market Trend Filter')+' settings…');
+  if(feature==='relativeStrength'){
+   const read=await readRelativeStrength(base,changes,records,symbols,request.forceChoices===true,until,started+59000);
+   config.stages.momentum.relativeStrength=read.relative;config.stages.momentum.withoutRelativeStrength=read.without;
+   choiceCache=read.choiceCache;reusedChoices=read.reusedChoices;
   }else{
    p=await openMarketFilter(until);snapshot=restorableStage(p,'marketFilter');let layout=L.stage('marketFilter',snapshot.fields);
    const values=changes.marketFilter||{};
@@ -636,8 +653,7 @@ async function filterConfiguration(requestedChanges,request={}){
  }finally{
   try{
    if(p?.isConnected&&C.visible(p)&&!interrupted){if(snapshot)await restoreStage(p,'marketFilter',snapshot,started+54000);await close(p,started+58000);}
-   if(relativeSnapshot&&!interrupted)await restoreStage(C.main(),'momentum',relativeSnapshot,started+55000);
-   if(originalMain&&!interrupted){await restoreStage(C.main(),'momentum',originalMain,started+59000);}
+   if(feature!=='relativeStrength'&&originalMain&&!interrupted){await restoreStage(C.main(),'momentum',originalMain,started+59000);}
   }catch(error){failed=true;throw error;}finally{configuring=false;}
  }
  lastConfig=structuredClone(result.config);C.status('Filter settings loaded. Return to Vault.');return result;
@@ -646,10 +662,11 @@ async function configuration(requestedChanges,request={}){
  const relativeLayout=lastConfig?.stages.momentum.relativeStrength&&L.stage('momentum',lastConfig.stages.momentum.relativeStrength.fields);
  if(request.loadFilter!==undefined||requestedChanges?.marketFilter||relativeLayout&&[relativeLayout.benchmarkMarketIndex,relativeLayout.rows.at(-1).parentIndex].some(index=>Object.hasOwn(requestedChanges?.momentum||{},index)))return filterConfiguration(requestedChanges,request);
  if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
- const changes=configChanges(requestedChanges),warm=request.warmChart;
+ const changes=configChanges(requestedChanges),warm=request.warmChart,includeRS=request.includeRelativeStrength===true;
+ if(includeRS&&(!changes.momentum||!Object.keys(changes.momentum).some(index=>index==='0'||index==='55')))throw Error('Choose a Relative Strength chart context.');
  checkOptionalDay(request.forceChoices===true);
  if(warm!==undefined&&(!['Candle','P&F','Renko'].includes(warm)||Object.keys(changes).length))throw Error('Load one supported chart context at a time.');
- configuring=true;interrupted=false;const started=Date.now();let setup=null,config,warmMain,warmExecution,restoreMain=false,restoreExecution=false,sharedChoicesUsed=false;const hits=[];
+ configuring=true;interrupted=false;const started=Date.now();let setup=null,config,warmMain,warmExecution,restoreMain=false,restoreExecution=false,sharedChoicesUsed=false,relativeChoiceCache;const hits=[];
  try{
   try{
   C.status('Connecting to Vault: opening Momentum settings…');
@@ -705,22 +722,34 @@ async function configuration(requestedChanges,request={}){
    catch(error){failed=true;throw error;}
    finally{if(restoreMain&&!interrupted){try{await restoreStage(C.main(),'momentum',warmMain,started+59000);}catch(error){failed=true;throw error;}}}
   }
-  if(!warm)lastConfig=structuredClone(config);C.status('RZone settings read. Return to Vault to finish setup.');return {config,choiceCache:{schemaVersion:2,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',config.stages.momentum),execution:choiceStageCache('execution',config.stages.execution)}},choicesFromCache:hits.every(Boolean),hasCachedChoices:hits.some(Boolean),sharedChoicesUsed};
+  if(includeRS){
+   C.status('Reading Relative Strength for '+config.stages.momentum.fields[0].value+'…');
+   const force=request.forceChoices===true,records=force?[]:[...optionalMenus,...(request.cachedChoices||[])];
+   const read=await readRelativeStrength(config.stages.momentum,{},records,knownSymbols(records,request.cachedSymbols||[],force),force,started+51000,started+59000);
+   config.stages.momentum.relativeStrength=read.relative;config.stages.momentum.withoutRelativeStrength=read.without;
+   relativeChoiceCache=read.choiceCache;hits.push(read.reusedChoices);
+   window.VaultSetup.template(config);
+  }
+  if(!warm)lastConfig=structuredClone(config);C.status('RZone settings read. Return to Vault to finish setup.');return {config,choiceCache:{schemaVersion:2,adapterVersion:L.version,session,stages:{momentum:choiceStageCache('momentum',config.stages.momentum),execution:choiceStageCache('execution',config.stages.execution)}},choicesFromCache:hits.every(Boolean),hasCachedChoices:hits.some(Boolean),sharedChoicesUsed,relativeChoiceCache};
  }catch(error){C.status('Vault connection failed: '+error.message);throw error;}
  finally{configuring=false;}
 }
-async function lookupContext(stage,index,until,restoreUntil=until+14000){
+async function lookupContext(stage,index,until,lookupTemplate,restoreUntil=until+14000){
  await prepare();await settledMain();const mainSnapshot=restorableStage(C.main(),'momentum');let p=C.main(),snapshot,extraSnapshot;
  try{
   if(stage==='marketFilter'){
-   const full=lastConfig?.stages.marketFilter;if(!full)throw Error('Load Market Trend Filter settings first.');
+   const full=(lookupTemplate||lastConfig)?.stages.marketFilter;if(!full)throw Error('Load Market Trend Filter settings first.');
    p=await openMarketFilter(until);snapshot=restorableStage(p,stage);await transitionLayout(p,full.fields,stage,until);
   }else if(stage==='execution'){
-   const full=lastConfig?.stages.execution;if(!full)throw Error('Connect RZone before searching exit strategies.');
+   const full=(lookupTemplate||lastConfig)?.stages.execution;if(!full)throw Error('Connect RZone before searching exit strategies.');
    ownClick(button(C.main(),/^BackTest$/i));p=C.popup('Momentum Trading BackTest')||await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(Date.now()+10000,until),'Momentum settings did not open.');snapshot=restorableStage(p,stage);
    // RZone can reopen this dialog using the main chart. Search the execution
    // chart staged in Vault, then restore the independently captured source.
    await transitionLayout(p,full.fields,stage,until);
+  }else if(lookupTemplate){
+   const base=lookupTemplate.stages.momentum,layout=L.stage('momentum',base.fields),target=index>layout.rsIndex?base.relativeStrength||base:base;
+   await transitionLayout(p,target.fields,stage,until);
+   extraSnapshot=restorableStage(p,stage);
   }else {
    const current=L.stage(stage,mainSnapshot.fields),full=lastConfig?.stages.momentum.relativeStrength;
    if(full&&index>current.rsIndex&&!current.relativeStrength){await setField(p,current.rsIndex,{...mainSnapshot.fields[current.rsIndex],checked:true},stage,until);extraSnapshot=restorableStage(p,stage);}
@@ -735,21 +764,32 @@ async function lookupContext(stage,index,until,restoreUntil=until+14000){
 }
 async function symbolLookup(request){
  if(request.session!==session)throw Error('The RZone page changed. Connect again before searching symbols.');
- const stage=request.stage;
+ const stage=request.stage,seedQueries=request.seedQueries;
+ if(seedQueries!==undefined&&(stage!=='momentum'||request.market!=='NSE'||!Array.isArray(seedQueries)||!seedQueries.length||seedQueries.length>5||seedQueries.some(query=>!window.VaultSetup.nseBenchmarkQueries.includes(query))))throw Error('Invalid NSE benchmark searches.');
  if(!['momentum','execution','marketFilter'].includes(stage)||!Number.isInteger(request.fieldIndex)||typeof request.market!=='string'||typeof request.query!=='string'||request.query!==request.query.trim()||!request.query||request.query.length>200||/[\u0000-\u001f\u007f]/.test(request.query))throw Error('Enter a symbol search of 1 to 200 characters.');
  if(active||configuring||failed)throw Error('RZone is busy or needs review.');
  configuring=true;interrupted=false;const started=Date.now();let context;
  try{
-  context=await lookupContext(stage,request.fieldIndex,started+45000);const p=context.p,layout=L.stage(stage,C.fields(p));
+  context=await lookupContext(stage,request.fieldIndex,started+45000,request.lookupTemplate);const p=context.p,layout=L.stage(stage,C.fields(p));
   if(!symbolIndices(layout).includes(request.fieldIndex))throw Error('This symbol is not available in the current source layout.');
   if(stage==='marketFilter'){
    const key=request.fieldIndex===layout.indexSymbolIndex?'indexModeIndex':'rsModeIndex';if(!C.fields(p)[layout[key]].checked)await setField(p,layout[key],{...C.fields(p)[layout[key]],checked:true},stage,started+45000);
   }
   const updated=L.stage(stage,C.fields(p)),role=['benchmarkIndex','indexSymbolIndex','numeratorSymbolIndex','denominatorSymbolIndex'].find(key=>layout[key]===request.fieldIndex),index=updated[role];
   await setField(p,index-1,{...C.fields(p)[index-1],value:request.market},stage,started+45000);
+  if(seedQueries){
+   const seeded=[];
+   for(const query of seedQueries){
+    C.status('Reading NSE benchmark choices for '+query+'…');
+    const options=await searchSymbols(p,index,query,{market:request.market,until:started+45000});
+    seeded.push({query,options});
+   }
+   return {stage,fieldIndex:request.fieldIndex,market:request.market,seeded};
+  }
   const options=await searchSymbols(p,index,request.query,{market:request.market,until:started+45000});
   const result={stage,fieldIndex:request.fieldIndex,market:request.market,query:request.query,controlType:'text',options};
-  const descriptor=stage==='momentum'&&lastConfig.stages.momentum.relativeStrength&&request.fieldIndex===L.stage('momentum',lastConfig.stages.momentum.relativeStrength.fields).benchmarkIndex?lastConfig.stages.momentum.relativeStrength:lastConfig.stages[stage];
+  const config=request.lookupTemplate||lastConfig;
+  const descriptor=stage==='momentum'&&config?.stages.momentum.relativeStrength&&request.fieldIndex===L.stage('momentum',config.stages.momentum.relativeStrength.fields).benchmarkIndex?config.stages.momentum.relativeStrength:config?.stages[stage];
   if(descriptor){descriptor.options[request.fieldIndex]=rememberedSymbols(symbolsForControl(p,index,knownSymbols(currentChoiceDay()?optionalMenus:[])),options,request.market);descriptor.symbolQueries={...descriptor.symbolQueries,[request.fieldIndex]:{market:request.market,query:request.query}};if(currentChoiceDay())result.choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{[stage]:choiceStageCache(stage,descriptor)}};}
   return result;
  }finally{try{if(context)await context.restore();}catch(error){failed=true;throw error;}finally{configuring=false;}}
@@ -762,7 +802,7 @@ async function ruleLookup(request){
  if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
  configuring=true;interrupted=false;let main,row,snapshot,original,context;
  try{
-  context=await lookupContext(stage,request.parentIndex,workUntil);main=context.p;snapshot=C.fields(main);L.stage(stage,snapshot);row=stageRows(stage,main).find(r=>r.parentIndex===request.parentIndex&&r.name!=='Radar');if(!row)throw Error('This rule is not available in the current chart layout.');restorableRule(main,row);
+  context=await lookupContext(stage,request.parentIndex,workUntil,request.lookupTemplate);main=context.p;snapshot=C.fields(main);L.stage(stage,snapshot);row=stageRows(stage,main).find(r=>r.parentIndex===request.parentIndex&&r.name!=='Radar');if(!row)throw Error('This rule is not available in the current chart layout.');restorableRule(main,row);
   const nodes=inputs(main),parent=nodes[row.parentIndex],child=nodes[row.childIndex],gate=nodes[row.gateIndex],timeframe=nodes[row.valueIndex];
   if(parent.tagName!=='SELECT'||!observedRuleShape(row,child,V.clean(parent.selectedOptions[0]?.textContent))||gate.type!=='checkbox'||gate.disabled)throw Error('RZone strategy layout changed. Refresh RZone and connect again.');
   const offered=[...parent.options].filter(o=>!o.disabled&&V.clean(o.textContent)===request.category);if(offered.length!==1)throw Error('The requested source category is unavailable.');
@@ -778,7 +818,8 @@ async function ruleLookup(request){
   unchangedOutsideRow(main,snapshot,row);
   if(V.clean(inputs(main)[row.parentIndex].selectedOptions[0]?.textContent)!==request.category)throw Error('The rule source changed while searching.');
   const result={stage,parentIndex:row.parentIndex,childIndex:row.childIndex,category:request.category,query:request.query,controlType:'text',options};
-  const descriptor=stage==='momentum'&&lastConfig.stages.momentum.relativeStrength&&request.parentIndex===L.stage('momentum',lastConfig.stages.momentum.relativeStrength.fields).rows.at(-1).parentIndex?lastConfig.stages.momentum.relativeStrength:lastConfig.stages[stage],catalogue=descriptor?.ruleCatalogues?.[row.childIndex];
+  const config=request.lookupTemplate||lastConfig;
+  const descriptor=stage==='momentum'&&config?.stages.momentum.relativeStrength&&request.parentIndex===L.stage('momentum',config.stages.momentum.relativeStrength.fields).rows.at(-1).parentIndex?config.stages.momentum.relativeStrength:config?.stages[stage],catalogue=descriptor?.ruleCatalogues?.[row.childIndex];
   if(catalogue){catalogue.categories[request.category]=rememberedChoices(catalogue.categories[request.category],options);catalogue.searchQueries={...catalogue.searchQueries,[request.category]:request.query};if(descriptor.fields[row.parentIndex].value===request.category)descriptor.options[row.childIndex]=structuredClone(catalogue.categories[request.category]);if(currentChoiceDay())result.choiceCache={schemaVersion:2,adapterVersion:L.version,session,stages:{[stage]:choiceStageCache(stage,descriptor)}};}
   return result;
  }catch(error){throw Error((row?ruleRowName(row)+' / '+request.category+': ':'')+error.message);
@@ -868,7 +909,7 @@ async function group(node,value,expectedIdentity){
   const candidates=[...document.querySelectorAll('.ind-list li,.gwt-SuggestBoxPopup .item,.gwt-SuggestBoxPopup td,[role="listbox"] [role="option"]')].filter(n=>C.visible(n)&&V.clean(n.textContent)===String(value));
   const exact=candidates.filter(n=>!candidates.some(other=>other!==n&&n.contains(other)));
   if(exact.length>1)throw Error('The group name matches more than one RZone choice. Choose a unique group.');return exact[0];
- },Date.now()+5000,'RZone did not confirm that group. Choose an exact group name from the available RZone groups.');
+ },Date.now()+10000,'RZone did not confirm that group. Choose an exact group name from the available RZone groups.');
  if(expectedIdentity!==undefined&&selected.getAttribute('grpid')!==expectedIdentity)throw Error('The group identity changed in RZone. Recheck choices before running.');
  ownClick(selected);node.blur();await delay(150);if(V.clean(node.value)!==V.clean(value))throw Error('RZone selected a different group.');
 }
@@ -877,7 +918,7 @@ async function setField(p,index,f,stage,until=Infinity,template){
  if(node.disabled)throw Error('Planned setting is disabled: '+f.label);
  if(['checkbox','radio'].includes(f.type)){if(f.type==='radio'&&!f.checked)return;ownClick(node);if(index===source?.rsIndex||stage==='marketFilter'&&[source?.indexModeIndex,source?.rsModeIndex].includes(index))await settledStage(p,stage,source.chart,until);const row=stageRows(stage,p).find(r=>r.gateIndex===index);if(row&&f.checked)await enabledRule(p,row,until);}
  else if(node.tagName==='SELECT'){const matches=[...node.options].filter(o=>!o.disabled&&V.clean(o.textContent)===String(f.value));if(matches.length!==1)throw Error('Planned dropdown value is unavailable: '+f.label);await selectValue(p,node,matches[0].value,sourceParent(p,stage,index),until);if(index===source?.chartIndex||source?.chart==='Renko'&&[source.modeIndex,source.exitModeIndex].includes(index))await settledStage(p,stage,index===source.chartIndex?String(f.value):source.chart,until);}
- else if(stage==='momentum'&&index===1)await group(node,String(f.value),template?.stages?.momentum?.options?.[1]?.find(o=>o.value===String(f.value)&&!o.disabled)?.sourceValue);
+ else if(stage==='momentum'&&index===1)return group(node,String(f.value),template?.stages?.momentum?.options?.[1]?.find(o=>o.value===String(f.value)&&!o.disabled)?.sourceValue);
  else if(symbol){if(f.value.trim()){const market=V.clean(inputs(p)[index-1].selectedOptions[0]?.textContent),choices=symbolOptions(template,stage,source,index),option=choices.find(o=>!o.disabled&&o.value===f.value&&(market==='All'||o.market===market));await searchSymbols(p,index,String(f.value),{choose:true,market,sourceValue:option?.sourceValue,expectedExchange:option?.market,until});}else Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,'');}
  else if(search){if(f.value.trim())await searchRules(p,index,String(f.value),{choose:true,until:Math.min(Date.now()+10000,until)});else {Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(node,'');node.blur();}}
  else {setText(node,f.value);node.blur();}
@@ -912,7 +953,7 @@ async function retainedMarketFields(p,expected,template,until=Infinity){
 async function applySetup(p,expected,stage,template){
  if(stage!=='portfolio')await transitionLayout(p,expected,stage);
  if(stage==='marketFilter')await retainedMarketFields(p,expected,template);
- const descriptor=window.VaultSetup?.descriptorForFields?.(template,stage,expected)||(stage==='momentum'&&L.stage(stage,expected).relativeStrength?template?.stages?.momentum?.relativeStrength||template?.stages?.momentum:template?.stages?.[stage]),catalogues=descriptor?.ruleCatalogues;
+ const descriptor=stage==='portfolio'?template?.stages.portfolio:window.VaultSetup?.descriptorForFields?.(template,stage,expected)||(stage==='momentum'&&L.stage(stage,expected).relativeStrength?template?.stages?.momentum?.relativeStrength||template?.stages?.momentum:template?.stages?.[stage]),catalogues=descriptor?.ruleCatalogues;
  if(stage!=='portfolio')for(const row of L.stage(stage,expected).rows){
   if(C.fields(p)[row.parentIndex].value!==expected[row.parentIndex].value){if(!inputs(p)[row.gateIndex].checked)await setField(p,row.gateIndex,{...expected[row.gateIndex],checked:true},stage);await setField(p,row.parentIndex,expected[row.parentIndex],stage);}
  }
@@ -932,9 +973,10 @@ async function applySetup(p,expected,stage,template){
  for(const i of temporary.reverse())await setField(p,i,expected[i],stage,Infinity,template);
  E.verify(expected,C.fields(p));
 }
-async function apply(p,e,t,stage){
- const expected=E.fields(E.expected(e,t),stage),current=C.fields(p),allowed=e.dimensions.filter(d=>d.stage===stage).map(d=>d.index);
+async function apply(p,e,t,stage,planned=E.expected(e,t)){
+ const expected=E.fields(planned,stage);
  if(e.baseline.origin==='vault-setup'){await applySetup(p,expected,stage,e.baseline.setup.template);return;}
+ const current=C.fields(p),allowed=e.dimensions.filter(d=>d.stage===stage).map(d=>d.index);
  if(stage==='execution'&&t.period)allowed.push(1,2);
  // Validate fixed controls before changing anything. Never silently restore another strategy.
  const fixed=E.clone(expected);for(const i of allowed)if(current[i])fixed[i]={...fixed[i],value:current[i].value,checked:current[i].checked};E.verify(fixed,current);
@@ -947,8 +989,8 @@ async function apply(p,e,t,stage){
 }
 async function run(job){
  const {experiment:e,trial:t,token}=job,common={id:e.id,trialId:t.id,token};
- const checkpoint=stage=>send({...common,action:'checkpoint',stage});
- active=true;interrupted=false;const deadline=Date.now()+e.timeoutMinutes*60000;
+ const checkpoint=(stage,timing)=>send({...common,action:'checkpoint',stage,...(timing?{timing}:{})});
+ active=true;interrupted=false;const deadline=Date.now()+e.timeoutMinutes*60000;let continueQueue=false;
  try{
   if(C.pending())throw Error('Recover the pending manual save before starting an experiment.');
   if(C.running())throw Error('A backtest is already running in RZone. Wait for it to finish before starting an experiment.');
@@ -958,40 +1000,62 @@ async function run(job){
   const planned=E.expected(e,t);
   L.validate('momentum',E.fields(planned,'momentum'));
   if(L.validate('execution',E.fields(planned,'execution')).selection!=='Price')throw Error('Automatic execution currently requires Price selection.');
-  await apply(C.main(),e,t,'momentum');
+  await apply(C.main(),e,t,'momentum',planned);
   const marketFields=E.fields(planned,'marketFilter');
   if(marketFields?.length){
-   const filter=await openMarketFilter(Math.min(deadline,Date.now()+10000));await apply(filter,e,t,'marketFilter');
+   const filter=await openMarketFilter(Math.min(deadline,Date.now()+10000));await apply(filter,e,t,'marketFilter',planned);
    E.verify(marketFields,C.fields(filter));ownClick(button(filter,/^Save$/i));
    await wait(()=>!filter.isConnected||!C.visible(filter),Math.min(deadline,Date.now()+5000),'RZone did not save the Market Trend Filter settings.');
    const savedFilter=C.getMarketTrend?.();if(!savedFilter)throw Error('The Market Trend Filter save was not recorded.');E.verify(marketFields,savedFilter.fields);
   }
   button(C.main(),/^BackTest$/i).click();
   const setup=await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(deadline,Date.now()+10000),'Momentum settings did not open.');
-  await apply(setup,e,t,'execution');
-  E.verify(E.fields(E.expected(e,t),'momentum'),C.fields(C.main()));
+  await apply(setup,e,t,'execution',planned);
+  E.verify(E.fields(planned,'momentum'),C.fields(C.main()));
   await checkpoint('strategy-submitting'); // Persist the intent before a source side effect.
   const previous=C.getStrategy()?.id;button(setup,/^Backtest$/i).click();
   const submitted=C.getStrategy();
   if(!submitted||submitted.id===previous)throw Error('The strategy submission was not recorded.');
-  const completed=await wait(()=>{C.monitor();const s=C.getStrategy();if(s&&s.id!==submitted.id)throw Error('The strategy submission changed during this trial.');return s?.completed&&s.startedAt&&s.completedAt?s:null;},deadline,'A fresh running-to-completed Momentum backtest could not be confirmed.');
+  const readSubmission=()=>{
+   C.monitor();
+   const strategy=C.getStrategy();
+   if(strategy&&strategy.id!==submitted.id)throw Error('The strategy submission changed during this trial.');
+   return strategy;
+  };
+  const startDeadline=Math.min(deadline,Date.now()+60000);
+  await wait(()=>readSubmission()?.startedAt,startDeadline,'Definedge did not confirm that the strategy started. Check RZone for a result before retrying.');
+  const completed=await wait(()=>{
+   const strategy=readSubmission();
+   return strategy?.completed&&strategy.startedAt&&strategy.completedAt?strategy:null;
+  },deadline,'Definedge started the strategy, but Vault could not confirm completion before the trial timed out.');
   await checkpoint('strategy-complete');
   if(C.visible(setup))await close(setup);
   button(C.main(),/^Portfolio Testing$/i).click();
   const portfolio=await wait(()=>C.popup('Portfolio Backtesting'),Math.min(deadline,Date.now()+10000),'Portfolio settings did not open.');
-  await apply(portfolio,e,t,'portfolio');
-  E.verify(E.fields(E.expected(e,t),'momentum'),C.fields(C.main()));
+  C.status('Trial '+t.ordinal+' of '+e.trials.length+' · Applying portfolio settings…');
+  await apply(portfolio,e,t,'portfolio',planned);
+  E.verify(E.fields(planned,'momentum'),C.fields(C.main()));
   await checkpoint('portfolio-submitting');
   const previousPortfolio=C.getPortfolio()?.id;button(portfolio,/^Backtest$/i).click();
   const submittedPortfolio=C.getPortfolio();
   if(!submittedPortfolio||submittedPortfolio.id===previousPortfolio||submittedPortfolio.strategy?.id!==completed.id)throw Error('The portfolio submission was not linked to this trial.');
   const report=await wait(()=>C.popup('Portfolio Backtesting Report'),deadline,'Portfolio report did not arrive.');
-  C.monitor();await checkpoint('capturing');
+  C.monitor();
+  // Read the report while the worker records capture intent. The archive
+  // write still waits for the accepted checkpoint and final source checks.
+  const timing={};
+  const captureStarted=performance.now();
+  const captureReady=checkpoint('capturing').then(result=>{
+   Object.assign(timing,result.timing,{ack:Math.round(performance.now()-captureStarted)});
+   return null;
+  },error=>error);
   const experiment={id:e.id,trialId:t.id,phase:t.phase};
-  await C.capture({strict:true,runId:t.runId,name:e.name+' · '+t.phase+' '+t.ordinal,submission:{strategyId:completed.id,portfolioId:submittedPortfolio.id},experiment,verify:r=>{
+  await C.capture({strict:true,runId:t.runId,name:e.name+' · '+t.phase+' '+t.ordinal,submission:{strategyId:completed.id,portfolioId:submittedPortfolio.id},experiment,
+   beforeSave:async()=>{const error=await captureReady;if(error)throw error;},
+   measure:(phase,ms)=>{timing[phase]=Math.round(ms);},verify:r=>{
    check();
    if(!report.isConnected||C.popup('Portfolio Backtesting Report')!==report||C.getStrategy()?.id!==completed.id||C.getPortfolio()?.id!==submittedPortfolio.id)throw Error('The source report or submission changed during capture.');
-   E.verifySettings(E.expected(e,t),r);
+   E.verifySettings(planned,r);
    const p=r.parameters,s=p.strategy;
    const evidence={version:1,sourceSession:session,strategySubmissionId:s.id,strategySubmittedAt:s.at,strategyStartedAt:s.startedAt,strategyCompletedAt:s.completedAt,portfolioSubmissionId:p.id,portfolioSubmittedAt:p.at,reportOpenedAt:p.reportOpenedAt,capturedAt:r.savedAt};
    const times=[s.at,s.startedAt,s.completedAt,p.at,p.reportOpenedAt,r.savedAt].map(Date.parse);
@@ -999,11 +1063,16 @@ async function run(job){
    experiment.evidence=evidence;
   }});
   // Close only this trial's saved report. A failed close stops further submissions.
+  C.status('Report written. Closing RZone dialogs…');
+  const closeStarted=performance.now();
   await close(report);if(C.visible(portfolio))await close(portfolio);
-  await checkpoint('saved');
+  timing.close=Math.round(performance.now()-closeStarted);
+  C.status('Confirming the saved trial…');
+  const saved=await checkpoint('saved',timing);
+  continueQueue=saved.status==='running';
   C.status('Trial '+t.ordinal+' saved. Experiment queue will continue in this tab.');
  }catch(error){failed=true;C.status('Experiment stopped: '+error.message);try{await send({...common,action:'fail',error:error.message});}catch{/* Durable lease prevents replay if the worker is unreachable. */}}
- finally{active=false;}
+ finally{active=false;if(continueQueue&&!interrupted)void tick();}
 }
 for(const type of ['click','input','change'])document.addEventListener(type,event=>{if(!writing&&event.isTrusted&&!C.host.contains(event.target)){for(const [container,stage]of [[C.main(),'momentum'],[C.popup('Momentum Trading BackTest'),'execution'],[C.popup('Market Trend Filter'),'marketFilter']]){if(!container)continue;const nodes=inputs(container),rows=stageRows(stage,container);if(['input','change'].includes(type)){selectedRules.delete(event.target);for(const row of rows)if(event.target===nodes[row.parentIndex])selectedRules.delete(nodes[row.childIndex]);}if(type==='click'&&event.target.closest?.('.ind-list li[sbid]'))for(const row of rows)if(ruleSearch(nodes[row.childIndex]))selectedRules.delete(nodes[row.childIndex]);}if(active||configuring)interrupted=true;}},true);
 async function tick(){if(polling)return;polling=true;try{const r=await send({action:'hello',...sourceStatus(),failed});if(r.id&&!active&&!configuring&&!failed){const job=await send({action:'claim',id:r.id});if(job.trial)void run(job);}}catch{/* Reload invalidates the document; do not keep sending or submit again. */failed=true;}finally{polling=false;}}

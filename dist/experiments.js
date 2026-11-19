@@ -192,9 +192,31 @@ function researchEnd(e,phase='validation'){
  // not untouched, skipped alternatives or unsampled Cartesian combinations.
  return e.trials.filter(t=>allowed.includes(t.phase)&&(t.status==='saved'||t.execution||t.events?.some(event=>active.includes(event.status)||event.status==='saved'||event.status==='uncertain'))).map(t=>trialPeriod(e,t).to).sort().at(-1)||null;
 }
-function validate(e){
+const validationPlan=e=>[e.id,e.name,e.baseline,e.dimensions,e.mode,e.budget,e.seed,e.objective,e.ceiling,e.minTrades,e.timeoutMinutes,e.createdAt];
+function sameStoredPlan(a,b){
+ if(Object.is(a,b))return true;
+ if(!a||!b||typeof a!=='object'||typeof b!=='object')return false;
+ if(Array.isArray(a)?!Array.isArray(b)||a.length!==b.length:Object.getPrototypeOf(a)!==Object.prototype||Object.getPrototypeOf(b)!==Object.prototype)return false;
+ const keys=Object.keys(a);
+ return keys.length===Object.keys(b).length&&keys.every(key=>Object.hasOwn(b,key)&&sameStoredPlan(a[key],b[key]));
+}
+const rebuildPlan=study=>create({...study,dimensions:study.dimensions,now:study.createdAt});
+function createValidator(){
+ // Cache only the generated plan for one unchanged study. The stored journal
+ // and its trial settings are checked on every validation, even on a hit.
+ let approved=null;
+ return e=>validateWithPlan(e,study=>{
+  const plan=validationPlan(study);
+  if(approved&&sameStoredPlan(plan,approved.plan))return approved.fresh;
+  const {dimensions,combinationCount,demo,trials}=rebuildPlan(study),fresh={dimensions,combinationCount,demo,trials};
+  approved={plan:structuredClone(plan),fresh};
+  return fresh;
+ });
+}
+function validate(e){return validateWithPlan(e,rebuildPlan);}
+function validateWithPlan(e,planned){
  if(!e||e.schemaVersion!==1||!idOK(e.id)||!Array.isArray(e.trials)||e.trials.length>1000||!['draft','running','pausing','paused','complete','needs-review'].includes(e.status))throw Error('Invalid experiment archive.');
- const fresh=create({...e,dimensions:e.dimensions,now:e.createdAt});
+ const fresh=planned(e);
  if(!same(fresh.dimensions,e.dimensions)||fresh.combinationCount!==e.combinationCount||fresh.demo!==e.demo)throw Error('Experiment settings were altered.');
  const discovery=e.trials.filter(t=>t.phase==='discovery');
  if(discovery.length!==fresh.trials.length||discovery.some((t,i)=>t.id!==fresh.trials[i].id||t.ordinal!==fresh.trials[i].ordinal||!same(t.patch,fresh.trials[i].patch)))throw Error('The planned discovery queue was altered.');
@@ -283,6 +305,6 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
  const n=e.trials.length+1;e.trials.push({id:e.id+'-t'+n,runId:e.id+'-t'+n,ordinal:n,patch:clone(t.patch),status:'queued',phase,period:clone(period),parentTrialId:t.id,events:[]});e.status='paused';journal(e,'Frozen '+phase+' candidate: trial '+t.ordinal,now);return e;
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
-const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,clone};
+const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,createValidator,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,clone};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);

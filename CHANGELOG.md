@@ -1,5 +1,12 @@
 # Changelog
 
+## Application development update - 2026-11-19
+
+- Set up and review tests locally using saved RZone choices. Contact RZone when starting a run or explicitly searching for a missing choice.
+- Fix Renko choice discovery and saved-group lookup. Keep Relative Strength edits local, flag a missing rule beside the field and count only active variations.
+- Read report sections as soon as they are ready, reuse the approved study plan across checkpoints and start the next test after a confirmed save. Execution evidence shows where capture and save time is spent.
+- Preserve saved research and daily dropdown choices. These changes were verified in the local Chrome preview and are available in the development source.
+
 ## 0.21.0 candidate - 2026-09-30 (not published)
 
 - Add email-code account login with trusted session storage and authenticated account API.

@@ -413,6 +413,8 @@ console.log('PASS: Relative Strength and independent market trend chart/mode/act
    for(const [n,index]of [56,57].entries())assert.equal(projected[index],prefix(category)+' → '+suffixes[n],'RS source change projects exactly its two dependent headings');
    const fresh=clone(input),freshRS=fresh.stages.momentum.relativeStrength;freshRS.fields=selected.map((field,index)=>({...field,label:projected[index]}));freshRS.options[61]=clone(categories[category]);
    const current=S.template(fresh),config={...S.defaults(current),'momentum.rs':true,'momentum.rs.source':category,'momentum.rs.rule':categories[category][0].value},baseline=S.configToBaseline(config,current),fields=baseline.parameters.strategy.main.fields;
+   const local=S.configToBaseline(config,template);
+   assert.deepEqual(local.parameters,baseline.parameters,'A category selected from this chart’s catalogue projects the same settings as a fresh native read');
    for(const [n,index]of [56,57].entries()){assert.equal(fields[index].label,prefix(category)+' → '+suffixes[n]);assert.equal(fields[index].value,rs.fields[index].value,'Changing category preserves construction values');}
    assert.equal(fields[53].label,gateLabel,'The RS checkbox does not share its System Builder heading');
    for(const index of [58,59])assert.deepEqual(fields[index],rs.fields[index],'RS label projection leaves price controls untouched');

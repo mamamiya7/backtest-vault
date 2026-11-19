@@ -233,6 +233,7 @@ function descriptorForFields(input,stage,expected){
  delete descriptor.current;delete descriptor.relativeStrength;delete descriptor.withoutRelativeStrength;L.stage(stage,descriptor.fields);return descriptor;
 }
 function activeField(field,config){return (!field.enabledBy||config[field.enabledBy]===true)&&(!field.activeWhen||field.activeWhen.every(condition=>condition.values.includes(config[condition.key])));}
+function availableRule(field,value){return typeof value==='string'&&!!value.trim()&&!/^\s*--|select.*(?:system|rule|radar)/i.test(value)&&field.options.some(option=>option.value===value&&!option.disabled);}
 function fieldsForUI(input,config={}){
  const source=template(input),t={...source,stages:editorStages(source)},groups=[],m=t.stages.momentum.fields,x=t.stages.execution.fields,p=t.stages.portfolio.fields,main=L.main(m[0].value,!!source.stages.momentum.relativeStrength||L.stage('momentum',source.stages.momentum.fields).relativeStrength),execution=L.stage('execution',x);
  const group=(stage,key,title)=>{const g={stage,key:stage+'.'+key,title,fields:[]};groups.push(g);return g;};
@@ -297,9 +298,9 @@ function fieldsForUI(input,config={}){
  }
  const symbol=(g,key,label,index,marketKey,extra={})=>{const d=add(g,key,label,index,'combobox',{symbol:true,marketKey,variation:true,...extra});const market=config[marketKey]??groups.flatMap(group=>group.fields).find(field=>field.key===marketKey)?.value;d.options=d.options.filter(option=>option.sourceValue&&symbolMarketMatches(market,option.market));d.searchQuery=t.stages[g.stage].symbolQueries?.[index]?.market===market?t.stages[g.stage].symbolQueries[index].query:null;return d;};
  if(source.stages.momentum.relativeStrength){g=group('momentum','relative-strength','Relative Strength');const row=main.rows.at(-1),extra={sourceContainer:'relativeStrength',enabledBy:'momentum.rs',variation:true};
-  const market=dynamic(g,'rs.market','Benchmark market',main.benchmarkMarketIndex,[main.benchmarkIndex]);Object.assign(market,{sourceContainer:'relativeStrength',enabledBy:'momentum.rs'});
+  const market=dynamic(g,'rs.market','Benchmark market',main.benchmarkMarketIndex,[main.benchmarkIndex]);Object.assign(market,{sourceContainer:'relativeStrength',enabledBy:'momentum.rs',cachedMarkets:market.options.filter(o=>!o.disabled).map(o=>o.value)});
   symbol(g,'rs.benchmark','Benchmark',main.benchmarkIndex,'momentum.rs.market',extra);
-  const parent=dynamic(g,'rs.source','Relative Strength source',row.parentIndex,[row.childIndex]),child=add(g,'rs.rule','Relative Strength rule',row.childIndex,'select',{...extra,rule:true});Object.assign(parent,{sourceContainer:'relativeStrength',enabledBy:'momentum.rs'});cachedRule(g,parent,child);if(main.variant&&parent.cachedCategories)parent.cachedCategories=[parent.value];
+  const parent=dynamic(g,'rs.source','Relative Strength source',row.parentIndex,[row.childIndex]),child=add(g,'rs.rule','Relative Strength rule',row.childIndex,'select',{...extra,rule:true});Object.assign(parent,{sourceContainer:'relativeStrength',enabledBy:'momentum.rs'});cachedRule(g,parent,child);
  }
  if(source.stages.marketFilter){const original=source.stages.marketFilter,layout=L.marketFilter(original.fields),f=t.stages.marketFilter.fields,base={enabledBy:'momentum.market-filter',variation:true};g=group('marketFilter','filter','Market trend filter');
   chartSelector(g,layout).enabledBy='momentum.market-filter';
@@ -395,12 +396,12 @@ function validateConfig(config,input){
    const emptyUnusedRule=f.rule&&(f.options.length===0&&f.value===''||f.nativeType==='text')&&v===''&&!activeField(f,config);
    if(f.rule&&f.options.length===0&&activeField(f,config))throw Error(f.searchable&&!f.searchQuery?'Search RZone for '+f.label.toLowerCase()+' before enabling it.':'No '+f.label.toLowerCase()+' choices are available. Turn the rule off or '+(f.searchable?'search again.':'refresh choices.'));
    if(typeof v!=='string'||!emptyUnusedRule&&!f.options.some(o=>o.value===v&&(!o.disabled||unchangedInactive)))throw Error('Choose an available '+f.label.toLowerCase()+'.');
-   if(f.rule&&activeField(f,config)&&(!v.trim()||/^\s*--|select.*(?:system|rule|radar)/i.test(v)))throw Error('Choose a '+f.label.toLowerCase()+' before enabling it.');
+   if(f.rule&&activeField(f,config)&&!availableRule(f,v))throw Error('Choose a '+f.label.toLowerCase()+' before enabling it.');
   }
   else if(f.type==='date'){if(!validDate(v))throw Error(f.label+': choose a valid date.');}
   else {if(typeof v!=='string'||!v.trim()||v.trim().length>(f.maxLength||2000)||/[\u0000-\u001f]/.test(v))throw Error('Enter a valid '+f.label.toLowerCase()+'.');v=v.trim();}
   if(f.disabled&&!same(v,f.value))throw Error(f.label+' is not available for automatic setup.');
-  if(f.dynamic&&!same(v,f.value)&&!f.cachedCategories?.includes(v))throw Error('Refresh choices for '+f.label+' before continuing.');out[f.key]=v;
+  if(f.dynamic&&!same(v,f.value)&&!f.cachedCategories?.includes(v)&&!f.cachedMarkets?.includes(v))throw Error('Refresh choices for '+f.label+' before continuing.');out[f.key]=v;
  }
  validateCombination(out,input,descriptors);
  if(out['execution.from']>=out['execution.to'])throw Error('The end date must be after the start date.');
@@ -412,7 +413,7 @@ function validateCombination(config,input,preparedFields){
  const fields=preparedFields||fieldsForUI(input,config).flatMap(group=>group.fields);
  for(const field of fields){if(field.needsDiscovery&&config[field.key]===true)throw Error('Load '+field.label+' settings before continuing.');if(!field.variation||!activeField(field,config))continue;
   const value=config[field.key];if(field.symbol&&!field.options.some(option=>option.value===value&&option.sourceValue&&symbolMarketMatches(config[field.marketKey],option.market)&&!option.disabled))throw Error('Search for and choose '+field.label.toLowerCase()+' in its selected market.');
-  if(field.rule&&(!value||/^\s*--|select.*(?:system|rule)/i.test(value)||!field.options.some(option=>option.value===value&&!option.disabled)))throw Error('Choose an available '+field.label.toLowerCase()+'.');
+  if(field.rule&&!availableRule(field,value))throw Error('Choose an available '+field.label.toLowerCase()+'.');
  }
  for(const prefix of ['marketFilter.','marketFilter.exit.']){const a=fields.find(field=>field.key===prefix+'price.close-only');if(a&&activeField(a,config)&&Number(config[a.key])+Number(config[prefix+'price.high-low'])!==1)throw Error('Choose exactly one market trend price mode.');}
  return config;
@@ -466,6 +467,7 @@ function demoTemplate({momentumChart='Candle',executionChart=momentumChart,momen
  Object.assign(source.stages.momentum.options,{1:[r.parameters.strategy.main.fields[1].value,'Demo universe 20','Demo universe 60'],3:['NSE'].map(value=>({value,label:value})),33:['Daily','Weekly'].map(value=>({value,label:value}))});
  return template(source);
 }
-const api={descriptorForFields,activeField,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,settingLabel,executionCapability,demoTemplate,mergeSymbolChoices};
+const nseBenchmarkQueries=Object.freeze([...'ABCDEFGHIJKLMNOPQRSTUVWXYZ','Nifty','Bank','ETF','0','1']);
+const api={nseBenchmarkQueries,descriptorForFields,activeField,availableRule,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,settingLabel,executionCapability,demoTemplate,mergeSymbolChoices};
 if(typeof module!=='undefined')module.exports=api;root.VaultSetup=api;
 })(typeof window!=='undefined'?window:globalThis);

@@ -9,7 +9,7 @@
   const onMomentum = () => !!main() && document.body.innerText.includes('Momentum Trading BackTesting');
   let strategy = null, portfolio = null, busy = false, sawRunning = false, sawCleared = false, lastReport = null, pendingRun = null;
   let reportsAtSubmit = new Set(), portfolioLinked = false, marketTrendReceipt = null;
-  let savedReports=new WeakMap(), reportGeneration=0, pendingReport=null, openingVault=false;
+  let savedReports=new WeakMap(), reportGeneration=0, pendingReport=null, openingVault=false, capturingReport=null;
   const reportLinks = new WeakMap();
   const forgetSavedReports=()=>{savedReports=new WeakMap();reportGeneration++;};
   const reports = () => [...document.querySelectorAll('.popupContent')].filter(p=>caption(p)==='Portfolio Backtesting Report');
@@ -67,6 +67,7 @@
     try {
       const local=typeof chrome==='undefined'?null:chrome.storage?.local;
       if(typeof local?.set!=='function') {const error=new Error(disconnected);error.code='VAULT_DISCONNECTED';throw error;}
+      status('Writing report to Vault…');
       await local.set({['run:'+run.id]:run});
       if(pendingReport?.generation===reportGeneration)savedReports.set(pendingReport.report,{id:run.id,proof:pendingReport.proof});
       pendingReport=null;
@@ -190,7 +191,7 @@
   // Observe real DOM state changes as well as polling; a short source run must
   // not be "proved" by a fixed delay or by the preceding Completed label.
   const observer=new MutationObserver(changes=>{
-    if(typeof document!=='undefined'&&document?.body&&changes.some(change=>change.target!==host&&!host.contains(change.target)))monitor();
+    if(typeof document!=='undefined'&&document?.body&&changes.some(({target})=>target!==host&&!host.contains(target)&&(!capturingReport||target===capturingReport||!capturingReport.contains(target))))monitor();
   });
   observer.observe(document.body,{subtree:true,childList:true,characterData:true,attributes:true,attributeFilter:['style','class','hidden']});
   window.addEventListener('pagehide',()=>{clearInterval(timer);observer.disconnect();},{once:true});
@@ -200,15 +201,20 @@
     while (Date.now()-start < timeout) {if(check()) return; await delay(150);}
     throw new Error(error);
   }
-  async function chooseTab(report, name) {
+  const tabSelected=element=>element.className.includes('selected')||element.getAttribute('aria-selected')==='true';
+  async function chooseTab(report, name, ready) {
     const el = [...report.querySelectorAll('[role="tab"]')].find(e=>text(e) === name);
     if (!el) throw new Error(`${name} tab not found. The site layout may have changed.`);
-    el.click();
-    await waitFor(()=>el.className.includes('selected') || el.getAttribute('aria-selected') === 'true', `${name} did not open.`);
-    await delay(500);
+    if (!ready || !tabSelected(el)) el.click();
+    await waitFor(()=>{
+      if (!report.isConnected) throw new Error('The report was closed during capture.');
+      return tabSelected(el)&&(!ready||ready(report.querySelector('[role="tabpanel"]')));
+    }, `${name} did not finish loading.`);
+    if (!ready) await delay(500);
     if (!report.isConnected) throw new Error('The report was closed during capture.');
   }
-  function rows(table) {return table ? [...table.rows].map(r => [...r.cells].map(c=>text(c))) : [];}
+  const cells=row=>[...row.cells].map(text);
+  function rows(table) {return table ? [...table.rows].map(cells) : [];}
   function readReport(report) {
     const panel = report.querySelector('[role="tabpanel"]');
     if (!panel) throw new Error('Report content not found.');
@@ -222,6 +228,15 @@
     });
     return {quickStats, statistics, monthly, charts};
   }
+  const captureSections=[
+    ['Quick Stats',panel=>[...(panel?.querySelectorAll('.stats-card')||[])].some(card=>text(card.querySelector('.status')).toLowerCase()==='total no. of trades'&&Number.isInteger(V.number(text(card.querySelector('.amt')))))],
+    ['Statistics',panel=>!!panel?.querySelector('.dropdown-table-body tr td')],
+    ['Charts',panel=>{
+      const charts=[...(panel?.querySelectorAll('svg.highcharts-root')||[])];
+      return charts.length===6&&charts.every(chart=>chart.querySelector('path,rect,text'));
+    }],
+    ['Trade Details',panel=>!!panel?.querySelector('table.rade-result-detail tr')]
+  ];
   async function allTrades(report) {
     const table = () => report.querySelector('table.rade-result-detail');
     const page = () => Number(report.querySelector('#curPageTextEle')?.textContent || 1);
@@ -250,7 +265,10 @@
           if (!next) throw new Error('Next trade page control not found.');
           const previousFirst = r[1]?.join('|');
           next.click();
-          await waitFor(()=>page()===index+1 && rows(table())[1]?.join('|')!==previousFirst,'Next trade page did not load.');
+          await waitFor(()=>{
+            const first=table()?.rows[1];
+            return !!first&&page()===index+1&&cells(first).join('|')!==previousFirst;
+          },'Next trade page did not load.');
         }
       }
     } finally {
@@ -273,19 +291,23 @@
     if(!report) {if(options.strict)throw Error('Completed portfolio report is missing.');status('Open a completed Portfolio Backtesting Report, then Save backtest.');return;}
     monitor();
     const linked = reportLinks.get(report);
-    const selected = [...report.querySelectorAll('[role="tab"]')].find(e=>e.className.includes('selected') || e.getAttribute('aria-selected')==='true');
+    const selected = [...report.querySelectorAll('[role="tab"]')].find(tabSelected);
     const previousTab = text(selected) || 'Quick Stats';
     busy=true; saveButton.disabled=true;
+    if(options.strict)capturingReport=report;
+    let saved=false;
     try {
-      status('Collecting statistics and charts…');
-      await chooseTab(report,'Quick Stats');
-      await chooseTab(report,'Statistics');
-      // All statistics tables are already in the report DOM, including collapsed sections.
-      await chooseTab(report,'Charts');
-      await chooseTab(report,'Trade Details');
+      for(const [name,ready] of captureSections){
+        const started=performance.now();
+        status(`Reading ${name}…`);
+        await chooseTab(report,name,options.strict?ready:undefined);
+        options.measure?.(name,performance.now()-started);
+      }
+      const detailsStarted=performance.now();
       const extracted = readReport(report);
       if(!extracted.quickStats.length || !extracted.statistics.length) throw new Error('Report statistics are missing. Nothing was saved.');
       const trades = await allTrades(report);
+      options.measure?.('details',performance.now()-detailsStarted);
       const run = {schemaVersion:1,id:crypto.randomUUID(),name:`Momentum · ${now().slice(0,16).replace('T',' ')}`,savedAt:now(),source:'https://zone.definedgesecurities.com/index.html#research',provenance:linked?.strategy ? 'recorded-at-submit':'unverified',parameters:linked || null,observedMain:linked?.strategy ? null : snapshot(main()),...extracted,trades,warnings:[]};
       if(!linked?.strategy) run.warnings.push('This report predates a confirmed strategy submission in this tab. Current visible inputs are reference only; do not treat them as the settings used. Run both backtests with the extension active for linked settings.');
       if(extracted.charts.length<6) run.warnings.push(`Captured ${extracted.charts.length} chart graphics; the inspected portfolio layout contains six. Review chart completeness.`);
@@ -293,6 +315,9 @@
       const expected=V.metrics(run).trades;
       if(expected!==null && trades.rows.length!==expected) throw new Error(`Trade capture incomplete: ${trades.rows.length} of ${expected}. Nothing was saved.`);
       if(options.strict){
+        const gateStarted=performance.now();
+        if(options.beforeSave)await options.beforeSave();
+        options.measure?.('checkpoint',performance.now()-gateStarted);
         if(!linked?.strategy||extracted.charts.length!==6)throw Error('Experiments require linked submissions and all six charts.');
         if(!options.submission||linked.id!==options.submission.portfolioId||linked.strategy.id!==options.submission.strategyId||!linked.strategy.startedAt||!linked.strategy.completedAt||!linked.reportOpenedAt)throw Error('The report does not belong to this trial\'s confirmed submissions.');
         options.verify?.(run);
@@ -300,10 +325,15 @@
       if(options.runId){run.id=options.runId;run.name=options.name;run.experiment=options.experiment;}
       pendingRun=run;
       pendingReport={report,generation:reportGeneration,proof:JSON.stringify(extracted)};
-      return await persistPending(options.strict);
+      const writeStarted=performance.now();
+      const result=await persistPending(options.strict);
+      options.measure?.('write',performance.now()-writeStarted);
+      saved=!!result;
+      return result;
     } catch(error) {status(`Save failed: ${error.message}`);if(options.strict)throw error;}
     finally {
-      if(report.isConnected) {try {await chooseTab(report,previousTab);} catch { /* Archive remains valid if tab restoration fails. */ }}
+      capturingReport=null;
+      if(report.isConnected&&!(options.strict&&saved)) {try {await chooseTab(report,previousTab);} catch { /* Archive remains valid if tab restoration fails. */ }}
       busy=false; saveButton.disabled=false;
     }
   }
