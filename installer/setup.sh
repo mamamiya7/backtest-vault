@@ -72,7 +72,7 @@ verify_files() {
 verify_files "$package_dir/extension" || fail 'Release verification failed. Download and extract the release again.'
 is_vault() {
   [[ -f "$1/manifest.json" && ! -L "$1/manifest.json" ]] &&
-    grep -Eq '"name"[[:space:]]*:[[:space:]]*"Definedge Backtest Vault"' "$1/manifest.json" &&
+    grep -Eq '"name"[[:space:]]*:[[:space:]]*"(Definedge )?Backtest Vault"' "$1/manifest.json" &&
     grep -Eq '"manifest_version"[[:space:]]*:[[:space:]]*3([[:space:],}]|$)' "$1/manifest.json" &&
     [[ -f "$1/core.js" && -f "$1/background.js" && -f "$1/index.html" ]]
 }

@@ -199,7 +199,11 @@ async function scenario(options={}){
    update:async(id,update)=>{assert.equal(update.active,true);activeTab=id;focusEvents.push('active:'+id);return {id};},create:async ()=>({id:10})
   }};
   const context=vm.createContext({chrome:workerChrome,URL,crypto:require('node:crypto').webcrypto,structuredClone,setTimeout,clearTimeout});
-  context.importScripts=(...files)=>files.forEach(file=>vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),context,{filename:file}));
+  context.importScripts=(...files)=>files.forEach(file=>{
+   // This bridge exercises the local preview. Account authorization has its own integration suite.
+   if(file==='commercial-config.js')context.VaultCommercialConfig=Object.freeze({mode:'local',apiOrigin:''});
+   else vm.runInContext(fs.readFileSync(path.join(base,file),'utf8'),context,{filename:file});
+  });
   vm.runInContext(fs.readFileSync(path.join(base,'background.js'),'utf8'),context,{filename:'background.js'});
   coordinator.handle=async(message,sender)=>{const result=await deliver(workerListeners,{type:'vault-experiment',...message},sender);if(message.action==='configure'&&bridgeConfigRequests){assert.equal(activeTab,10,'Return to the initiating Vault after a read or source rejection.');assert.deepEqual(focusEvents,Array.from({length:bridgeConfigRequests},()=>['active:9','read','active:10']).flat());}return result;};
  }
@@ -368,7 +372,8 @@ async function scenario(options={}){
    // Let the source register again after the setup-reading status.
    for(let n=0;n<30&&!memory['runner:tab:9']?.ready;n++)await sleep(10);
   }
-  await coordinator.handle({action:'start',id:plan.id,tabId:9},dashboard);
+  const started=await coordinator.handle({action:'start',id:plan.id,tabId:9},dashboard);
+  assert.equal(started?.ok,true,started?.error||'The runner fixture could not start the study.');
   for(const fn of listeners)fn({type:'vault-runner-wake'},{id:runtime.id},()=>{});
   for(let n=0;n<(crossRows||exitMode||variableSet==='universe-timeframe'?1200:600)&&!['complete','needs-review'].includes(memory['experiment:'+plan.id].status);n++)await sleep(20);
   const result=memory['experiment:'+plan.id];

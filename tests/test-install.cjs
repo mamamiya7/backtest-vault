@@ -12,7 +12,7 @@ function install(bundle,target,{update=false,ok=true,env={},useDefault=false}={}
  if(ok)assert.equal(r.status,0,r.stdout+r.stderr);else assert.notEqual(r.status,0,'Invalid install unexpectedly succeeded: '+r.stdout);
  return r;
 }
-function matches(target){for(const name of runtimeFiles)assert.equal(sha(fs.readFileSync(path.join(target,name))),sha(fs.readFileSync(path.join(root,'dist',name),'utf8').replace(/\r\n/g,'\n')),name);}
+function matches(target){for(const name of runtimeFiles){const source=fs.readFileSync(path.join(root,'dist',name));const expected=name.endsWith('.png')?source:source.toString('utf8').replace(/\r\n/g,'\n');assert.equal(sha(fs.readFileSync(path.join(target,name))),sha(expected),name);}}
 function snapshot(folder){return Object.fromEntries(fs.readdirSync(folder).filter(n=>fs.statSync(path.join(folder,n)).isFile()).map(n=>[n,sha(fs.readFileSync(path.join(folder,n)))]));}
 try{
  const a=build(path.join(sandbox,'release one')),b=build(path.join(sandbox,'release two'));assert.equal(sha(fs.readFileSync(a.destination)),sha(fs.readFileSync(b.destination)),'Release archive must be reproducible.');assert.throws(()=>build(path.dirname(a.destination)),/exist/i);
@@ -25,7 +25,9 @@ try{
 
  const target=path.join(sandbox,'Installed & spaces ! (研究)','extension');install(bundle,target);matches(target);
  fs.writeFileSync(path.join(target,'my-backup.json'),'fictional user-owned backup');const existing=snapshot(target);install(bundle,target);assert.deepEqual(snapshot(target),existing,'Reinstall must preserve runtime and unrelated files.');
- const manifest=JSON.parse(fs.readFileSync(path.join(target,'manifest.json')));manifest.version='0.10.0';fs.writeFileSync(path.join(target,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');fs.writeFileSync(path.join(target,'dashboard.js'),'// older fictional install');install(bundle,target,{update:true});matches(target);assert.equal(fs.readFileSync(path.join(target,'my-backup.json'),'utf8'),'fictional user-owned backup');
+ const manifestPath=path.join(target,'manifest.json'),manifest=fs.readFileSync(manifestPath,'utf8');
+ const olderManifest=manifest.replace(/("version"\s*:\s*")[\d.]+(")/,(_,prefix,suffix)=>prefix+'0.10.0'+suffix);assert.equal(JSON.parse(olderManifest).version,'0.10.0');fs.writeFileSync(manifestPath,olderManifest);
+ fs.writeFileSync(path.join(target,'dashboard.js'),'// older fictional install');install(bundle,target,{update:true});matches(target);assert.equal(fs.readFileSync(path.join(target,'my-backup.json'),'utf8'),'fictional user-owned backup');
  console.log('PASS: fresh setup, repeat setup, older-version update, permanent path, unrelated file preservation.');
 
  // Force a real failure after an earlier runtime file was replaced, then verify rollback.
