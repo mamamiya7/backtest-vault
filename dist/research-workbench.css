@@ -83,10 +83,10 @@ body:has(.research-workbench) main{max-width:1550px;padding:24px 40px}
 .research-workbench .source-count-bar .primary{background:#f5cc51;border-color:#f5cc51;color:#27200e;min-width:175px}.research-workbench .source-count-bar .primary:hover{background:#ffe083}
 .research-workbench .source-combination-count strong{font-size:15px}.research-workbench .source-combination-count span{font-size:11px}
 .research-workbench .source-date-control{margin:0;max-width:none}.research-workbench .source-date-entry .vault-date-range-trigger{height:40px;min-height:40px;font-size:13px!important;background:var(--research-field)!important;border-color:#2c3849!important;font-weight:500}.research-workbench .source-date-add .vault-date-range-trigger{font-size:11px!important;color:#9bcfc2!important;min-height:27px}
-.research-filter-dialog{padding:0;width:min(940px,calc(100vw - 32px));max-width:none;max-height:88dvh;background:#101924;color:#dce5ee;border:1px solid #405367;border-radius:9px;box-shadow:0 25px 100px #000a}
+.research-filter-dialog{padding:0;width:min(720px,calc(100vw - 32px));max-width:none;max-height:88dvh;background:#101924;color:#dce5ee;border:1px solid #405367;border-radius:9px;box-shadow:0 25px 100px #000a}
 .research-filter-dialog::backdrop{background:#04080dc9;backdrop-filter:blur(3px)}
 .research-filter-dialog .source-dialog-heading{padding:18px 24px;background:#1a2735;margin:0;border-bottom:1px solid #334253;position:sticky;top:0;z-index:30}
-.research-filter-dialog h3{font-size:18px;margin:0}.research-filter-body{padding:22px 24px}.research-filter-block+section{border-top:1px solid #30404f;margin-top:22px;padding-top:20px}.research-filter-block h4{font-size:13px;color:#9ddcc6;margin-bottom:14px}
+.research-filter-dialog h3{font-size:18px;margin:0}.research-filter-body{padding:20px 24px}.research-filter-block+section{margin-top:14px}.research-filter-block[data-filter-block=exit]{border-top:1px solid #30404f;padding-top:16px}.research-filter-block h4{font-size:13px;color:#9ddcc6;margin:0 0 12px}
 .research-filter-fields{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}.research-filter-fields>.source-field{min-width:0}.research-filter-fields [data-enabled]{align-self:start}
 .research-filter-footer{display:flex;justify-content:flex-end;padding:15px 24px;border-top:1px solid #334253;background:#1a2735;position:sticky;bottom:0;z-index:20}
 .research-workbench .source-choice-menu{max-height:250px;z-index:35}.research-workbench .source-choice-status{font-size:11px;line-height:1.5}
@@ -95,6 +95,8 @@ body:has(.research-workbench) main{max-width:1550px;padding:24px 40px}
 @media(max-width:420px){.research-quad{grid-template-columns:1fr 1fr}.research-portfolio{grid-template-columns:1fr}.research-filter-fields{grid-template-columns:1fr}.research-market-launch .research-filter-button{font-size:11px}.research-workbench .source-count-bar .source-combination-count span{max-width:155px}.research-section-head h3{font-size:15px}.research-workbench .source-combination-count strong{font-size:13px}}
 @media(prefers-reduced-motion:no-preference){.research-filter-dialog[open]{animation:research-window-in .16s ease-out}@keyframes research-window-in{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}}
 @media(max-width:750px){.research-workbench .source-values-editor{transform:none}}
-.research-filter-block[data-filter-block=benchmarks]>.research-filter-fields{grid-template-columns:90px minmax(0,1fr) 90px minmax(0,1fr)}
-.research-filter-block[data-filter-block=action]>.research-filter-fields{grid-template-columns:1fr}
-@media(max-width:750px){.research-filter-block[data-filter-block=benchmarks]>.research-filter-fields{grid-template-columns:80px minmax(0,1fr)}}
+.research-filter-block [data-source-field="marketFilter.chart"]{grid-column:1/-1;max-width:210px}
+.research-filter-block[data-filter-block=type]>.research-filter-fields{grid-template-columns:minmax(0,240px)}
+.research-filter-block[data-filter-block=benchmarks]>.research-filter-fields{grid-template-columns:minmax(76px,116px) minmax(0,1fr)}
+.research-filter-block[data-filter-block=method]>.research-filter-fields{grid-template-columns:minmax(0,240px) minmax(0,160px)}
+.research-filter-block[data-filter-block=action]>.research-filter-fields{grid-template-columns:minmax(0,420px)}

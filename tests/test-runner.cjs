@@ -600,6 +600,7 @@ async function variantLifecycle({mainChart,exitChart,mainMode='Percent',exitMode
   if(failure==='stale')w.setTimeout(()=>popup('Error'),650);
  });});
  button(main,'Portfolio Testing',()=>{const p=popup('Portfolio Backtesting');render(p,'portfolio');button(p,'Backtest',()=>{
+  if(failure==='close-saved-report'&&!portfolioSubmissions.length)p.querySelector('.close-buton').onclick=()=>{};
   portfolioSubmissions.push(fields(p));if(failure==='duplicate'&&oldReport){d.body.append(oldReport);return;}
   const report=popup('Portfolio Backtesting Report');oldReport=report;reportCount++;const tabs=d.createElement('div');for(const name of ['Quick Stats','Statistics','Charts','Trade Details']){const tab=d.createElement('div');tab.setAttribute('role','tab');tab.textContent=name;if(captureTiming&&name==='Quick Stats')tab.className='selected';tab.onclick=()=>{for(const t of tabs.children)t.className='';tab.className='selected';reportClicks.push(name);if(captureTiming&&name==='Charts')w.setTimeout(()=>panel.append(...graphics),900);};tabs.append(tab);}report.append(tabs);
   const panel=d.createElement('div');panel.setAttribute('role','tabpanel');panel.innerHTML='<div class="stats-card"><div class="status">Total no. of Trades</div><div class="amt">4</div></div><div class="stats-card"><div class="status">Gross Total Returns( % )</div><div class="amt">'+reportCount+'%</div></div><table class="dropdown-table-body"><tr><td>Group</td><td>Demo universe 40</td></tr></table>'+Array.from({length:6},(_,i)=>'<svg class="highcharts-root" xmlns="http://www.w3.org/2000/svg"><title>Chart '+i+'</title><path d="M0 0 L20 10"/></svg>').join('')+'<table class="rade-result-detail"></table><span id="curPageTextEle">1</span><span id="lastPageTextEle">2</span><img src="/firstPage.png"><img src="/next.png">';report.append(panel);
@@ -610,9 +611,26 @@ async function variantLifecycle({mainChart,exitChart,mainMode='Percent',exitMode
  try{
   for(let n=0;n<30&&!memory['runner:tab:9']?.ready;n++)await sleep(50);
   const started=await coordinator.handle({action:'start',id:plan.id,tabId:9},dashboard);assert.equal(started.ok,true,JSON.stringify(started));for(const fn of listeners)fn({type:'vault-runner-wake'},{id:runtime.id},()=>{});
+  if(failure==='close-saved-report'){
+   for(let n=0;n<450&&memory['experiment:'+plan.id].status==='running';n++)await sleep(100);
+   const paused=memory['experiment:'+plan.id];
+   assert.equal(paused.status,'paused');
+   assert.deepEqual(paused.trials.map(trial=>trial.status),['saved','queued','queued']);
+   assert.deepEqual(paused.sourceCleanup,{trialId:plan.trials[0].id,tabId:9});
+   assert.equal(submissions.length,1);assert.equal(portfolioSubmissions.length,1);
+   assert.equal(memory['runner:lease'],null);
+   const original=JSON.stringify(memory['run:'+plan.trials[0].runId]);assert.ok(original);
+   assert.ok(w.VaultCapture.popup('Portfolio Backtesting'),'The owned settings dialog remains open');
+   w.VaultCapture.popup('Portfolio Backtesting').remove();
+   for(let n=0;n<100&&!memory['runner:tab:9']?.ready;n++)await sleep(100);
+   await coordinator.handle({action:'start',id:plan.id,tabId:9},dashboard);
+   for(const fn of listeners)fn({type:'vault-runner-wake'},{id:runtime.id},()=>{});
+   assert.equal(memory['experiment:'+plan.id].sourceCleanup,undefined);
+   assert.equal(JSON.stringify(memory['run:'+plan.trials[0].runId]),original);
+  }
   for(let n=0;n<1200&&!['complete','needs-review'].includes(memory['experiment:'+plan.id].status);n++)await sleep(100);
   const result=memory['experiment:'+plan.id],runs=Object.entries(memory).filter(([key])=>key.startsWith('run:')).map(([,run])=>run);
-  if(failure){assert.equal(result.status,'needs-review',JSON.stringify(result.trials));assert.equal(runs.length,failure==='duplicate'?1:0);assert.equal(submissions.length,failure==='duplicate'?2:1);assert.equal(portfolioSubmissions.length,failure==='duplicate'?2:0);if(failure==='duplicate')assert.match(result.trials[1].error,/confirmed submissions/);return;}
+  if(failure&&failure!=='close-saved-report'){assert.equal(result.status,'needs-review',JSON.stringify(result.trials));assert.equal(runs.length,failure==='duplicate'?1:0);assert.equal(submissions.length,failure==='duplicate'?2:1);assert.equal(portfolioSubmissions.length,failure==='duplicate'?2:0);if(failure==='duplicate')assert.match(result.trials[1].error,/confirmed submissions/);return;}
   assert.equal(result.status,'complete',JSON.stringify(result.trials.map(t=>({status:t.status,error:t.error}))));assert.equal(runs.length,3);assert.equal(submissions.length,3);assert.equal(portfolioSubmissions.length,3);assert.equal(groupCommits,3);assert.deepEqual(durableBeforeNext,[true,true]);
   for(const trial of result.trials){const run=memory['run:'+trial.runId],at=trial.ordinal-1;assert.ok(run);E.verifySettings(E.expected(plan,trial),run);for(const stage of ['momentum','execution'])assert.deepEqual(E.fields(run,stage),submissions[at][stage],'Saved '+stage+' controls must equal the actual submission snapshot.');assert.deepEqual(E.fields(run,'portfolio'),portfolioSubmissions[at]);assert.equal(run.provenance,'recorded-at-submit');assert.equal(run.trades.rows.length,4);assert.equal(run.trades.rows[1][2],'0');assert.equal(run.charts.length,6);
    assert.equal(E.fields(run,'momentum')[0].value,mainChart);assert.equal(E.fields(run,'execution')[3].value,exitChart);const sourceFields=E.fields(run,variantStage),sourceLayout=L.stage(variantStage,sourceFields);assert.equal(sourceFields[sourceLayout.sizeIndex].value,String(sizes[at]),'Each trial must apply and capture its requested box/brick size, after any native mode reset.');
@@ -877,7 +895,8 @@ async function chartScenario(chartCase,dailySeed){
 }
 async function filterScenario(mode,dailySeed){
  const variantRS=mode==='relative-strength-pnf'||mode==='relative-strength-renko',rsChart=mode==='relative-strength-pnf'?'P&F':'Renko';
- const L=require('../dist/source-layouts.js'),F=require('./fixtures/filter-setup.cjs'),sourceTemplate=F(variantRS?{chart:rsChart}:['market-renko','market-renko-delayed'].includes(mode)?{marketChart:'Renko',exitPrices:true}:{}),dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document,main=d.querySelector('.account-right'),listeners=[],memory={},menus=new Set(),commits=[];
+ const restoreRenko=mode==='market-renko-restore';
+ const L=require('../dist/source-layouts.js'),F=require('./fixtures/filter-setup.cjs'),sourceTemplate=F(variantRS?{chart:rsChart}:['market-renko','market-renko-delayed','market-renko-restore'].includes(mode)?{marketChart:'Renko',exitPrices:true,mode:restoreRenko?'RS':'Index'}:{}),dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting</h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document,main=d.querySelector('.account-right'),listeners=[],memory={},menus=new Set(),commits=[];
  installFixtureTime(w);
  w.structuredClone=structuredClone;Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')&&!this.closest('[style*="display: none"]')?[{width:100,height:20}]:[];};
  const nativeTimeout=w.setTimeout.bind(w),nativeInterval=w.setInterval.bind(w);w.setTimeout=(fn,ms)=>nativeTimeout(fn,fixtureTime?ms:Math.min(ms,20));w.setInterval=(fn,ms)=>nativeInterval(fn,fixtureTime?ms:Math.min(ms,30));
@@ -933,7 +952,17 @@ async function filterScenario(mode,dailySeed){
   if(stage==='marketFilter'){
    const applyDisabled=()=>{const index=current[layout.indexModeIndex].checked;current[layout.indexSymbolIndex].disabled=!index;current[layout.numeratorSymbolIndex].disabled=index;current[layout.denominatorSymbolIndex].disabled=index;layout.methodValueIndices.forEach((at,n)=>current[at].disabled=!current[layout.methodIndices[n]].checked);};applyDisabled();
    for(const at of layout.methodIndices)current[at].addEventListener('change',applyDisabled);
-   const rebuild=()=>{const raw=fields(p),action=raw[layout.actionIndex].value;rememberFilter(raw,layout);render(p,'marketFilter',L.projectMarketFilter(filterFull,{mode:raw[layout.rsModeIndex].checked?'RS':'Index',action}));};
+   const rebuild=event=>{
+    const raw=fields(p),action=raw[layout.actionIndex].value,rs=raw[layout.rsModeIndex].checked;
+    rememberFilter(raw,layout);
+    const next=L.projectMarketFilter(filterFull,{mode:rs?'RS':'Index',action});
+    if(restoreRenko&&rs&&event.currentTarget===current[layout.actionIndex]){
+     // RZone may show the top price pair again when an action changes in RS mode.
+     next.splice(3,0,...filterFull.slice(3,5));
+     render(p,'marketFilter',next.map((field,index)=>({...field,index})));return;
+    }
+    render(p,'marketFilter',next);
+   };
    for(const at of [layout.indexModeIndex,layout.rsModeIndex])current[at].addEventListener('change',layout.variant?rebuild:applyDisabled);
    current[layout.actionIndex].addEventListener('change',rebuild);
    if(layout.chart==='Renko')for(const [at,value]of [[layout.modeIndex,layout.sizeIndex],[layout.exitModeIndex,layout.exitSizeIndex]])if(Number.isInteger(at))current[at].addEventListener('change',()=>{const reset=()=>{current[value].value=['ATR','ATR %'].includes(current[at].selectedOptions[0].textContent)?'14':'1';};if(mode==='market-renko-delayed')nativeTimeout(reset,650);else reset();});
@@ -959,10 +988,24 @@ async function filterScenario(mode,dailySeed){
    assert.equal(selectionIDs(),originalSelectionIDs);
    assert.equal(submissions,0);assert.equal(filterSaves,0);
   }
+  if(mode==='market-filter'){
+   const priorClears=symbolQueryClears,initial=fields(main),filterTemplate=structuredClone(sourceTemplate);delete filterTemplate.stages.marketFilter;
+   const result=await request({type:'vault-runner-config',loadFilter:'marketFilter',filterTemplate});
+   assert.equal(result.ok,true,result.error);
+   const filter=S.template(result.config).stages.marketFilter;
+   assert.ok(filter.fields[L.marketFilter(filter.fields).methodValueIndices[0]]);
+   assert.ok(symbolQueryClears>priorClears,'The cold optional lookup closes its native symbol search.');
+   assert.deepEqual(fields(main),initial);
+   assert.equal(submissions,0);assert.equal(filterSaves,0);
+  }
   if(dailySeed){nodes(main)[12].value='444';const at=L.marketFilter(filterState).methodValueIndices[0],fullAt=L.marketFilter(filterFull).methodValueIndices[0];filterState[at].value='27';filterFull[fullAt].value='27';}
   for(let n=0;n<30&&!memory['runner:tab:9'];n++)await sleep(10);const initial=JSON.stringify(fields(main)),loaded=await request({type:'vault-runner-config',...(dailySeed?{cachedChoices:dailySeed.records}:{})});assert.equal(loaded.ok,true,loaded.error);assert.equal(JSON.stringify(fields(main)),initial);assert.equal(submissions,0);let template=loaded.config;const readerResponses=[loaded];
   if(mode==='rs-warm'){const warm=await request({type:'vault-runner-config',warmChart:'Candle',cachedChoices:[loaded.choiceCache]});assert.equal(warm.ok,true,warm.error);readerResponses.push(warm);assert.equal(warm.config.stages.momentum.fields.length,52,'Primary daily coverage uses the RS-off Candle shape.');assert.equal(warm.choiceCache.stages.momentum.context.relativeStrength,false);assert.equal(warm.config.stages.execution.fields[4].value,'Price');assert.equal(JSON.stringify(fields(main)),initial,'Warming the same chart restores the originally enabled Relative Strength fields exactly.');assert.equal(selectionIDs(),originalSelectionIDs);assert.equal(filterSaves,0);assert.equal(submissions,0);}
-  for(const loadFilter of variantRS?['relativeStrength']:['relative-strength','symbol-identity','rs-warm','symbol-no-match','symbol-catalogue'].includes(mode)?['relativeStrength']:mode.startsWith('market-')?['marketFilter']:['relativeStrength','marketFilter']){const priorClears=symbolQueryClears,response=await request({type:'vault-runner-config',loadFilter,...(dailySeed?{cachedChoices:dailySeed.records}:{})});if(['market-unknown-dialog','market-symbol-timeout'].includes(mode)){assert.equal(response.ok,false);if(mode==='market-unknown-dialog'){assert.match(response.error,/open menu above its settings/i);assert.ok(w.VaultCapture.popup('Unexpected source notice'),'Unknown dialogs remain visible for the user rather than being treated as a symbol shell.');assert.ok(w.VaultCapture.popup('Market Trend Filter'),'Keep the parent intact when an unrelated child blocks its close.');}else{assert.match(response.error,/did not return confirmed symbols/i);assert.ok(symbolQueryClears>priorClears,'A spinner that never finishes is still dismissed through its native empty query.');noSymbolMenus();}assert.equal(submissions,0);assert.equal(filterSaves,0);assert.equal(commits.length,0);assert.equal(selectionIDs(),originalSelectionIDs);if(mode!=='market-unknown-dialog')assert.equal(JSON.stringify(fields(main)),initial);return;}assert.equal(response.ok,true,response.error);readerResponses.push(response);template=response.config;assert.equal(JSON.stringify(fields(main)),initial,'Optional discovery restores exact main controls.');assert.equal(w.VaultCapture.popup('Market Trend Filter'),undefined);assert.equal(filterSaves,0,'Discovery closes its owned dialog without committing changed settings.');if(!dailySeed)assert.ok(symbolQueryClears>priorClears,'Native empty-query dismissal is exercised during filter discovery.');assert.equal(selectionIDs(),originalSelectionIDs,'Discovery preserves every original native symbol identity.');noSymbolMenus();}
+  for(const loadFilter of variantRS?['relativeStrength']:['relative-strength','symbol-identity','rs-warm','symbol-no-match','symbol-catalogue'].includes(mode)?['relativeStrength']:mode.startsWith('market-')?['marketFilter']:['relativeStrength','marketFilter']){const priorClears=symbolQueryClears,response=await request({type:'vault-runner-config',loadFilter,...(dailySeed?{cachedChoices:dailySeed.records}:{})});if(['market-unknown-dialog','market-symbol-timeout'].includes(mode)){assert.equal(response.ok,false);if(mode==='market-unknown-dialog'){assert.match(response.error,/open menu above its settings/i);assert.ok(w.VaultCapture.popup('Unexpected source notice'),'Unknown dialogs remain visible for the user rather than being treated as a symbol shell.');assert.ok(w.VaultCapture.popup('Market Trend Filter'),'Keep the parent intact when an unrelated child blocks its close.');}else{assert.match(response.error,/did not return confirmed symbols/i);assert.ok(symbolQueryClears>priorClears,'A spinner that never finishes is still dismissed through its native empty query.');noSymbolMenus();}assert.equal(submissions,0);assert.equal(filterSaves,0);assert.equal(commits.length,0);assert.equal(selectionIDs(),originalSelectionIDs);if(mode!=='market-unknown-dialog')assert.equal(JSON.stringify(fields(main)),initial);return;}assert.equal(response.ok,true,response.error);readerResponses.push(response);template=response.config;assert.equal(JSON.stringify(fields(main)),initial,'Optional discovery restores exact main controls.');assert.equal(w.VaultCapture.popup('Market Trend Filter'),undefined);assert.equal(filterSaves,0,'Discovery closes its owned dialog without committing changed settings.');if(!dailySeed&&mode!=='market-filter')assert.ok(symbolQueryClears>priorClears,'Native empty-query dismissal is exercised during filter discovery.');assert.equal(selectionIDs(),originalSelectionIDs,'Discovery preserves every original native symbol identity.');noSymbolMenus();}
+  if(restoreRenko){
+   assert.equal(template.stages.marketFilter.current.fields[0].value,'Renko');
+   assert.equal(filterSaves,0);assert.equal(submissions,0);return;
+  }
   if(mode==='symbol-catalogue'){
    const rs=L.main('Candle',true),assertPool=options=>{const native=options.filter(option=>option.label.startsWith('N catalogue '));assert.equal(native.length,200,'All 200 observed native symbols survive cross-role reuse.');assert.ok(native.every(option=>option.market==='NSE'&&!option.disabled&&option.sourceValue===option.label+'|catalogue:'+Number(option.label.slice(-3))),'A BSE duplicate name cannot disable an NSE source identity.');};let records=dailySeed?.records;
    if(!dailySeed){
@@ -1058,7 +1101,7 @@ async function filterScenario(mode,dailySeed){
   ...['Absolute','ATR','ATR %'].map(mode=>({variantLifecycle:{mainChart:'Renko',exitChart:'Renko',mainMode:mode,exitMode:mode}})),
   {variantLifecycle:{mainChart:'P&F',exitChart:'Renko',failure:'stale'}},{variantLifecycle:{mainChart:'Renko',exitChart:'P&F',failure:'duplicate'}},{filterCase:'market-renko-delayed'},{filterCase:'relative-strength-pnf'},{filterCase:'relative-strength-renko'},{chartCase:'warm-slow-renko'}, {missingStart:true},
   {variantLifecycle:{mainChart:'Candle',exitChart:'P&F',groupDelay:6500,captureTiming:true}},{extendTimeout:true},{declineTimeout:true},{manualChangeWhileWaiting:true},
-  {recoveryMode:'strategy'},{recoveryMode:'portfolio'}
+  {recoveryMode:'strategy'},{recoveryMode:'portfolio'},{variantLifecycle:{mainChart:'P&F',exitChart:'P&F',failure:'close-saved-report'}},{filterCase:'market-renko-restore'}
  ];
  if(fromCase===1&&!requestedChart&&!requestedFilter&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus, rule/symbol/filter routing and deadline checks (12 cases).');}
  const selected=cases.filter(o=>(!requestedChart||o.chartCase===requestedChart)&&(!requestedFilter||o.filterCase===requestedFilter)&&(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake||o.closeSlowAnimation||o.closeBlockedByChild));

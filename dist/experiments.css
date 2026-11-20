@@ -318,6 +318,26 @@ body:has(.has-workbench) main{max-width:none}
 .study-journey .is-current{color:#eaf9f5}.study-journey .is-current .journey-number{background:#94e8d1;color:#08261e;border-color:#94e8d1;font-weight:650}.study-journey .is-current .journey-state{color:#94e8d1;font-weight:600}
 .study-journey .is-done .journey-number{border-color:#94e8d1;color:#94e8d1}.study-journey .is-done::after{background:#94e8d1}
 .experiment-evidence{scroll-margin-top:24px}.experiment-evidence:focus-visible{outline:2px solid #94e8d1;outline-offset:5px}
+.study-results-table{margin-top:16px;max-height:none;border:1px solid #354f67;border-radius:9px}
+.study-results-table table{width:100%;min-width:690px;margin:0}
+.study-results-table :is(th,td){padding:8px 10px;vertical-align:middle;white-space:normal}
+.study-results-table tbody th,.study-results-table td.numeric,.study-results-table td:nth-child(2){white-space:nowrap}
+.study-results-table td:nth-child(2) small{white-space:normal}
+.study-results-table td:nth-child(3)>span{display:block;overflow-wrap:anywhere}
+.study-results-table td:nth-child(4){max-width:190px}
+.study-results-table td:last-child{width:218px}
+.study-result-actions{display:flex;gap:2px;align-items:center}
+.study-result-actions button{padding:5px 7px;min-height:32px;white-space:nowrap;font-size:.75rem}
+.experiment-workspace .study-evidence-dialog{width:min(760px,calc(100vw - 36px));max-height:calc(100vh - 64px);padding:0;overflow:auto;color:var(--text,#e0eaf5);background:#142438;border:1px solid #456179;border-radius:12px}
+.study-evidence-dialog::backdrop{background:#070b13b8}
+.study-evidence-heading{position:sticky;top:0;z-index:1;display:flex;justify-content:space-between;align-items:center;gap:12px;padding:14px 20px;background:#192c40;border-bottom:1px solid #354f67}
+.experiment-workspace .study-evidence-heading h3{margin:0}
+.study-evidence-body{padding:12px 20px 20px}
+.study-evidence-body .map-settings{grid-template-columns:repeat(3,minmax(0,1fr));gap:8px 14px}
+.study-evidence-body .map-settings>div{padding-bottom:6px}
+.study-evidence-body details{margin:10px 0}
+.study-evidence-body .evidence-reference{overflow-wrap:anywhere}
+@media(max-width:640px){.study-evidence-body .map-settings{grid-template-columns:repeat(2,minmax(0,1fr))}}
 .experiment-empty{background:#101d2c;border-color:#2e4259;padding:45px 28px}.experiment-empty h3{font-size:21px}.experiment-empty p{max-width:600px}
 body:has(.has-workbench) main{max-width:1580px;padding:24px 40px}
 .has-workbench .journey-heading>div{flex:1;text-align:left}.has-workbench .journey-heading h2{font-size:30px;letter-spacing:-.6px}

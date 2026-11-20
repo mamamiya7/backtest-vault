@@ -624,7 +624,7 @@ async function filterConfiguration(requestedChanges,request={}){
  if(active||configuring||failed)throw Error('RZone is busy or needs review. Finish its current work first.');
  const feature=request.loadFilter||(requestedChanges?.momentum?'relativeStrength':'marketFilter'),changes=requestedChanges||{};
  if(!['relativeStrength','marketFilter'].includes(feature)||Object.keys(changes).some(key=>key!=='marketFilter'&&key!=='momentum')||Object.values(changes).reduce((n,v)=>n+Object.keys(v).length,0)>1)throw Error('Load one optional filter at a time.');
- const local=request.filterTemplate&&feature==='relativeStrength'?window.VaultSetup.template(request.filterTemplate):null;
+ const local=request.filterTemplate?window.VaultSetup.template(request.filterTemplate):null;
  if(!local&&!lastConfig)throw Error('Connect RZone before loading filter choices.');
  if(!local&&!currentChoiceDay())throw Error('A new day has started. Connect RZone again to update today’s choices.');
  checkOptionalDay(request.forceChoices===true);const records=request.forceChoices?[]:[...optionalMenus,...(request.cachedChoices||[])],symbols=knownSymbols(records,request.cachedSymbols||[],request.forceChoices===true);configuring=true;interrupted=false;const started=Date.now(),until=started+42000;let p,snapshot,originalMain,result,reusedChoices=false,choiceCache;
@@ -659,12 +659,13 @@ async function filterConfiguration(requestedChanges,request={}){
    // Source inspection restores the user's dialog. Subsequent editor changes
    // must start from the previously observed chart and both brick contexts,
    // not silently fall back to the restored source's construction modes.
-   if(Object.keys(values).length&&lastConfig.stages.marketFilter){
-    const previous=lastConfig.stages.marketFilter.fields;await transitionLayout(p,previous,'marketFilter',until);layout=L.stage('marketFilter',C.fields(p));const previousLayout=L.stage('marketFilter',previous);
-    for(const key of ['modeIndex','exitModeIndex'])if(Number.isInteger(layout[key])&&Number.isInteger(previousLayout[key]))await setField(p,layout[key],{...C.fields(p)[layout[key]],value:previous[previousLayout[key]].value},'marketFilter',until);
+   const previousFields=config.stages.marketFilter?.fields,prior=previousFields&&L.stage('marketFilter',previousFields);
+   if(Object.keys(values).length&&prior){
+    await transitionLayout(p,previousFields,'marketFilter',until);layout=L.stage('marketFilter',C.fields(p));
+    for(const key of ['modeIndex','exitModeIndex'])if(Number.isInteger(layout[key])&&Number.isInteger(prior[key]))await setField(p,layout[key],{...C.fields(p)[layout[key]],value:previousFields[prior[key]].value},'marketFilter',until);
    }
    for(const [raw,value]of Object.entries(values)){
-    let index=Number(raw);const prior=lastConfig.stages.marketFilter&&L.stage('marketFilter',lastConfig.stages.marketFilter.fields),exitParent=prior?.rows[0]?.parentIndex===index,semantic=prior&&['chartIndex','modeIndex','indexMarketIndex','numeratorMarketIndex','denominatorMarketIndex','exitModeIndex'].find(key=>prior[key]===index);
+    let index=Number(raw);const exitParent=prior?.rows[0]?.parentIndex===index,semantic=prior&&['chartIndex','modeIndex','indexMarketIndex','numeratorMarketIndex','denominatorMarketIndex','exitModeIndex'].find(key=>prior[key]===index);
     if((exitParent||semantic==='exitModeIndex')&&!layout.hasExit){await setField(p,layout.actionIndex,{...C.fields(p)[layout.actionIndex],value:L.marketActions[2]},'marketFilter',until);await settledStage(p,'marketFilter',layout.chart,until);layout=L.stage('marketFilter',C.fields(p));}
     if(exitParent)index=layout.rows[0].parentIndex;else if(semantic&&Number.isInteger(layout[semantic]))index=layout[semantic];if(!/^\d+$/.test(raw)||typeof value!=='string'||!value||value.length>200||!layout.refreshParents.includes(index))throw Error('This market trend selector cannot refresh the source.');
     if(exitParent&&!inputs(p)[layout.rows[0].gateIndex].checked)await setField(p,layout.rows[0].gateIndex,{...C.fields(p)[layout.rows[0].gateIndex],checked:true},'marketFilter',until);
@@ -966,7 +967,14 @@ async function transitionLayout(p,expected,stage,until=Infinity){
  if(stage==='execution'&&current.selection!==target.selection){await setField(p,current.selectionIndex,{...C.fields(p)[current.selectionIndex],value:target.selection},stage,until);await settledStage(p,stage,target.chart,until);}
  if(stage==='marketFilter'){
   const action=expected[target.actionIndex].value;if(C.fields(p)[current.actionIndex].value!==action){await setField(p,current.actionIndex,{...C.fields(p)[current.actionIndex],value:action},stage,until);await settledStage(p,stage,target.chart,until);current=L.stage(stage,C.fields(p));}
-  const mode=expected[target.rsModeIndex].checked?'RS':'Index',key=mode==='RS'?'rsModeIndex':'indexModeIndex';if(!C.fields(p)[current[key]].checked){await setField(p,current[key],{...C.fields(p)[current[key]],checked:true},stage,until);await settledStage(p,stage,target.chart,until);}
+  const rs=expected[target.rsModeIndex].checked,key=rs?'rsModeIndex':'indexModeIndex';
+  // Changing the chart or action can reveal price controls even while RS stays selected.
+  // Reapply the native mode so the original RS layout is restored before checking values.
+  if(rs&&!target.priceIndices.length&&current.priceIndices.length&&C.fields(p)[current.rsModeIndex].checked){
+   await setField(p,current.indexModeIndex,{...C.fields(p)[current.indexModeIndex],checked:true},stage,until);
+   current=L.stage(stage,C.fields(p));
+  }
+  if(!C.fields(p)[current[key]].checked){await setField(p,current[key],{...C.fields(p)[current[key]],checked:true},stage,until);await settledStage(p,stage,target.chart,until);}
  }
  return target;
 }
@@ -1027,7 +1035,7 @@ async function run(job){
  const reattach=job.recovery;
  const trace=reattach?recovery:{experimentId:e.id,trialId:t.id,strategyId:null,portfolioAttempted:false,portfolioId:null};
  const available=reattach&&recoveryStatus();
- const checkpoint=(stage,timing)=>send({...common,action:'checkpoint',stage,...(timing?{timing}:{})});
+ const checkpoint=(stage,timing,cleanupError)=>send({...common,action:'checkpoint',stage,...(timing?{timing}:{}),...(cleanupError?{cleanupError}:{})});
  active=true;interrupted=false;let deadline=E.trialDeadline(e,t)||Date.now()+e.timeoutMinutes*60000,continueQueue=false;
  const warning=document.createElement('section'),message=document.createElement('p'),extend=document.createElement('button'),dismiss=document.createElement('button');
  warning.hidden=true;message.setAttribute('role','status');message.textContent='Trial '+t.ordinal+' is nearing its timeout. Give RZone another '+e.timeoutMinutes+' minutes?';
@@ -1074,12 +1082,17 @@ async function run(job){
   if(L.validate('execution',E.fields(planned,'execution')).selection!=='Price')throw Error('Automatic execution currently requires Price selection.');
   let setup,submitted;
   if(!reattach){
+  const marketFields=E.fields(planned,'marketFilter'),marketLayout=marketFields?.length?L.marketFilter(marketFields):null;
+  if(marketLayout?.hasExit&&![marketLayout.rows[0].gateIndex,marketLayout.targetGateIndex,marketLayout.stopGateIndex].some(index=>marketFields[index].checked))throw Error(window.VaultSetup.marketTrendExitMessage);
   await apply(C.main(),e,t,'momentum',planned);
-  const marketFields=E.fields(planned,'marketFilter');
-  if(marketFields?.length){
+  if(marketLayout){
    const filter=await openMarketFilter(Math.min(deadline,Date.now()+10000));await apply(filter,e,t,'marketFilter',planned);
    E.verify(marketFields,C.fields(filter));ownClick(button(filter,/^Save$/i));
-   await wait(()=>!filter.isConnected||!C.visible(filter),Math.min(deadline,Date.now()+5000),'RZone did not save the Market Trend Filter settings.');
+   await wait(()=>{
+    const validation=C.popup('Filter Validation');
+    if(validation)throw Error(/select at least one of Stop-Loss, Target, or Exit Condition/i.test(validation.textContent)?window.VaultSetup.marketTrendExitMessage:'RZone rejected the Market Trend Filter. Review the validation message in RZone.');
+    return !filter.isConnected||!C.visible(filter);
+   },Math.min(deadline,Date.now()+5000),'RZone did not save the Market Trend Filter settings.');
    const savedFilter=C.getMarketTrend?.();if(!savedFilter)throw Error('The Market Trend Filter save was not recorded.');E.verify(marketFields,savedFilter.fields);
   }
   button(C.main(),/^BackTest$/i).click();
@@ -1154,16 +1167,18 @@ async function run(job){
    if(times.some((value,index)=>!Number.isFinite(value)||index>0&&value<times[index-1]))throw Error('Submission timing could not be verified.');
    experiment.evidence=evidence;
   }});
-  // Close only this trial's saved report. A failed close stops further submissions.
+  // Closing the source dialogs is a separate step from saving the report.
   C.status('Report written. Closing RZone dialogs…');
   const closeStarted=performance.now();
-  await close(report);if(C.visible(portfolio))await close(portfolio);
+  let cleanupError;
+  try{await close(report);if(C.visible(portfolio))await close(portfolio);}
+  catch(error){cleanupError=error.message||'RZone dialog cleanup was interrupted.';}
   timing.close=Math.round(performance.now()-closeStarted);
   C.status('Confirming the saved trial…');
-  const saved=await checkpoint('saved',timing);
+  const saved=await checkpoint('saved',timing,cleanupError);
   continueQueue=saved.status==='running';
   recovery=null;
-  C.status('Trial '+t.ordinal+' saved. Experiment queue will continue in this tab.');
+  C.status('Trial '+t.ordinal+' saved. '+(cleanupError?'Close any remaining RZone dialogs.':'The study is '+saved.status+'.'));
  }catch(error){failed=true;C.status('Experiment stopped: '+error.message);try{await send({...common,action:'fail',error:error.message});}catch{/* Durable lease prevents replay if the worker is unreachable. */}}
  finally{warning.remove();activeTimeout=null;active=false;if(continueQueue&&!interrupted)void tick();}
 }

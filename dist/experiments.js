@@ -140,7 +140,8 @@ function setupExpected(b,patch,period){
  if(auxiliarySetup(b))S.validateCombination(next.setup.config,b.setup.template);
  return next;
 }
-function create({id,name,baseline:b,dimensions:input,mode='grid',budget=30,seed=42,objective='calmar',ceiling=25,minTrades=30,timeoutMinutes=20,now=new Date().toISOString()}){
+function create(options){return buildPlan(options,true);}
+function buildPlan({id,name,baseline:b,dimensions:input,mode='grid',budget=30,seed=42,objective='calmar',ceiling=25,minTrades=30,timeoutMinutes=20,now=new Date().toISOString()},checkMarketExit){
  if(b?.origin==='vault-setup'){if(!S)throw Error('Reload Vault to load the test setup editor.');S.validateBaseline(b);}
  else if(b?.origin!==undefined)throw Error('Unknown experiment setup origin.');
  if(!idOK(id)||typeof name!=='string'||!name.trim()||name.length>120)throw Error('Give this experiment a short name.');
@@ -149,7 +150,10 @@ function create({id,name,baseline:b,dimensions:input,mode='grid',budget=30,seed=
  if(!Number.isInteger(Number(budget))||budget<1||budget>500)throw Error('Run budget must be 1–500.');
  if(!Number.isFinite(+ceiling)||ceiling<0||ceiling>100||!Number.isInteger(+minTrades)||minTrades<0||minTrades>1000000)throw Error('Check the drawdown ceiling and minimum trades.');
  if(!Number.isFinite(+timeoutMinutes)||timeoutMinutes<1||timeoutMinutes>120)throw Error('Trial timeout must be 1–120 minutes.');
- const dims=dimensions(b,input),all=combos(dims),main=fields(b,'momentum');
+ const dims=dimensions(b,input);
+ const issue=checkMarketExit&&b.origin==='vault-setup'&&S.marketTrendExitIssue(b.setup.config,dims);
+ if(issue)throw Error(issue);
+ const all=combos(dims),main=fields(b,'momentum');
  if(mode==='grid'&&all.length>budget)throw Error(all.length+' combinations exceed the '+budget+' run budget. Increase the budget or use a sample.');
  const rules=b.origin==='vault-setup'?combinationRules(b):null,combinationFields=auxiliarySetup(b)?S.fieldsForUI(b.setup.template,b.setup.config).flatMap(g=>g.fields):null;
  for(const patch of all){if(rules){const config={...b.setup.config,...setupPatch(patch)};checkSetupCombination(config,rules);if(combinationFields)S.validateCombination(config,b.setup.template,combinationFields);continue;}const weight=Array.from({length:4},(_,i)=>main[11+i*2].checked?(patch['momentum.period.'+(i+1)+'.weight']??V.number(main[22+i].value)):0);if(!weight.some(x=>x>0))throw Error('Each combination needs a positive weight on an enabled period.');}
@@ -203,7 +207,8 @@ function sameStoredPlan(a,b){
  const keys=Object.keys(a);
  return keys.length===Object.keys(b).length&&keys.every(key=>Object.hasOwn(b,key)&&sameStoredPlan(a[key],b[key]));
 }
-const rebuildPlan=study=>create({...study,dimensions:study.dimensions,now:study.createdAt});
+// Existing studies must remain readable so their settings can be corrected.
+const rebuildPlan=study=>buildPlan({...study,dimensions:study.dimensions,now:study.createdAt},false);
 function createValidator(){
  // Cache only the generated plan for one unchanged study. The stored journal
  // and its trial settings are checked on every validation, even on a hit.
@@ -309,6 +314,7 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
 const editableDraft=e=>e?.status==='draft'&&!e.demo&&!e.owner&&e.baseline?.origin==='vault-setup'&&e.trials.length>0&&e.trials.every(t=>t.status==='queued'&&!t.execution&&!t.events.length);
-const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,createValidator,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,waitingForResult,trialDeadline,timeoutWarning,clone,editableDraft};
+const canRetryUnsubmitted=t=>t?.status==='uncertain'&&!!t.execution?.claimedAt&&t.events.some(event=>event.status==='applying')&&!t.events.some(event=>['strategy-submitting','strategy-complete','portfolio-submitting','capturing','saved'].includes(event.status));
+const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,createValidator,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,waitingForResult,trialDeadline,timeoutWarning,clone,editableDraft,canRetryUnsubmitted};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);

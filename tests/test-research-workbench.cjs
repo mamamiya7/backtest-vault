@@ -19,11 +19,23 @@ async function check(main,exit,filter){
   const radar=d.querySelector('[data-enable-field="momentum.radar.enabled"]');radar.click();assert.equal(field('momentum.radar.rule').disabled,false);radar.click();assert.equal(field('momentum.radar.rule').disabled,true);
   d.querySelector('[data-enable-field="momentum.rs"]').click();assert.equal(field('momentum.rs.rule').disabled,false);assert.equal(field('momentum.rs.benchmark').disabled,false);
   d.querySelector('[data-enable-field="momentum.market-filter"]').click();const dialog=d.querySelector('.research-filter-dialog');assert.equal(dialog.open,true);assert.equal(field('marketFilter.chart').value,filter);
+  assert.deepEqual([...dialog.querySelectorAll('[data-filter-block]')].map(section=>section.dataset.filterBlock),['chart','type','benchmarks','method','action','exit']);
+  assert.deepEqual([...field('marketFilter.mode').options].map(option=>option.text),['Index Filter','RS Filter']);
+  assert.equal(wrap('marketFilter.ema').closest('[data-filter-block]').dataset.filterBlock,'method');
+  assert.equal(field('momentum.ema.1')?.closest('dialog'),null,'The strategy EMA remains on the main form');
   for(const mode of ['Index','RS']){change('marketFilter.mode',mode);assert.equal(wrap('marketFilter.index.symbol').hidden,mode!=='Index');assert.equal(wrap('marketFilter.numerator.symbol').hidden,mode!=='RS');assert.equal(wrap('marketFilter.denominator.symbol').hidden,mode!=='RS');
+   assert.equal(!!wrap('marketFilter.box.size'),filter==='P&F');assert.equal(!!wrap('marketFilter.brick.size'),filter==='Renko');if(filter!=='Candle')assert.equal(wrap('marketFilter.price-mode').hidden,mode==='RS');
    for(const method of ['EMA','D Smart','MAST','KTQP']){change('marketFilter.method',method);for(const key of ['ema','dsmart','mast','ktqp'])assert.equal(wrap('marketFilter.'+key).hidden,key!==method.toLowerCase().replace(' ',''));
     for(const [i,action]of w.VaultSourceLayouts.marketActions.entries()){change('marketFilter.action',action);assert.equal(wrap('marketFilter.exit.enabled').hidden,i<2);assert.equal(wrap('marketFilter.target.enabled').hidden,i<2);}
    }
   }
+  const warning=dialog.querySelector('[data-filter-block="exit"] [role="alert"]');
+  assert.match(warning.textContent,/enable at least one of Stop loss, Profit target, or Exit strategy/i);
+  assert.equal(d.querySelector('.source-count-bar .primary').disabled,true);
+  change('marketFilter.stop.enabled','both');
+  assert.equal(warning.hidden,false,'A batch with an off alternative still has an invalid trial');
+  change('marketFilter.stop.enabled','true');
+  assert.equal(warning.hidden,true);assert.equal(d.querySelector('.source-count-bar .primary').disabled,false);
   dialog.dispatchEvent(new w.Event('cancel',{cancelable:true}));assert.equal(dialog.open,false);assert.equal(d.activeElement.textContent,'Market Trend Filter');click('Market Trend Filter');assert.equal(dialog.open,true);click('Done',dialog);assert.equal(dialog.open,false);
   assert.equal(commands.filter(m=>m.action==='configure').length,initialCalls,'Toggles and opening cached filters do not rescan the source');assert.ok(commands.every(m=>['list','configure'].includes(m.action)));
   const editor=d.querySelector('[data-variation-for="momentum.period.1"]'),original=field('momentum.period.1').value;click('Test values',editor);const input=editor.querySelector('[aria-label="Period 1 test values"]');input.value='252,500';input.dispatchEvent(new w.Event('input'));assert.match(d.querySelector('.source-count-bar').textContent,/2 tests/);click('Cancel',editor);assert.equal(field('momentum.period.1').value,original,'Cancel restores the original baseline');assert.match(d.querySelector('.source-count-bar').textContent,/1 test planned/);

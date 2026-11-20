@@ -20,22 +20,12 @@ function create(scope){
   const skipped=e.trials.filter(t=>t.status==='skipped').length;if(skipped)wrap.append(node('small',skipped+' skipped'));
   return wrap;
  }
- function results(e,runs,onOpen,onReuse){
-  const savedAt=t=>Date.parse(t.events?.findLast(event=>event.status==='saved')?.at)||0;
-  const trials=e.trials.filter(t=>t.status==='saved'&&runs.some(r=>r.id===t.runId)).sort((a,b)=>savedAt(a)-savedAt(b)||a.ordinal-b.ordinal);if(!trials.length)return null;
-  const section=node('section',undefined,'study-recent-results'),heading=node('h3',e.demo?'Latest sample results':'Latest saved results'),list=node('ol');section.append(heading,list);
-  // Completion order also covers adaptive trials; polling never creates events.
-  for(const t of trials.slice(-3).reverse()){
-   const run=runs.find(r=>r.id===t.runId),row=node('li'),button=node('button',undefined,'study-result-link'),copy=node('span'),k=key(e,t);row.dataset.trialId=t.id;button.type='button';
-   copy.append(node('strong','Trial '+t.ordinal),node('span',run.name||'Saved report'));button.append(copy,node('span','Open report','study-result-action'));button.addEventListener('click',()=>onOpen(run));row.append(button);list.append(row);
-   if(onReuse){row.classList.add('has-reuse');const reuse=node('button','Use these settings','secondary study-result-reuse');reuse.type='button';reuse.setAttribute('aria-label','Use settings from Trial '+t.ordinal);reuse.addEventListener('click',()=>onReuse(run));row.append(reuse);}
-   if(pending.delete(k))animate(row,[{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'none'}],{duration:280,easing:'ease-out'});
-  }
-  return section;
+ function savedRow(row,e,t){
+  if(pending.delete(key(e,t)))animate(row,[{opacity:0,transform:'translateY(8px)'},{opacity:1,transform:'none'}],{duration:280,easing:'ease-out'});
  }
  const pointer=event=>{if(reduced()||event.pointerType==='touch')return;const card=event.target.closest?.('.study-card');if(!card||!scope.contains(card))return;const box=card.getBoundingClientRect();card.style.setProperty('--spot-x',(event.clientX-box.left)+'px');card.style.setProperty('--spot-y',(event.clientY-box.top)+'px');};
  scope.addEventListener('pointermove',pointer);
- return {observe,enter,progress,results,destroy(){scope.removeEventListener('pointermove',pointer);media?.removeEventListener?.('change',cancel);for(const a of animations)a.cancel();animations.clear();}};
+ return {observe,enter,progress,savedRow,destroy(){scope.removeEventListener('pointermove',pointer);media?.removeEventListener?.('change',cancel);for(const a of animations)a.cancel();animations.clear();}};
 }
 root.VaultWorkspaceMotion={create};
 })(window);

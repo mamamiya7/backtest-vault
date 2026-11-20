@@ -57,7 +57,13 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  const clearCalendars=()=>{for(const calendar of calendars.splice(0))calendar.destroy();};
  const calendarOpen=()=>calendars.some(calendar=>calendar.button.getAttribute('aria-expanded')==='true');
  const attachCalendar=(container,fromInput,toInput,options={})=>{if(!root.VaultDateRange)return null;const calendar=root.VaultDateRange.attach({container,fromInput,toInput,...options});calendars.push(calendar);return calendar;};
- const keepSetup=()=>{if(!wizard||wizard.submitting)return;const {controls,countUpdates,fields,catalog,...draft}=wizard;if(wizard.connecting||wizard.ruleLookup)notice.textContent='';setupDrafts.set(store,structuredClone({...draft,connecting:false,warmingChart:null,loadingFilter:null,choiceCheckStatus:null,ruleLookup:null,reviewOpen:false,editorOpen:null,generation:draft.generation+1}));};
+ const keepSetup=()=>{
+  if(!wizard||wizard.submitting)return;
+  // The workbench rebuilds these DOM references, callbacks, and derived fields on resume.
+  const {controls,conditionals,countUpdates,fields,catalog,...draft}=wizard;
+  if(wizard.connecting||wizard.ruleLookup)notice.textContent='';
+  setupDrafts.set(store,structuredClone({...draft,connecting:false,warmingChart:null,loadingFilter:null,choiceCheckStatus:null,ruleLookup:null,reviewOpen:false,editorOpen:null,generation:draft.generation+1}));
+ };
 
  const dispose=()=>{if(disposed)return;keepSetup();disposed=true;clearInterval(timer);document.removeEventListener('visibilitychange',refresh);clearCalendars();motion?.destroy();deletionDialog?.remove();timeoutDialog?.remove();deletionDialog=null;document.body.classList.remove('experiments-mode');};cleanup=dispose;
 
@@ -142,13 +148,13 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');cancel.focus();
  }
 
- function sourceControls(id,state){
+ function sourceControls(id,state,cleanup){
   const picker=select([['','Select RZone tab']]),help=el('p','','mini');
   let starting=false;
   picker.setAttribute('aria-label','RZone tab');picker.dataset.rzone='true';help.setAttribute('role','status');
   const ready=t=>t.ready&&(localSetup||t.chart==='Candle');
   const remaining=experiments.find(e=>e.id===id)?.trials.filter(t=>t.status==='queued').length||1;
-  const start=button(state==='draft'?'Run '+remaining+' '+(remaining===1?'test':'tests'):'Resume tests',()=>action(async()=>{
+  const start=button(cleanup?'Reconnect and resume':state==='draft'?'Run '+remaining+' '+(remaining===1?'test':'tests'):'Resume tests',()=>action(async()=>{
    if(starting)return;
    const tab=tabs.find(t=>String(t.id)===picker.value);
    if(!localSetup&&(!tab||!ready(tab)))throw Error('Connect a ready RZone backtesting tab first.');
@@ -201,7 +207,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- async function newTest(initial=null,authorised=false,study=null){
+ async function newTest(initial=null,authorised=false,study=null,copyStudy=false){
   const savedContext=initial?S.savedRunContext(initial):null;
   if(initial&&(initial.demo===true)!==(store.demo===true))throw Error('Real and fictional saved settings cannot be mixed.');
   if(initial&&!authorised&&!store.demo&&window.VaultAccountUI?.enabled())return window.VaultAccountUI.requireFeature('reuse').then(()=>newTest(initial,true));
@@ -213,12 +219,13 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    const state=wizard;
    setupLibrary = await command('setup-library');
    if(wizard!==state||!alive())return;
+   if(setupLibrary.marketFilterAutoAttempted)state.marketFilterAutoDay=localChoiceDay();
    const source=study?{...study.baseline.setup.template,nseBenchmarkSeeded:setupLibrary.nseBenchmarkSeeded}:localTemplate(savedContext?.config);
    if(source){
     acceptSetupSource(state,source);
     if(study){
      const {id,name,mode,budget,objective,ceiling,minTrades,seed,timeoutMinutes,baseline,dimensions}=study;
-     Object.assign(state,{draftId:id,name,mode,budget,objective,ceiling,minTrades,seed,timeout:timeoutMinutes,config:structuredClone(baseline.setup.config),dimensions:dimensions.map(({key,values})=>({key,values:structuredClone(values)}))});
+     Object.assign(state,{draftId:copyStudy?undefined:id,name:copyStudy?name.slice(0,113)+' · copy':name,mode,budget,objective,ceiling,minTrades,seed,timeout:timeoutMinutes,config:structuredClone(baseline.setup.config),dimensions:dimensions.map(({key,values})=>({key,values:structuredClone(values)}))});
      const tab=tabs.find(t=>String(t.id)===sourceChoices.get(id));
      if(tab){state.sourceId=String(tab.id);state.sourceSession=tab.session;}
     }
@@ -376,16 +383,16 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   }finally{state.connecting=wasConnecting;state.loadingFilter=null;if(rendered&&alive()&&wizard===state)setupPage();}
  }
 
- async function refreshSetupChoices(changes,{recheckAllChoices=false,chartSwitch=null,loadFilter=null}={}){
+ async function refreshSetupChoices(changes,{recheckAllChoices=false,chartSwitch=null,loadFilter=null,automaticMarketFilter=false}={}){
   const state=wizard;if(!state||state.connecting||store.demo)return;if(!setupSourceValid())return;
   const includeRelativeStrength=chartSwitch&&chartSwitch.key==='momentum.chart'&&setupEnabled(state,'momentum.rs');
   const generation=++state.generation;state.connecting=true;state.connectionError='';for(const control of content.querySelectorAll('.setup-form input,.setup-form select,.setup-form button,.setup-builder button'))control.disabled=true;
   state.choiceCheckStatus=recheckAllChoices?'Rechecking all choices from RZone…':loadFilter?'Loading '+(loadFilter==='relativeStrength'?'Relative Strength':'Market Trend Filter')+' settings…':chartSwitch?'Loading '+chartSwitch.value+' settings…':'Refreshing the choices from RZone…';
   setupPage();
   try{
-   const relativeLookup=localSetup&&loadFilter==='relativeStrength';
-   if(relativeLookup)selectedSource(state);
-   const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{}),...(includeRelativeStrength?{includeRelativeStrength:true}:{}),...(recheckAllChoices?{recheckAllChoices:true}:{}),...(loadFilter?{loadFilter}:{}) ,...(relativeLookup?{filterTemplate:state.template}:{})});
+   const optionalLookup=localSetup&&(loadFilter||changes?.marketFilter);
+   if(optionalLookup)selectedSource(state);
+   const response=await command('configure',{tabId:Number(state.sourceId),...(changes?{changes}:{}),...(includeRelativeStrength?{includeRelativeStrength:true}:{}),...(recheckAllChoices?{recheckAllChoices:true}:{}),...(loadFilter?{loadFilter}:{}),...(optionalLookup?{filterTemplate:state.template}:{}),...(automaticMarketFilter?{automaticMarketFilter:true}:{})});
    if(!alive()||wizard!==state||generation!==state.generation)return;
    let source=response.source;
    if(chartSwitch){
@@ -550,6 +557,8 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  }
 
  const setupEnabled=(state,key)=>!key||!!state.config[key]||state.dimensions.some(d=>d.key===key&&Array.isArray(d.values)&&d.values.includes(true));
+ const marketTrendChoicesMissing=state=>setupEnabled(state,'momentum.market-filter')&&!state.fields.has('marketFilter.method');
+ const marketTrendExitIssue=state=>S.marketTrendExitIssue(state.config,state.dimensions);
  const setupDimensions=state=>setupEnabled(state,'momentum.rs')?state.dimensions:state.dimensions.filter(d=>!d.key.startsWith('momentum.rs.'));
  function relativeStrengthRuleIssue(state){
   if(!setupEnabled(state,'momentum.rs'))return '';
@@ -811,7 +820,8 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    target.scrollIntoView?.({block:'center'});
    target.focus({preventScroll:true});
   },'quiet');
-  const update=()=>{const issue=updateRuleNotice();if(issue||state.pendingSourceSearch){backtest.textContent='Review tests';count.replaceChildren(el('strong','Review unavailable'),el('span',issue||'Resolve the pending chart change to review.'));if(issue)count.append(fixRule);backtest.disabled=true;return;}try{const active=setupDimensions(state);if(active.length>6)throw Error('Restored test values exceed six changing settings. Remove a test range to continue.');const dimensions=active.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget),unit=planned===1?'test':'tests';backtest.textContent='Review '+planned+' '+unit;count.replaceChildren(el('strong',planned+' '+unit+' planned'),el('span',dimensions.length?(dimensions.length===1?dimensions[0].label+' varies.':dimensions.length+' settings vary.')+' Other settings stay fixed.':'Current settings · saved together in one study'));if(state.mode!=='grid')count.append(el('span',combinations+' possible combinations','source-both-note'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){backtest.textContent='Review tests';count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting||!!state.ruleLookup;};state.countUpdates.push(update);update();
+  const fixMarket=button('Open Market Trend Filter',()=>{state.filterOpen=true;state.openMarketFilter?.();},'quiet');
+  const update=()=>{const issue=updateRuleNotice(),missingMarket=marketTrendChoicesMissing(state),exitIssue=marketTrendExitIssue(state),marketPending=state.pendingSourceSearch?.changes.marketFilter;if(issue||missingMarket||exitIssue||state.pendingSourceSearch){backtest.textContent='Review tests';count.replaceChildren(el('strong','Review unavailable'),el('span',issue||exitIssue||(missingMarket?'Load Market Trend choices to set a period.':'Resolve the pending chart change to review.')));if(issue)count.append(fixRule);else if(missingMarket||exitIssue||marketPending)count.append(fixMarket);backtest.disabled=true;return;}try{const active=setupDimensions(state);if(active.length>6)throw Error('Restored test values exceed six changing settings. Remove a test range to continue.');const dimensions=active.map(d=>{const field=state.catalog.find(f=>f.key===d.key);if(!field)throw Error('A changing setting is unavailable. Review its test values.');return {...field,values:E.values(d.values,field)};}),combinations=E.combos(dimensions).length,planned=state.mode==='grid'?combinations:Math.min(combinations,state.budget),unit=planned===1?'test':'tests';backtest.textContent='Review '+planned+' '+unit;count.replaceChildren(el('strong',planned+' '+unit+' planned'),el('span',dimensions.length?(dimensions.length===1?dimensions[0].label+' varies.':dimensions.length+' settings vary.')+' Other settings stay fixed.':'Current settings · saved together in one study'));if(state.mode!=='grid')count.append(el('span',combinations+' possible combinations','source-both-note'));if(dimensions.some(d=>d.type==='boolean'&&d.values.length===2))count.append(el('span','Test both compares separate On and Off runs.','source-both-note'));}catch(error){backtest.textContent='Review tests';count.replaceChildren(el('strong','Review test values'),el('span',error.message));}backtest.disabled=state.connecting||!!state.ruleLookup;};state.countUpdates.push(update);update();
   if(state.reviewOpen)openBacktest(state);
  }
 
@@ -821,15 +831,43 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   const dialog=el('dialog',undefined,'research-filter-dialog');dialog.dataset.filterSettings='momentum.market-filter';dialog.setAttribute('aria-label','Market Trend Filter settings');dialog.setAttribute('aria-modal','true');form.append(dialog);
   const head=el('div',undefined,'source-dialog-heading'),body=el('div',undefined,'research-filter-body'),foot=el('div',undefined,'research-filter-footer');head.append(el('h3','Market Trend Filter'),button('Close',()=>close(),'quiet'));dialog.append(head,body,foot);
   const opener=button('Market Trend Filter',()=>{state.filterOpen=true;open();},'research-filter-button');launch.append(opener);const receipt=el('span','','research-filter-summary');launch.append(receipt);
-  const blocks=new Map();for(const [id,title] of [['context','Filter context'],['benchmarks','Reference symbols'],['method','Trend condition'],['action','When trend changes'],['exit','Conditional exit']]){const section=el('section',undefined,'research-filter-block'),fields=el('div',undefined,'research-filter-fields');section.dataset.filterBlock=id;section.append(el('h4',title),fields);body.append(section);blocks.set(id,{section,fields});}
+  const blocks=new Map();
+  for(const [id,caption] of [['chart','Chart settings'],['type','Filter type'],['benchmarks','Filter symbols'],['method','Trend method and period'],['action','Filter action'],['exit','Alternate exit']]){
+   const section=el('section',undefined,'research-filter-block'),fields=el('div',undefined,'research-filter-fields');
+   section.dataset.filterBlock=id;section.setAttribute('aria-label',caption);section.append(fields);body.append(section);blocks.set(id,{section,fields});
+   if(id==='exit')section.prepend(el('h4',caption));
+  }
   const descriptors=[...state.fields.values()].filter(f=>f.key.startsWith('marketFilter.'));
-  for(const field of descriptors){if(field.key.endsWith('.price.high-low'))continue;const tail=field.key.slice('marketFilter.'.length),kind=/^(exit|target|stop)\./.test(tail)||['target','stop'].includes(tail)?'exit':/^(index|numerator|denominator)\./.test(tail)?'benchmarks':['method','ema','dsmart','mast','ktqp'].includes(tail)?'method':tail==='action'?'action':'context';const node=field.key.endsWith('.price.close-only')?priceModeField(state,field.key.slice(0,-'.price.close-only'.length),kind==='exit'?'Exit price mode':'Filter price mode'):sourceField(state,field.key,{showLabel:true,text:field.type==='boolean'?field.label.replace(/^Use /,''):''});blocks.get(kind).fields.append(node);}
+  for(const field of descriptors){
+   if(field.key.endsWith('.price.high-low'))continue;
+   const tail=field.key.slice('marketFilter.'.length);
+   const kind=/^(exit|target|stop)(\.|$)/.test(tail)?'exit'
+    : /^(index|numerator|denominator)\./.test(tail)?'benchmarks'
+    : ['method','ema','dsmart','mast','ktqp'].includes(tail)?'method'
+    : tail==='mode'?'type':tail==='action'?'action':'chart';
+   const node=field.key.endsWith('.price.close-only')?priceModeField(state,field.key.slice(0,-'.price.close-only'.length),kind==='exit'?'Exit price mode':'Filter price mode'):sourceField(state,field.key,{showLabel:true});
+   blocks.get(kind).fields.append(node);
+  }
+  const exitNotice=el('p','','notice error');exitNotice.setAttribute('role','alert');blocks.get('exit').section.append(exitNotice);
   const status=el('p','','source-availability');status.setAttribute('role','status');body.append(status);foot.append(button('Done',()=>close(),'primary'));
-  if(state.fields.get('momentum.market-filter')?.needsDiscovery&&setupEnabled(state,'momentum.market-filter'))body.append(button(localSetup?'Search RZone for Market Trend choices':'Load settings',()=>action(()=>{if(localSetup)selectedSource(state);return refreshSetupChoices(undefined,{loadFilter:'marketFilter'});}),'quiet'));
+  const missing=state.fields.get('momentum.market-filter')?.needsDiscovery;
+  const pending=state.pendingSourceSearch?.changes.marketFilter&&state.pendingSourceSearch;
+  if((missing||pending)&&setupEnabled(state,'momentum.market-filter')){
+   const load=button(state.connecting?'Loading choices…':localSetup?'Load Market Trend choices':'Load settings',()=>action(()=>pending?refreshSetupChoices(pending.changes,{chartSwitch:pending.chartSwitch}):refreshSetupChoices(undefined,{loadFilter:'marketFilter'})),'secondary');
+   load.disabled=state.connecting;body.append(load);
+  }
   function close(){state.filterOpen=false;if(dialog.open&&typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open');opener.setAttribute('aria-expanded','false');opener.focus();}
-  function open(){if(!setupEnabled(state,'momentum.market-filter'))return;if(!dialog.open){if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');}opener.setAttribute('aria-expanded','true');}
+  function open(){
+   if(!setupEnabled(state,'momentum.market-filter'))return;
+   if(!dialog.open){if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');}
+   opener.setAttribute('aria-expanded','true');
+   if(localSetup&&missing&&!state.connecting&&state.marketFilterAutoDay!==localChoiceDay()){
+    state.marketFilterAutoDay=localChoiceDay();
+    queueMicrotask(()=>{if(alive()&&wizard===state&&state.filterOpen&&!state.connecting)void action(()=>refreshSetupChoices(undefined,{loadFilter:'marketFilter',automaticMarketFilter:true}));});
+   }
+  }
   dialog.addEventListener('cancel',event=>{event.preventDefault();close();});dialog.addEventListener('close',()=>{state.filterOpen=false;});Object.defineProperty(state,'openMarketFilter',{value:open,configurable:true,enumerable:false});
-  const sync=()=>{const gate=state.fields.get('momentum.market-filter'),enabled=setupEnabled(state,'momentum.market-filter');opener.disabled=state.connecting||!!gate?.disabled||!enabled;opener.setAttribute('aria-expanded',String(dialog.open));receipt.textContent=enabled?(descriptors.length?[state.config['marketFilter.mode'],state.config['marketFilter.chart'],state.config['marketFilter.method']].filter(Boolean).join(' · '):state.loadingFilter?'Loading choices…':'Choices not loaded'):'';status.textContent=state.connectionError||(!descriptors.length?(state.connecting?'Loading choices…':gate?.reason||'Enable Market Trend Filter to load its source settings.'):'');status.hidden=!status.textContent;for(const {section,fields}of blocks.values())section.hidden=![...fields.children].some(n=>!n.hidden);};state.countUpdates.push(sync);sync();if(state.filterOpen)open();
+  const sync=()=>{const gate=state.fields.get('momentum.market-filter'),enabled=setupEnabled(state,'momentum.market-filter');opener.disabled=state.connecting||!!gate?.disabled||!enabled;opener.setAttribute('aria-expanded',String(dialog.open));receipt.textContent=enabled?(descriptors.length?[state.config['marketFilter.mode'],state.config['marketFilter.chart'],state.config['marketFilter.method']].filter(Boolean).join(' · '):state.loadingFilter?'Loading choices…':'Choices not loaded'):'';status.textContent=state.connectionError||(!descriptors.length?(state.connecting?'Loading choices…':gate?.reason||'Load choices to edit the trend method and period.'):'');status.hidden=!status.textContent;exitNotice.textContent=marketTrendExitIssue(state);exitNotice.hidden=!exitNotice.textContent;for(const {section,fields}of blocks.values())section.hidden=![...fields.children].some(n=>!n.hidden);};state.countUpdates.push(sync);sync();if(state.filterOpen)open();
  }
 
  function priceModeField(state,prefix,caption){
@@ -880,7 +918,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  }
 
  function openBacktest(state){
-  if(wizard!==state||state.connecting||state.ruleLookup||relativeStrengthRuleIssue(state)||!setupSourceValid())return;
+  if(wizard!==state||state.connecting||state.ruleLookup||relativeStrengthRuleIssue(state)||marketTrendChoicesMissing(state)||marketTrendExitIssue(state)||!setupSourceValid())return;
   if(state.pendingSourceSearch){notice.textContent='Load the selected chart’s choices or select a chart already saved in Vault.';return;}
   const previous=content.querySelector('.setup-backtest-dialog');if(previous?.open)return;previous?.remove();state.reviewOpen=true;
   const dialog=el('dialog',undefined,'setup-backtest-dialog');dialog.setAttribute('aria-label','Review backtest');dialog.setAttribute('aria-modal','true');const title=el('div',undefined,'source-dialog-heading');title.append(el('h3','Review backtest'),button('Close',()=>closeDialog(),'quiet'));dialog.append(title);
@@ -893,6 +931,11 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    const rs=state.config['momentum.rs'],benchmark=varying('momentum.rs.benchmark')?'Multiple benchmarks':state.config['momentum.rs.benchmark'],rule=varying('momentum.rs.rule')?'Multiple rules':state.config['momentum.rs.rule'];
    for(const [title,value] of [['Entry chart',state.config['momentum.chart']],['Exit chart',state.config['execution.chart']],['Relative Strength',varying('momentum.rs')?'Testing on and off':rs?[benchmark,rule].filter(Boolean).join(' · '):'Off']]){
     const item=el('div');item.append(el('dt',title),el('dd',String(value??'')));scope.append(item);
+   }
+   if(setupEnabled(state,'momentum.market-filter')){
+    const method=state.config['marketFilter.method'],periodKey='marketFilter.'+method?.toLowerCase().replace(' ','');
+    const value=reviewDimensions.some(d=>d.key.startsWith('marketFilter.')||d.key==='momentum.market-filter')?'Multiple test values':method+' · '+state.config[periodKey]+' periods';
+    const item=el('div');item.append(el('dt','Market Trend Filter'),el('dd',value));scope.append(item);
    }
   }
   for(const [title,value] of [['Universe',varying('momentum.group')?'Multiple universes · see test values below':state.config['momentum.group']],['Timeframe',varying('momentum.timeframe')?'Multiple timeframes · see test values below':state.config['momentum.timeframe']],['Test period',varying('execution.period')?state.dimensions.find(d=>d.key==='execution.period').values.length+' date ranges':varying('execution.from')||varying('execution.to')?'Multiple periods · see test values below':dateRangeText(state.config['execution.from']+'/'+state.config['execution.to'])],['Initial capital',varying('portfolio.capital')?'Multiple amounts · see test values below':fmt(Number(state.config['portfolio.capital']))]]){const item=el('div');item.append(el('dt',title),el('dd',String(value??'')));scope.append(item);}
@@ -1045,20 +1088,23 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- function executionEvidence(e){
-  const body=el('div',undefined,'experiment-execution-evidence'),started=e.trials.filter(t=>t.events.length||t.execution||t.status==='saved'||t.status==='uncertain');
-  if(!started.length)body.append(el('p','No RZone trial has started.','muted'));
-  for(const t of started){
-   const run=runs.find(r=>r.id===t.runId),receipt=run?.experiment?.evidence;let verified=false,reason='Source timing was not recorded for this result.';
+ function showExecutionEvidence(e,t,run){
+   const receipt=run?.experiment?.evidence;let verified=false,reason='Source timing was not recorded for this result.';
    if(run&&typeof E.verifyEvidence==='function'){try{if(run.experiment?.id!==e.id||run.experiment?.trialId!==t.id||run.experiment?.phase!==t.phase)throw Error('Result does not belong to this experiment trial.');E.verifyEvidence(e,t,run);verified=true;}catch(error){reason=error.message;}}
-   const section=el('section',undefined,'experiment-trial-evidence');section.append(el('h4','Trial '+t.ordinal+' · '+stateName(t.status)));
+   const dialog=el('dialog',undefined,'study-evidence-dialog'),title='Trial '+t.ordinal+' execution evidence';
+   dialog.setAttribute('aria-label',title);
+   const head=el('div',undefined,'study-evidence-heading'),section=el('div',undefined,'study-evidence-body');
+   head.append(el('h3',title),button('Close',()=>{if(typeof dialog.close==='function')dialog.close();else dialog.remove();},'quiet'));dialog.append(head,section);content.append(dialog);
+   dialog.addEventListener('close',()=>dialog.remove(),{once:true});
+   section.append(el('p',stateName(t.status),'muted'));
    if(verified&&receipt){
     const duration=elapsed(receipt.strategySubmittedAt,receipt.capturedAt);section.append(el('p','RZone source lifecycle recorded'+(duration?' · '+duration+' from submission to capture':''),'mini'));
     const cells=el('dl',undefined,'map-settings');
     for(const [title,key] of [['Strategy submitted','strategySubmittedAt'],['Running observed','strategyStartedAt'],['Strategy completed','strategyCompletedAt'],['Portfolio submitted','portfolioSubmittedAt'],['New report observed','reportOpenedAt'],['Report captured','capturedAt']]){
      const cell=el('div'),time=el('time');time.dateTime=receipt[key];time.textContent=new Date(receipt[key]).toLocaleString();cell.append(el('dt',title),el('dd'));cell.lastChild.append(time);cells.append(cell);
     }
-    section.append(cells,el('p','Submission IDs: '+receipt.strategySubmissionId+' / '+receipt.portfolioSubmissionId,'mini evidence-reference'));
+    section.append(cells);
+    const technical=el('div');technical.append(el('p','Strategy submission ID '+receipt.strategySubmissionId,'mini evidence-reference'),el('p','Portfolio submission ID '+receipt.portfolioSubmissionId,'mini evidence-reference'));
     if(t.captureTiming){
      const phases=[['Quick Stats','Quick Stats'],['Statistics','Statistics'],['Charts','Charts'],['Trade Details','Trade Details'],['Read charts and trade pages','details'],['Waiting to save','checkpoint'],['Write report','write'],['Close RZone dialogs','close'],['Verify saved report','confirm']];
      const timings=el('dl',undefined,'map-settings');
@@ -1066,30 +1112,76 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
      if(timings.childElementCount)section.append(timings);
      const background=[['ack','Capture acknowledgement'],['queue','Worker queue'],['prepare','Load and check study'],['journal','Write capture checkpoint']];
      const parts=background.filter(([key])=>Number.isSafeInteger(t.captureTiming[key])&&t.captureTiming[key]>=0).map(([key,title])=>title+' '+(t.captureTiming[key]/1000).toFixed(2)+' s');
-     if(parts.length)section.append(el('p',parts.join(' · '),'mini'));
+     if(parts.length)technical.append(el('p',parts.join(' · '),'mini'));
     }
+    section.append(disclosure('Submission IDs and background timing',technical));
    }else if(run)section.append(el('p',reason,'mini'));
    if(t.error)section.append(el('p',t.error,'mini'));
    const events=el('ol',undefined,'experiment-timeline');
    for(const event of t.events){const row=el('li'),time=el('time');if(Number.isFinite(Date.parse(event.at))){time.dateTime=event.at;time.textContent=new Date(event.at).toLocaleTimeString();}else time.textContent='Time unavailable';row.append(el('span',stateName(event.status)),time);events.append(row);}
-   if(t.events.length)section.append(events);
-   if(run)section.append(button('Open saved run',()=>onOpen(run),'quiet'));
-   body.append(section);
+   if(t.events.length){const timeline=el('div');timeline.append(events);section.append(disclosure('Trial timeline',timeline));}
+   if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');
+ }
+
+ function trialResults(e,decisions,group,sample){
+  const results=new Map([...decisions.items,...['validation','holdout'].flatMap(phase=>e.trials.some(t=>t.phase===phase&&t.status==='saved')?E.decisions(e,runs,phase).items:[])].map(item=>[item.trial.id,item]));
+  const eligible=group?.eligible||(!decisions.grouped?decisions.eligible:[]);
+  const ranks=new Map(eligible.map(item=>[item.trial.id,eligible.findIndex(peer=>Math.abs(peer.value-item.value)<1e-9)+1]));
+  const shown=group?e.trials.filter(t=>results.get(t.id)?.groupKey===group.key&&t.phase==='discovery'):e.trials;
+  const ordered=group?[...shown].sort((a,b)=>(ranks.get(a.id)??Infinity)-(ranks.get(b.id)??Infinity)||a.ordinal-b.ordinal):shown;
+  const wrap=el('div',undefined,'table-wrap study-results-table'),resultTable=el('table'),head=el('thead'),header=el('tr'),body=el('tbody'),runsById=new Map(runs.map(run=>[run.id,run]));
+  wrap.tabIndex=0;wrap.setAttribute('role','region');wrap.setAttribute('aria-label','Trial results table');
+  resultTable.setAttribute('aria-label','Experiment trials');
+  const sortable=[],entries=[];
+  const singleValue=e.dimensions.length===1;
+  for(const name of ['Trial','Stage',singleValue?e.dimensions[0].label:'Test values','Status',metricName(e.objective),'Actions']){
+   const column=el('th',name);column.scope='col';header.append(column);
+   if(name==='Trial'||name===metricName(e.objective)){
+    column.setAttribute('aria-sort','none');sortable.push(column);
+    column.replaceChildren(button(name,()=>{
+     const direction=column.getAttribute('aria-sort')==='ascending'?'descending':'ascending';
+     for(const heading of sortable)heading.setAttribute('aria-sort',heading===column?direction:'none');
+     const value=name==='Trial'?entry=>entry.ordinal:entry=>entry.value;
+     body.append(...[...entries].sort((a,b)=>P.compareValues(value(a),value(b),direction)).map(entry=>entry.row));
+    },'table-sort'));
+   }
   }
-  return disclosure('Execution evidence',body);
+  head.append(header);resultTable.append(head,body);wrap.append(resultTable);
+  for(const trial of ordered){
+   const result=results.get(trial.id),run=trial.status==='saved'&&runsById.get(trial.runId),row=el('tr'),trialLabel='Trial '+trial.ordinal;
+   const number=el('th',trialLabel);number.scope='row';
+   if(ranks.has(trial.id)&&(!group||eligible.length>1))number.append(el('small','Rank '+ranks.get(trial.id),'cell-detail'));
+   const stage=el('td',trial.phase),settings=el('td'),status=el('td',sample&&trial.status==='saved'?'Sample generated':stateName(trial.status));
+   if(trial.period)stage.append(el('small',trial.period.from+' — '+trial.period.to,'cell-detail'));
+   for(const field of e.dimensions)settings.append(el('span',(singleValue?'':field.label+' · ')+trialSettingDisplay(e,trial,field)));
+   if(!settings.childElementCount)settings.textContent='—';
+   if(result?.reasons.length)status.append(el('small',result.reasons.join(' · '),'cell-detail'));
+   const actions=el('td'),links=el('div',undefined,'study-result-actions');
+   function add(title,description,fn){const control=button(title,fn,'quiet');control.setAttribute('aria-label',description+' '+trialLabel);links.append(control);}
+   if(run){
+    motion?.savedRow(row,e,trial);
+    add('Open report','Open report for',()=>onOpen(run));
+    if(extension||store.demo)add('Use settings','Use settings from',()=>action(()=>newTest(run)));
+   }
+   if(!sample&&(trial.events.length||trial.execution||run))add('Evidence','Execution evidence for',()=>showExecutionEvidence(e,trial,run));
+   actions.append(links);
+   row.append(number,stage,settings,status,el('td',Number.isFinite(result?.value)?fmt(result.value,e.objective!=='calmar'):'—','numeric'),actions);
+   entries.push({row,ordinal:trial.ordinal,value:result?.value??null});body.append(row);
+  }
+  return wrap;
  }
 
  function detail(id){
   clearCalendars();motion?.enter(content,'study:'+id);
 
-  keepSetup();selected=id;wizard=null;environment.hidden=extension;panel.classList.remove('is-setup','has-workbench');const e=experiments.find(e=>e.id===id);if(!e){list();return;}const saved=e.trials.filter(t=>t.status==='saved').length,allDecisions=E.decisions(e,runs),groups=allDecisions.groups||[],group=allDecisions.grouped?(groups.find(g=>g.key===decisionGroups.get(id))||groups[0]):null,d=allDecisions.grouped?(group||{...allDecisions,eligible:[],leader:null,leaders:[],neighbors:[]}):allDecisions,hero=el('section',undefined,'experiment-hero');if(group)decisionGroups.set(id,group.key);
+  keepSetup();selected=id;wizard=null;environment.hidden=extension;panel.classList.remove('is-setup','has-workbench');const e=experiments.find(e=>e.id===id);if(!e){list();return;}const saved=e.trials.filter(t=>t.status==='saved').length,allDecisions=E.decisions(e,runs),groups=allDecisions.groups||[],group=allDecisions.grouped?groups.find(g=>g.key===decisionGroups.get(id)):null,d=allDecisions.grouped?(group||{...allDecisions,eligible:[]}):allDecisions,hero=el('section',undefined,'experiment-hero');
 
   renderedDetail=stamp(e);const sample=store.demo||e.demo===true,active=e.trials.find(t=>E.active.includes(t.status));
   const allSkipped=e.trials.length>0&&e.trials.every(t=>t.status==='skipped');
   const headline=allSkipped?'No results saved':sample?(e.status==='complete'?'Sample results ready':e.status==='running'?'Generating sample results':e.status==='pausing'?'Finishing current sample':e.status==='paused'?'Sample generation paused':'Preview the experiment workflow'):active?'Trial '+active.ordinal+' of '+e.trials.length+' · '+stateName(active.status):e.status==='running'?'Starting next trial':e.status==='needs-review'?'Review interrupted trial':allDecisions.headline;
   const complete=e.status==='complete'&&e.trials.every(t=>['saved','skipped'].includes(t.status));
   content.replaceChildren(heading(e.name,true),journey(complete||allSkipped?'review':'run'));hero.classList.toggle('is-sample',sample);hero.append(el('p',(sample?'SAMPLE DATA · ':'')+(allSkipped?'ALL TRIALS SKIPPED':stateName(e.status).toUpperCase()),'eyebrow'),el('h3',headline));
-  if(allSkipped)hero.append(el('p','Every trial in this study was skipped. Open All trials for details.','muted'));
+  if(allSkipped)hero.append(el('p','Every trial in this study was skipped.','muted'));
   if(sample)hero.append(el('p','Illustrative returns generated here in seconds. No RZone backtests were submitted.','experiment-sample-note'));
 
   hero.append(el('p',metricName(e.objective)+' · drawdown ≤ '+e.ceiling+'% · trades ≥ '+e.minTrades,'mini'));
@@ -1097,6 +1189,10 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   else{const progress=el('progress');progress.max=e.trials.length;progress.value=saved;progress.setAttribute('aria-label',sample?'Generated sample results':'Saved experiment trials');hero.append(progress,el('p',saved+' / '+e.trials.length+(sample?' sample results':' saved'),'mini'));}content.append(hero);
 
   const actions=el('div',undefined,'experiment-actions');
+  const lastEvent=e.events.at(-1)?.action;
+  const cleanup=e.status==='paused'&&e.trials.find(t=>t.status==='saved'&&(t.id===e.sourceCleanup?.trialId||
+   lastEvent==='Recovered saved result for trial '+t.ordinal&&e.events.some(event=>event.action==='Trial '+t.ordinal+': Source dialog did not close.')));
+  if(cleanup)content.append(el('p','Trial '+cleanup.ordinal+' was saved. Close any open RZone report or settings dialog, then reconnect to continue with the next queued trial.','notice'));
 
   if(['draft','paused'].includes(e.status)&&e.trials.some(t=>t.status==='queued')){
 
@@ -1106,7 +1202,8 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
    else if(extension){
     if(localSetup&&E.editableDraft(e))actions.append(button('Edit setup',()=>action(()=>newTest(null,false,e)),'secondary'));
-    actions.append(...sourceControls(id,e.status));
+    if(e.sourceCleanup&&!sourceChoices.has(id)&&tabs.some(t=>t.id===e.sourceCleanup.tabId))sourceChoices.set(id,String(e.sourceCleanup.tabId));
+    actions.append(...sourceControls(id,e.status,cleanup));
    }
 
    else actions.append(el('p','Run this plan from the installed extension. This browser viewer stores plans separately.','muted'));
@@ -1126,44 +1223,49 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
    n.append(el('strong','Trial '+t.ordinal+' needs review'),el('p',t.error));
    if(extension&&!sample){
     error.setAttribute('role','alert');
-    const recover=button('Recover this trial',async()=>{
-     recover.disabled=skip.disabled=true;recover.textContent='Checking original result…';error.textContent='';
+    const beforeSubmission=E.canRetryUnsubmitted(t),recoverLabel=beforeSubmission?'Return trial to queue':'Recover this trial';
+    const recover=button(recoverLabel,async()=>{
+     recover.disabled=skip.disabled=true;recover.textContent=beforeSubmission?'Checking trial progress…':'Checking original result…';error.textContent='';
      try{await command('recover',{id,trialId:t.id});await load();detail(id);}
      catch(failure){error.textContent=failure.message;}
-     finally{recover.disabled=skip.disabled=false;recover.textContent='Recover this trial';}
+     finally{recover.disabled=skip.disabled=false;recover.textContent=recoverLabel;}
     },'primary');
     const skip=button('Skip this trial',()=>action(async()=>{await command('skip',{id,trialId:t.id});await load();detail(id);}), 'quiet');
-    n.append(el('p','Keep the original RZone tab open. Vault can save the matching result and continue with queued trials without submitting this strategy again.','muted'),recover,skip,error);
+    const invalidExit=beforeSubmission&&localSetup&&e.baseline.origin==='vault-setup'&&S.marketTrendExitIssue({...e.baseline.setup.config,...t.patch});
+    if(invalidExit)n.append(el('p',invalidExit,'muted'),button('Copy and fix setup',()=>action(()=>newTest(null,false,e,true)),'primary'));
+    else n.append(el('p',beforeSubmission?'Vault stopped before submitting this strategy. Return the trial to the queue, then reconnect and resume.':'Keep the original RZone tab open. Vault can save the matching result and continue with queued trials without submitting this strategy again.','muted'),recover);
+    n.append(skip,error);
    }
    content.append(n);
   }
-  const recent=motion?.results(e,runs,onOpen,(extension||store.demo)?run=>action(()=>newTest(run)):null);if(recent)content.append(recent);
-
-  const evidence=el('section',undefined,'experiment-evidence');evidence.tabIndex=-1;evidence.append(el('h3',sample?'Sample ranking':'Results'),el('p',e.trials.some(t=>t.phase!=='discovery')?'The candidate is frozen. Review validation and holdout separately from the discovery ranking.':d.next,'muted'));
+  const evidence=el('section',undefined,'experiment-evidence');evidence.tabIndex=-1;evidence.append(el('h3',sample?'Sample ranking':'Results'));
+  if(e.trials.some(t=>t.phase!=='discovery'))evidence.append(el('p','The candidate is frozen. Review validation and holdout separately from the discovery ranking.','muted'));
+  else if(!allDecisions.grouped||group)evidence.append(el('p',d.next,'muted'));
   if(allDecisions.grouped){
    evidence.append(el('p','Ranked within matching universes, timeframes, dates and portfolio settings.','experiment-condition-summary'));
-   if(groups.length){const groupLabel=(g,i)=>{const c=g.controls||{},count={type:'number',integer:true};return 'Group '+(i+1)+' · '+[c.Universe,c.Timeframe].filter(Boolean).join(' · ')+' · '+c.From+' — '+c.To+' · '+settingDisplay({type:'number'},c['Initial capital'])+' · '+c.Allocation+' · '+settingDisplay(count,c['Maximum open trades'])+' open · daily '+(c['Daily stock limit']==='Off'?'Off':settingDisplay(count,c['Daily stock limit']));},picker=select(groups.map((g,i)=>[g.key,groupLabel(g,i)])),row=el('div',undefined,'experiment-condition-picker');picker.setAttribute('aria-label','Compare matching conditions');picker.value=group.key;picker.onchange=()=>{decisionGroups.set(id,picker.value);detail(id);};row.append(label('Compare within',picker));evidence.append(row);const c=group.controls||{};evidence.append(el('p',[c.Universe,c.Market,c.Timeframe].filter(Boolean).join(' · '),'experiment-condition-summary'));}
+   if(groups.length){
+    const groupLabel=(g,i)=>{const c=g.controls||{},count={type:'number',integer:true};return 'Group '+(i+1)+' · '+[c.Universe,c.Timeframe].filter(Boolean).join(' · ')+' · '+c.From+' — '+c.To+' · '+settingDisplay({type:'number'},c['Initial capital'])+' · '+c.Allocation+' · '+settingDisplay(count,c['Maximum open trades'])+' open · daily '+(c['Daily stock limit']==='Off'?'Off':settingDisplay(count,c['Daily stock limit']));};
+    const picker=select([['','All trials'],...groups.map((g,i)=>[g.key,groupLabel(g,i)])]),row=el('div',undefined,'experiment-condition-picker');
+    picker.setAttribute('aria-label','Compare matching conditions');picker.value=group?.key||'';
+    picker.onchange=()=>{decisionGroups.set(id,picker.value);detail(id);content.querySelector('[aria-label="Compare matching conditions"]')?.focus({preventScroll:true});};
+    row.append(label('Compare within',picker));evidence.append(row);
+   }
   }
 
-  const top=el('div',undefined,'experiment-ranking');for(const x of d.eligible.slice(0,5)){const row=button('',()=>onOpen(x.run),'experiment-rank');row.append(el('span',allDecisions.grouped&&d.eligible.length<2?'—':'#'+(d.eligible.findIndex(y=>Math.abs(y.value-x.value)<1e-9)+1)),el('strong','Trial '+x.trial.ordinal),el('span',e.dimensions.map(f=>f.label+': '+trialSettingDisplay(e,x.trial,f)).join(' · ')),el('b',fmt(x.value,e.objective!=='calmar',e.objective!=='drawdown')));top.append(row);}evidence.append(top);
+  evidence.append(trialResults(e,allDecisions,group,sample));
 
-  if(d.leader){const baseline=runs.find(r=>r.id===e.baseline.id),b=baseline?I.inspect(baseline):null,metrics=el('dl',undefined,'map-metrics');const add=(label,value)=>{const cell=el('div');cell.append(el('dt',label),el('dd',value));metrics.append(cell);};
+  if(d.leader){const baseline=runs.find(r=>r.id===e.baseline.id),b=baseline?I.inspect(baseline):null,metrics=el('dl',undefined,'map-metrics'),comparison=el('div');const add=(label,value)=>{const cell=el('div');cell.append(el('dt',label),el('dd',value));metrics.append(cell);};
 
-   if(e.baseline.origin!=='vault-setup')add('Return vs baseline',b?fmt(d.leader.item.metrics.returns-b.metrics.returns,false,true)+' pp':'Baseline report unavailable');add('Max drawdown',fmt(d.leader.item.metrics.drawdown,true));if(e.baseline.origin!=='vault-setup'||e.trials.filter(t=>t.phase==='discovery').length>1)add('Neighbor checks',d.neighbors.filter(x=>x.eligible).length+' / '+d.neighbors.length+' meet rules');evidence.append(metrics);
+   if(e.baseline.origin!=='vault-setup')add('Return vs baseline',b?fmt(d.leader.item.metrics.returns-b.metrics.returns,false,true)+' pp':'Baseline report unavailable');add('Max drawdown',fmt(d.leader.item.metrics.drawdown,true));if(e.baseline.origin!=='vault-setup'||e.trials.filter(t=>t.phase==='discovery').length>1)add('Neighbor checks',d.neighbors.filter(x=>x.eligible).length+' / '+d.neighbors.length+' meet rules');comparison.append(metrics);
 
-   if(d.neighbors.length){const vals=d.neighbors.filter(x=>x.eligible).map(x=>x.value);evidence.append(el('p',vals.length?'Nearby eligible '+metricName(e.objective)+': '+fmt(Math.min(...vals))+' to '+fmt(Math.max(...vals))+'. Descriptive sensitivity; no confidence score.':'Nearby results fail the rules. Review sensitivity before proceeding.','mini'));}
+   if(d.neighbors.length){const vals=d.neighbors.filter(x=>x.eligible).map(x=>x.value);comparison.append(el('p',vals.length?'Nearby eligible '+metricName(e.objective)+': '+fmt(Math.min(...vals))+' to '+fmt(Math.max(...vals))+'. Descriptive sensitivity; no confidence score.':'Nearby results fail the rules. Review sensitivity before proceeding.','mini'));}
 
-   const reference=(store.demo?root.VaultDemo.benchmarks():[]);void store.allBenchmarks().then(bs=>{if(!evidence.isConnected)return;const benchmark=I.benchmarkFor(d.leader.item,bs[0]||reference[0]);const node=el('div',undefined,'experiment-reference');node.append(el('strong','Index reference'),el('p',benchmark.available?benchmark.benchmark.name+' · '+fmt(benchmark.returns,true,true)+' buy & hold · '+benchmark.from+' — '+benchmark.to:benchmark.reason,'mini'));if(benchmark.available){node.append(el('p',benchmark.benchmark.kind+' · '+benchmark.benchmark.source,'mini'),el('p',benchmark.cautions.join(' '),'mini'));}evidence.append(node);}).catch(()=>{});
+   const reference=(store.demo?root.VaultDemo.benchmarks():[]);void store.allBenchmarks().then(bs=>{if(!comparison.isConnected)return;const benchmark=I.benchmarkFor(d.leader.item,bs[0]||reference[0]);const node=el('div',undefined,'experiment-reference');node.append(el('strong','Index reference'),el('p',benchmark.available?benchmark.benchmark.name+' · '+fmt(benchmark.returns,true,true)+' buy & hold · '+benchmark.from+' — '+benchmark.to:benchmark.reason,'mini'));if(benchmark.available){node.append(el('p',benchmark.benchmark.kind+' · '+benchmark.benchmark.source,'mini'),el('p',benchmark.cautions.join(' '),'mini'));}comparison.append(node);}).catch(()=>{});
+   evidence.append(disclosure('Comparison details',comparison));
 
   }
 
   content.append(evidence);
-
-  const rows=e.trials.map(t=>{const x=t.status==='saved'?E.result(e,t,runs.find(r=>r.id===t.runId)):null;return [t.ordinal,t.phase,e.dimensions.map(f=>f.label+': '+trialSettingDisplay(e,t,f)).join(' · '),(sample&&t.status==='saved')?'Sample generated':stateName(t.status),x?.eligible?{text:fmt(x.value,e.objective!=='calmar'),numeric:true,sortValue:x.value}:x?.reasons.join(' · ')||'—'];});
-
-  const history=el('div');history.append(table(['Trial','Stage','Settings','Status',e.objective==='calmar'?'Calmar':e.objective==='returns'?'Return':'Drawdown'],rows,{sortable:true,name:'Experiment trials'}));content.append(disclosure('All trials',history));
-
-  if(!sample)content.append(executionEvidence(e));
 
   const fixed=el('div');for(const s of P.settings(e.baseline)){const dl=el('dl',undefined,'map-settings');for(const g of s.groups)for(const r of g.rows){const n=el('div');n.append(el('dt',s.title+' · '+r.label),el('dd',P.settingText(r)));dl.append(n);}fixed.append(dl);}content.append(disclosure(e.baseline.origin==='vault-setup'?'Test settings':'Baseline & locked context',fixed));
 
@@ -1171,9 +1273,8 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
    if(available.length){const candidate=select(available.map(x=>[x.trial.id,'Trial '+x.trial.ordinal])),from=input('','date'),to=input('','date'),grid=el('div',undefined,'experiment-form-grid');const nextDay=value=>I.date(value)?new Date(Date.parse(value+'T00:00:00Z')+86400000).toISOString().slice(0,10):'';from.min=nextDay(E.researchEnd?.(e,phase)||'');to.min=from.min;from.required=true;to.required=true;const dateControl=el('div',undefined,'validation-date-control'),backing=el('div');backing.hidden=true;backing.append(label('From',from),label('To',to));dateControl.append(backing);grid.append(label('Candidate',candidate),dateControl);attachCalendar(dateControl,from,to);section.append(grid,button('Prepare '+phase+' test',()=>action(async()=>{const period={from:from.value,to:to.value};if(store.demo||!extension){E.validation(e,candidate.value,period,phase);await store.putExperiment(e);}else await command('validate',{id,trialId:candidate.value,period,phase});await load();detail(id);}),'primary'),el('p','Keep the chosen settings fixed and test a later, unseen period. Review the plan before running.','mini'));}
 
-   else section.append(el('p','No candidate meets the frozen rules. Review the evidence before planning another stage.'));content.append(section);}}
+   else section.append(el('p',allDecisions.grouped&&!group&&sourcePhase==='discovery'?'Select a group in Results to choose a candidate.':'No candidate meets the frozen rules. Review the evidence before planning another stage.'));content.append(section);}}
 
-  for(const phase of ['validation','holdout']){const results=E.decisions(e,runs,phase);if(results.items.length){const n=el('section',undefined,'experiment-validation');n.append(el('h3',phase==='validation'?'Validation evidence':'Holdout evidence'));for(const x of results.items)n.append(el('p','Trial '+x.trial.ordinal+' · '+x.trial.period.from+' — '+x.trial.period.to+' · '+(x.eligible?fmt(x.value,e.objective!=='calmar')+' '+metricName(e.objective):x.reasons.join(' · '))),button('Open result',()=>onOpen(x.run)));content.append(n);}}
 
  }
 

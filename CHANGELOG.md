@@ -1,5 +1,14 @@
 # Changelog
 
+## Study results and Market Trend Filter — 2026-11-20
+
+- Open My studies from an unfinished setup and resume the draft with its settings intact.
+- Review saved results and trial status in one list. Open a report or reuse its settings from the same row, and expand execution evidence as needed.
+- Keep a report saved if an RZone dialog cannot close. Reconnect before continuing the queue, and retry an interrupted trial only when Vault can verify it stopped before submission.
+- Start Market Trend Filter with chart type, Index Filter or RS Filter, and the applicable symbols. The filter’s trend method and period stay together, separate from the strategy’s EMA settings.
+- Load missing Market Trend choices once automatically per day. Use the explicit load action for a missing chart or to retry, and reuse saved choices when available.
+- Require an alternate stop loss, profit target, or exit strategy in every test that uses **Change exit strategy**. Vault flags the missing condition before Review and offers **Copy and fix setup** on a trial stopped by that condition.
+
 ## Setup and RZone connection fixes — 2026-11-20
 
 - Place entry and exit conditions directly after Portfolio. Reuse saved chart choices independently for entry and exit.

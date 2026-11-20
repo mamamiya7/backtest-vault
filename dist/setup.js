@@ -318,12 +318,14 @@ function fieldsForUI(input,config={}){
  if(source.stages.marketFilter){const original=source.stages.marketFilter,layout=L.marketFilter(original.fields),f=t.stages.marketFilter.fields,base={enabledBy:'momentum.market-filter',variation:true};g=group('marketFilter','filter','Market trend filter');
   chartSelector(g,layout).enabledBy='momentum.market-filter';
   const radios=(key,label,indices,names,extra={})=>{const selected=indices.filter(index=>f[index].checked);if(selected.length!==1)throw Error('Choose exactly one '+label.toLowerCase()+'.');const d={stage:'marketFilter',key:'marketFilter.'+key,label,type:'select',indices:clone(indices),radioValues:clone(names),value:names[indices.indexOf(selected[0])],options:names.map(value=>({value,label:value,disabled:false})),...base,...extra};g.fields.push(d);return d;};
-  radios('mode','Filter mode',[layout.indexModeIndex,layout.rsModeIndex],['Index','RS']);
+  const filterMode=radios('mode','Filter type',[layout.indexModeIndex,layout.rsModeIndex],['Index','RS']);
+  for(const option of filterMode.options)option.label+=' Filter';
   const benchmarks=[['index','Index',layout.indexMarketIndex,layout.indexSymbolIndex,'Index'],['numerator','RS numerator',layout.numeratorMarketIndex,layout.numeratorSymbolIndex,'RS'],['denominator','RS denominator',layout.denominatorMarketIndex,layout.denominatorSymbolIndex,'RS']];
   for(const [key,label,marketIndex,symbolIndex,mode]of benchmarks){const activeWhen=[{key:'marketFilter.mode',values:[mode]}],market=dynamic(g,key+'.market',label+' market',marketIndex,[symbolIndex]);Object.assign(market,{enabledBy:base.enabledBy,activeWhen});symbol(g,key+'.symbol',label,symbolIndex,'marketFilter.'+key+'.market',{...base,activeWhen});}
-  radios('method','Trend method',layout.methodIndices,['EMA','D Smart','MAST','KTQP']);
+  const method=radios('method','Trend method',layout.methodIndices,['EMA','D Smart','MAST','KTQP']);
+  method.options.find(option=>option.value==='KTQP').label='KTQP Dual Gate';
   for(const [n,key]of ['ema','dsmart','mast','ktqp'].entries())number(g,key,['EMA','D Smart','MAST','KTQP'][n]+' period',layout.methodValueIndices[n],1,1000000,{...base,integer:true,activeWhen:[{key:'marketFilter.method',values:[['EMA','D Smart','MAST','KTQP'][n]]}]});
-  add(g,'action','When trend changes',layout.actionIndex,'select',base);
+  add(g,'action','Filter action',layout.actionIndex,'select',base);
   const exitWhen=[{key:'marketFilter.action',values:L.marketActions.slice(2)}],row=layout.rows[0];
   toggle(g,'exit.enabled','Use exit strategy',row.gateIndex,{...base,activeWhen:exitWhen});const parent=dynamic(g,'exit.source','Exit strategy source',row.parentIndex,[row.childIndex]),child=add(g,'exit.rule','Exit strategy rule',row.childIndex,'select',{...base,activeWhen:[...exitWhen,{key:'marketFilter.exit.enabled',values:[true]}],rule:true});Object.assign(parent,{enabledBy:base.enabledBy,activeWhen:exitWhen});cachedRule(g,parent,child);
   for(const [key,label,gate,value]of [['target','Profit target (%)',layout.targetGateIndex,layout.targetValueIndex],['stop','Stop loss (%)',layout.stopGateIndex,layout.stopValueIndex]]){toggle(g,key+'.enabled','Use '+label.toLowerCase(),gate,{...base,activeWhen:exitWhen});number(g,key,label,value,0.000001,100,{...base,activeWhen:[...exitWhen,{key:'marketFilter.'+key+'.enabled',values:[true]}]});}
@@ -426,6 +428,13 @@ function validateConfig(config,input){
  if(![1,2,3,4].some(i=>out['momentum.period.'+i+'.enabled']&&out['momentum.period.'+i+'.weight']>0))throw Error('Enable at least one period with a positive weight.');
  return out;
 }
+const marketTrendExitMessage='In Market Trend Filter → Alternate exit, enable at least one of Stop loss, Profit target, or Exit strategy for every test that uses Change exit strategy.';
+function marketTrendExitIssue(config,dimensions=[]){
+ const values=key=>dimensions.find(dimension=>dimension.key===key)?.values??[config[key]];
+ const canChangeExit=values('marketFilter.action').some(action=>L.marketActions.slice(2).includes(action));
+ if(values('momentum.market-filter').includes(true)&&canChangeExit&&['stop','target','exit'].every(key=>values('marketFilter.'+key+'.enabled').some(value=>value!==true)))return marketTrendExitMessage;
+ return '';
+}
 function validateCombination(config,input,preparedFields){
  const fields=preparedFields||fieldsForUI(input,config).flatMap(group=>group.fields);
  for(const field of fields){if(field.needsDiscovery&&config[field.key]===true)throw Error('Load '+field.label+' settings before continuing.');if(!field.variation||!activeField(field,config))continue;
@@ -496,6 +505,6 @@ function demoTemplate({momentumChart='Candle',executionChart=momentumChart,momen
  return template(source);
 }
 const nseBenchmarkQueries=Object.freeze([...'ABCDEFGHIJKLMNOPQRSTUVWXYZ','Nifty','Bank','ETF','0','1']);
-const api={nseBenchmarkQueries,descriptorForFields,activeField,availableRule,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,settingLabel,executionCapability,demoTemplate,mergeSymbolChoices};
+const api={nseBenchmarkQueries,descriptorForFields,activeField,availableRule,marketTrendExitIssue,marketTrendExitMessage,validateCombination,template,portfolioTemplate,fieldsForUI,defaults,savedRunContext,configFromRun,validDate,validateConfig,configToBaseline,validateBaseline,projectRuleLabels,settingLabel,executionCapability,demoTemplate,mergeSymbolChoices};
 if(typeof module!=='undefined')module.exports=api;root.VaultSetup=api;
 })(typeof window!=='undefined'?window:globalThis);

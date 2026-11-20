@@ -317,7 +317,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
    const profiles=await get('runner:setup-profiles'),archives=(await collection('experiment:')).slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
    const choices=await readChoiceCache(null,false),queries=await benchmarkQueries();
    const templates=setupProfiles([...(Array.isArray(profiles)?profiles:[]),...archives.map(e=>e.baseline?.setup?.template)]).map(template=>enrichSymbolChoices(template,choices,queries));
-   return {ok:true,templates,nseBenchmarkSeeded:queries.seeded};
+   return {ok:true,templates,nseBenchmarkSeeded:queries.seeded,marketFilterAutoAttempted:await get('runner:market-filter-auto-day')===localDay()};
   }
   if(dashboard&&m.action==='lookup-symbol-local'){
    if(!cacheStages.includes(m.stage)||!Number.isInteger(m.fieldIndex)||m.fieldIndex<0||m.fieldIndex>80||!['All',...symbolMarkets].includes(m.market)||!queryValid(m.query))throw Error('Invalid saved benchmark search.');
@@ -404,7 +404,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
    if(m.recheckAllChoices!==undefined&&typeof m.recheckAllChoices!=='boolean'||m.warmChart!==undefined&&!L.charts.includes(m.warmChart)||m.loadFilter!==undefined&&!['relativeStrength','marketFilter'].includes(m.loadFilter)||m.warmChart&&(Object.keys(changes).length||m.loadFilter))throw Error('Invalid source choice refresh.');
    let filterTemplate;
    if(m.filterTemplate!==undefined){
-    if(m.loadFilter!=='relativeStrength'||Object.keys(changes).length||m.recheckAllChoices)throw Error('Invalid Relative Strength lookup.');
+    const marketLookup=m.loadFilter==='marketFilter'||m.loadFilter===undefined&&Object.keys(changes).length===1&&changes.marketFilter;
+    if(m.recheckAllChoices||(!marketLookup&&(m.loadFilter!=='relativeStrength'||Object.keys(changes).length))||marketLookup&&Object.keys(changes).some(stage=>stage!=='marketFilter'))throw Error('Invalid optional filter lookup.');
     filterTemplate=S.template(m.filterTemplate);
     if(filterTemplate.demo)throw Error('A sample setup cannot search RZone.');
    }
@@ -414,6 +415,12 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
     // Reserve durably before touching the source. A failed read, closed Vault
     // or worker restart must not begin the same day's background pass again.
     await storage.set({[dailyKey]:{version:L.version,cacheVersion:cacheSchema,day:cache.day,records:cache.records,warmInterruptedChart:m.warmChart}});
+   }
+   if(m.automaticMarketFilter!==undefined){
+    if(m.automaticMarketFilter!==true||m.loadFilter!=='marketFilter'||!filterTemplate||Object.keys(changes).length||m.warmChart)throw Error('Invalid automatic Market Trend lookup.');
+    const key='runner:market-filter-auto-day',day=localDay();
+    if(await get(key)===day)throw Error('Automatic Market Trend loading already ran today. Use Load Market Trend choices to retry.');
+    await storage.set({[key]:day});
    }
    const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(symbols.length?{cachedSymbols:symbols}:{}),...(m.includeRelativeStrength?{includeRelativeStrength:true}:{}),...(m.warmChart?{warmChart:m.warmChart}:{}),...(m.loadFilter?{loadFilter:m.loadFilter}:{}),...(filterTemplate?{filterTemplate}:{})};
    const r=await configure(tab.id,changes,undefined,options);
@@ -482,7 +489,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
     if(account?.enabled){for(const trial of e.trials.filter(t=>t.status==='saved')){const saved=await get('run:'+trial.runId);validateCapture(e,trial,saved);await account.settle(trial.runId,'saved');}await account.start(e.trials.filter(t=>t.status==='queued').length);}
     L.validate('momentum',E.fields(e.baseline,'momentum'));
     if(L.validate('execution',E.fields(e.baseline,'execution')).selection!=='Price')throw Error('Automatic execution currently requires Price selection.');
-    e.owner={tabId:tab.id,session:tab.session};e.status='running';E.journal(e,'Started on selected RZone tab');await put(e);return {ok:true,tabId:tab.id};
+    delete e.sourceCleanup;e.owner={tabId:tab.id,session:tab.session};e.status='running';E.journal(e,'Started on selected RZone tab');await put(e);return {ok:true,tabId:tab.id};
    }
    if(m.action==='pause'){if(['running','pausing'].includes(e.status)){e.status=(await get('runner:lease'))?.experimentId===e.id?'pausing':'paused';if(e.status==='paused')delete e.owner;E.journal(e,'Stop after current trial requested');await put(e);}return {ok:true};}
    if(m.action==='skip'){
@@ -500,6 +507,14 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
      if(m.action==='reconcile')throw Error('No durable result is available to reconcile.');
      if(e.demo||e.status!=='needs-review'||e.trials.some(other=>other!==t&&(E.active.includes(other.status)||other.status==='uncertain')))throw Error('Resolve the other interrupted trial before continuing.');
      if((await collection('experiment:')).some(other=>other.id!==e.id&&['running','pausing'].includes(other.status)))throw Error('Another experiment is running.');
+     if(E.canRetryUnsubmitted(t)){
+      if(lease&&lease.trialId!==t.id)throw Error('Another trial owns the RZone tab.');
+      // The runner must record submission intent before clicking Backtest.
+      t.status='queued';t.error=null;delete t.execution;
+      e.status='paused';delete e.owner;E.journal(e,'Trial '+t.ordinal+' returned to the queue before RZone submission.');
+      await storage.set({['experiment:'+e.id]:e,'runner:lease':null});
+      return {ok:true,requeued:true};
+     }
      const tabId=e.owner?.tabId,session=t.execution?.sourceSession;
      if(!Number.isInteger(tabId)||!session||e.owner.session!==session||lease&&(lease.trialId!==t.id||lease.tabId!==tabId||lease.session!==session))throw Error('Vault lost the original RZone page. Keep that page open during future trials.');
      let source;try{source=await probe?.(tabId);}catch{/* Missing or disconnected source. */}
@@ -514,8 +529,10 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
      return {ok:true,tabId,recovering:true};
     }
     validateCapture(e,t,r);if(account?.enabled)await account.settle(t.runId,'saved');
+    const closeInterrupted=/\bdialog did not close\b/i.test(t.error||''),sourceTab=e.owner?.tabId??lease?.tabId;
     t.status='saved';t.error=null;
     e.status=e.trials.every(trial=>['saved','skipped'].includes(trial.status))?'complete':e.trials.some(trial=>trial.status==='uncertain')?'needs-review':'paused';
+    if(closeInterrupted&&e.status==='paused')e.sourceCleanup={trialId:t.id,tabId:sourceTab};
     delete e.owner;E.journal(e,'Recovered saved result for trial '+t.ordinal);await storage.set({['experiment:'+e.id]:e,'runner:lease':null});return {ok:true};
    }
    if(m.action==='validate'){
@@ -561,7 +578,15 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
    }
    const ready=clock();
    E.transition(e,t,m.stage);
-   if(m.stage==='saved'){const remaining=e.trials.some(x=>x.status==='queued');e.status=!remaining?'complete':e.status==='pausing'?'paused':'running';if(e.status!=='running')delete e.owner;await storage.set({['experiment:'+e.id]:e,'runner:lease':null});}
+   if(m.stage==='saved'){
+    const remaining=e.trials.some(x=>x.status==='queued'),cleanupError=typeof m.cleanupError==='string'&&m.cleanupError.trim().slice(0,300);
+    e.status=!remaining?'complete':e.status==='pausing'||cleanupError?'paused':'running';
+    if(cleanupError){
+     if(remaining)e.sourceCleanup={trialId:t.id,tabId:l.tabId};
+     E.journal(e,'Trial '+t.ordinal+' was saved. RZone dialog cleanup stopped: '+cleanupError);
+    }
+    if(e.status!=='running')delete e.owner;await storage.set({['experiment:'+e.id]:e,'runner:lease':null});
+   }
    else {l.seenAt=clock();await storage.set({['experiment:'+e.id]:e,'runner:lease':l});}
    const timing=m.stage==='capturing'?{queue:commandStarted-received,prepare:ready-commandStarted,journal:clock()-ready}:undefined;
    return {ok:true,status:e.status,...(timing?{timing}:{})};
