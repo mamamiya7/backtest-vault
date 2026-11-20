@@ -397,5 +397,7 @@
     running,
     awaitingResult:()=>!!(strategy&&!strategy.completed||portfolio&&!portfolioLinked),
     pending:()=>!!pendingRun,
+    pendingRunId:()=>pendingRun?.id,
+    capturedRunId:()=>savedReports.get(popup('Portfolio Backtesting Report'))?.id,
     addControl:button=>statusEl.before(button)};
 })();

@@ -30,17 +30,40 @@ async function journeyStateTests(){
  w.structuredClone=structuredClone;w.setInterval=()=>1;w.clearInterval=()=>{};w.HTMLElement.prototype.scrollIntoView=function(){scrolled.push(this);};
  for(const file of files.filter(file=>!['storage.js','dashboard.js'].includes(file)))w.eval(fs.readFileSync(path.join(base,file),'utf8'));
  const E=w.VaultExperiments,baseline=E.baseline(w.VaultDemo.create()[0]);baseline.demo=false;
- let plan;w.chrome={runtime:{sendMessage:async message=>{commands.push(message.action);assert.equal(message.action,'list','Reading progress and results must never run or resume a study');return {ok:true,experiments:[structuredClone(plan)],tabs:[]};}}};
+ let plan;w.chrome={runtime:{sendMessage:async message=>{
+  commands.push(message.action);
+  if(message.action==='extend-timeout'){
+   const trial=plan.trials[0];assert.equal(message.trialId,trial.id);assert.equal(message.deadlineAt,E.trialDeadline(plan,trial));
+   trial.execution.deadlineAt=w.Date.now()+plan.timeoutMinutes*60000;return {ok:true,deadlineAt:trial.execution.deadlineAt};
+  }
+  if(message.action==='recover'){
+   assert.equal(message.id,plan.id);assert.equal(message.trialId,plan.trials[0].id);
+   return {ok:false,error:'Keep the original RZone tab open.'};
+  }
+  assert.equal(message.action,'list','Reading progress and results must never run or resume a study');return {ok:true,experiments:[structuredClone(plan)],tabs:[]};
+ }}};
  const store={demo:false,all:async()=>[],allBenchmarks:async()=>[]};
  const states=[['draft','queued','run'],['running','applying','run'],['pausing','capturing','run'],['paused','queued','run'],['needs-review','uncertain','run'],['complete','saved','review'],['paused','skipped','review'],['complete','queued','run'],['complete','uncertain','run'],['complete','capturing','run']];
  try{
+  Object.defineProperty(d,'visibilityState',{value:'visible'});
+  plan=E.create({id:'timeout-test',name:'A long P&F study',baseline,dimensions:[{key:'momentum.period.1',values:'180'}]});
+  plan.status='running';plan.trials[0].status='strategy-submitting';plan.trials[0].execution={claimedAt:new Date(w.Date.now()-19*60000).toISOString()};
+  await w.VaultExperimentsUI.render({target:d.querySelector('main'),store,runs:[],onOpen:()=>{},onExit:()=>{},table:()=>d.createElement('table'),download:()=>{}});
+  const prompt=d.querySelector('[data-timeout]');assert.ok(prompt?.open,'The study list can show the warning for an active trial');
+  assert.match(prompt.textContent,/Trial 1 of 1/);[...prompt.querySelectorAll('button')].find(node=>node.textContent==='Reset to 20 min').click();await tick();
+  assert.equal(d.querySelector('[data-timeout]'),null);assert.ok(commands.includes('extend-timeout'));assert.match(d.querySelector('.notice').textContent,/timeout extended/);
   for(const [status,trialStatus,stage] of states){
    plan=E.create({id:'journey-state',name:'A saved study',baseline,dimensions:[{key:'momentum.period.1',values:'180'}]});plan.status=status;plan.trials[0].status=trialStatus;
    if(trialStatus==='uncertain')plan.trials[0].error='The source reply was interrupted.';
    const original=JSON.stringify(plan);await w.VaultExperimentsUI.render({target:d.querySelector('main'),store,runs:[],onOpen:()=>{throw Error('Progress must not open a fabricated result');},onExit:()=>{},table:()=>d.createElement('table'),download:()=>{}});
    d.querySelector('.experiment-card').click();const journey=currentJourney(d,stage),commandCount=commands.length;
    journey.querySelectorAll('li').forEach(node=>node.click());await tick();assert.equal(commands.length,commandCount,'Progress clicks only describe the current state');assert.equal(JSON.stringify(plan),original,'Journey rendering cannot change the saved study');
-   if(trialStatus==='skipped'){
+   if(status==='needs-review'){
+    const recover=[...d.querySelectorAll('button')].find(node=>node.textContent==='Recover this trial');
+    assert.ok(recover);recover.click();assert.equal(recover.disabled,true);await tick();
+    assert.equal(commands.at(-1),'recover');assert.match(d.querySelector('.experiment-review [role="alert"]').textContent,/original RZone tab/);
+    assert.equal(recover.disabled,false);assert.equal(JSON.stringify(plan),original);
+   }else if(trialStatus==='skipped'){
     assert.equal(d.querySelector('.experiment-hero h3').textContent,'No results saved');
     const back=[...d.querySelectorAll('button')].find(node=>node.textContent==='Back to My studies');assert.ok(back);back.click();assert.ok(d.querySelector('.experiment-card'));
    }else if(stage==='review'){

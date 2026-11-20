@@ -69,7 +69,20 @@ async function coordinatorTests(){
  await assert.rejects(call('checkpoint',{...args,token:'wrong',stage:'strategy-submitting'},source),/ownership/);
  // A fresh service worker must retain the original owner and never repeat the claim.
  c=make();assert.equal((await call('claim',{id,session:'session-1'},source)).trial,null);
- for(const stage of ['strategy-submitting','strategy-complete','portfolio-submitting','capturing'])await call('checkpoint',{...args,stage},source);
+ await call('checkpoint',{...args,stage:'strategy-submitting'},source);
+ const warning={id,trialId:a.trial.id,deadlineAt:E.trialDeadline(plan,a.trial)};
+ await assert.rejects(call('extend-timeout',warning),/window/,'An extension is only available near the deadline');
+ while(time<warning.deadlineAt-30000){time+=30000;await call('hello',{...args,ready:false},source);}
+ await assert.rejects(call('extend-timeout',{...args,deadlineAt:warning.deadlineAt,token:'wrong'},source),/ownership/);
+ const extended=await call('extend-timeout',warning);
+ assert.equal(extended.deadlineAt,time+plan.timeoutMinutes*60000);
+ assert.equal((await call('extend-timeout',warning)).deadlineAt,extended.deadlineAt,'Simultaneous prompts cannot extend twice');
+ assert.equal((await call('hello',{...args,ready:false},source)).timeout.deadlineAt,extended.deadlineAt);
+ time=warning.deadlineAt+1;c=make();
+ assert.equal((await call('trial-timeout',args,source)).deadlineAt,extended.deadlineAt,'The extension survives a worker restart and the original deadline');
+ assert.equal((await call('claim',{id,session:'session-1'},source)).trial,null,'The same trial continues without a new claim');
+ for(const stage of ['strategy-complete','portfolio-submitting','capturing'])await call('checkpoint',{...args,stage},source);
+ await assert.rejects(call('extend-timeout',warning),/no longer waiting/,'A finished source wait cannot be extended');
  const r=recordedResult(plan,a.trial);
  assert.equal(E.result(plan,a.trial,r).eligible,true,'A linked recorded lifecycle may enter decision eligibility');
  const filterProof=clone(r);filterProof.parameters.strategy.marketTrend={at:a.trial.execution.claimedAt,fields:clone(withFilter.parameters.strategy.marketTrend.fields)};assert.doesNotThrow(()=>E.verifyEvidence(plan,a.trial,filterProof),'Filter Save may occur at the claim boundary');filterProof.parameters.strategy.marketTrend.at=r.parameters.strategy.at;assert.doesNotThrow(()=>E.verifyEvidence(plan,a.trial,filterProof),'Filter Save may occur at the strategy submission boundary');for(const at of [undefined,'not-a-date',new Date(Date.parse(a.trial.execution.claimedAt)-1).toISOString(),new Date(Date.parse(r.parameters.strategy.at)+1).toISOString()]){filterProof.parameters.strategy.marketTrend.at=at;assert.throws(()=>E.verifyEvidence(plan,a.trial,filterProof),/Market Trend Filter must be saved during this trial/,'Missing, malformed, stale or post-submission Save receipts cannot verify an automated run');}
@@ -90,10 +103,11 @@ async function coordinatorTests(){
  memory['run:'+r.id]=r;
  await call('pause',{id});assert.equal(memory['experiment:'+id].status,'pausing');await call('checkpoint',{...args,stage:'saved'},source);
  assert.equal(memory['experiment:'+id].status,'paused');assert.equal(memory['runner:lease'],null);assert.equal(memory['experiment:'+id].trials[0].status,'saved');
- await call('start',{id,tabId:7});const next=await call('claim',{id,session:'session-1'},source);assert.notEqual(next.trial.id,a.trial.id);
+ await call('hello',{session:'session-1',ready:true},source);await call('start',{id,tabId:7});const next=await call('claim',{id,session:'session-1'},source);assert.notEqual(next.trial.id,a.trial.id);
+ assert.equal(E.trialDeadline(plan,next.trial),time+plan.timeoutMinutes*60000,'The next trial keeps the study default');
  time+=91000;await call('list');assert.equal(memory['experiment:'+id].status,'needs-review');assert.equal(memory['experiment:'+id].trials.find(t=>t.id===next.trial.id).status,'uncertain');
  await assert.rejects(call('start',{id,tabId:7}),/owns/);await call('skip',{id,trialId:next.trial.id});assert.equal(memory['runner:lease'],null);
- await assert.rejects(call('reconcile',{id,trialId:next.trial.id}),/No durable/);
+ await assert.rejects(call('reconcile',{id,trialId:next.trial.id}),/no longer waiting for recovery/i);
  // A failed persistence acknowledgement must not dispatch another trial.
  const blocked=createCoordinator({storage:{...storage,set:async()=>{throw Error('Storage unavailable');}},runtime});await assert.rejects(blocked.handle({action:'create',plan:{...config,baseline:real}},dashboard),/Storage unavailable/);
  // Hidden-page heartbeats can be delayed. Discovery/start must use a direct reply,
@@ -185,7 +199,7 @@ async function deletionTests(){
 
 async function refreshedSourceRecoveryTests(){
  const S=require('../dist/setup.js');
- async function fixture(){
+ async function fixture(planOptions={}){
   const memory={},runtime={id:'refresh-extension',getURL:p=>'chrome-extension://refresh-extension/'+p},dashboard={id:runtime.id,url:runtime.getURL('index.html')},source={id:runtime.id,url:'https://zone.definedgesecurities.com/index.html#research',tab:{id:7}};
   let time=100000,session='original-document',rejectProbe=false,rejectWrite=false,configured=0,ids=0,ready=true;
   memory['run:unrelated-archive']={charts:['Unrelated report content']};
@@ -201,7 +215,7 @@ async function refreshedSourceRecoveryTests(){
   };
   const make=()=>createCoordinator({storage,runtime,clock:()=>time,uuid:()=> 'refresh-'+(++ids),probe:async()=>{if(rejectProbe)throw Error('No reply');return {session,ready,capable:ready,chart:'Candle',reason:ready?'':'Open Momentum BackTesting in RZone.'};},configure:async()=>{configured++;const config=S.demoTemplate();config.demo=false;config.session=session;return {ok:true,session,config};}});
   let c=make();const call=(action,data={},sender=dashboard)=>c.handle({action,...data},sender),real=clone(b);real.demo=false;
-  const plan=(await call('create',{plan:{...config,baseline:real}})).experiment;
+  const plan=(await call('create',{plan:{...config,baseline:real,...planOptions}})).experiment;
   await call('hello',{session,ready:true,capable:true,chart:'Candle'},source);await call('start',{id:plan.id,tabId:7});
   return {memory,call,plan,source,configured:()=>configured,restart:()=>{c=make();},setSession:value=>{session=value;},setReady:value=>{ready=value;},expire:()=>{time+=90001;},rejectProbe:value=>{rejectProbe=value;},rejectWrite:value=>{rejectWrite=value;}};
  }
@@ -223,6 +237,14 @@ async function refreshedSourceRecoveryTests(){
  const durable=await fixture(),claimed=await durable.call('claim',{id:durable.plan.id,session:'original-document'},durable.source),owned={id:durable.plan.id,session:'original-document',trialId:claimed.trial.id,token:claimed.token};
  for(const stage of E.active.slice(1))await durable.call('checkpoint',{...owned,stage},durable.source);
  const run=recordedResult(durable.plan,claimed.trial);durable.memory['run:'+run.id]=clone(run);await durable.call('pause',{id:durable.plan.id});durable.setSession('new-document');await durable.call('hello',{session:'new-document',ready:true},durable.source);assert.equal(durable.memory['experiment:'+durable.plan.id].trials[0].status,'saved');assert.equal(durable.memory['experiment:'+durable.plan.id].status,'paused');assert.deepEqual(durable.memory['run:'+run.id],run);
+ const last=await fixture({dimensions:[{key:'momentum.period.1',values:'126'}]}),claimedLast=await last.call('claim',{id:last.plan.id,session:'original-document'},last.source);
+ const lastArgs={id:last.plan.id,session:'original-document',trialId:claimedLast.trial.id,token:claimedLast.token};
+ await last.call('checkpoint',{...lastArgs,stage:'strategy-submitting'},last.source);
+ await last.call('fail',{...lastArgs,error:'Interrupted before saving the report'},last.source);
+ const savedLast=recordedResult(last.plan,claimedLast.trial);last.memory['run:'+savedLast.id]=savedLast;
+ await last.call('reconcile',{id:last.plan.id,trialId:claimedLast.trial.id});
+ assert.equal(last.memory['experiment:'+last.plan.id].status,'complete','Recovering the last result finishes the study without resuming the queue');
+ assert.equal(last.memory['runner:lease'],null);
  const unproven=await fixture(),attempt=await unproven.call('claim',{id:unproven.plan.id,session:'original-document'},unproven.source),incomplete=recordedResult(unproven.plan,attempt.trial);delete incomplete.experiment.evidence;unproven.memory['run:'+incomplete.id]=clone(incomplete);unproven.setSession('new-document');await unproven.call('hello',{session:'new-document',ready:true},unproven.source);assert.equal(unproven.memory['experiment:'+unproven.plan.id].trials[0].status,'uncertain','An unverified saved record cannot be promoted during recovery');assert.deepEqual(unproven.memory['run:'+incomplete.id],incomplete);
  // Service worker restart and another source tab are not evidence of a dead owner.
  const live=await fixture(),active=await live.call('claim',{id:live.plan.id,session:'original-document'},live.source);live.restart();const lease=clone(live.memory['runner:lease']);await live.call('hello',{session:'original-document',ready:true},live.source);await live.call('hello',{session:'another-tab',ready:true},{...live.source,tab:{id:8}});await assert.rejects(live.call('configure',{tabId:7}),/Finish or pause/);assert.equal(live.memory['experiment:'+live.plan.id].trials[0].status,'applying');assert.deepEqual(live.memory['runner:lease'],lease);

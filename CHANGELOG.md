@@ -1,5 +1,12 @@
 # Changelog
 
+## Application development update — 2026-11-20
+
+- Reset the current trial’s 20-minute timeout from Vault or RZone while the original calculation continues. Passive clicks in RZone no longer interrupt the wait.
+- Recover an interrupted trial from its original RZone tab. Vault verifies the submission and report, saves it once, and continues with the next queued trial.
+- If the report is already saved, link it to the trial and leave any remaining tests ready to resume. If the original submission can’t be verified, leave the trial in review.
+- Verified in Chrome with a live two-trial Nifty 50 P&F study. The original trial recovered, the next trial started automatically, and both results saved.
+
 ## Application development update - 2026-11-19
 
 - Save complete equity and drawdown graphics in new reports, including background runs. Older reports flag potentially incomplete chart snapshots.

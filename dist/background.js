@@ -88,7 +88,7 @@ chrome.runtime.onMessage.addListener((message, sender, reply) => {
   if(message?.type==='vault-experiment'){coordinator.handle(message,sender).then(async result=>{
     if(result.ok&&message.action==='claim'&&result.trial)await focusTrialSource(message.id,sender.tab).catch(()=>{});
     if(result.ok&&(message.action==='fail'||message.action==='checkpoint'&&message.stage==='saved'&&result.status!=='running'))await returnFromTrial(message.id).catch(()=>{});
-    if(message.action==='start'&&result.ok)void chrome.tabs.sendMessage(message.tabId,{type:'vault-runner-wake'},{frameId:0}).catch(()=>{});
+    if(result.ok&&(message.action==='start'||result.recovering))void chrome.tabs.sendMessage(result.tabId??message.tabId,{type:'vault-runner-wake'},{frameId:0}).catch(()=>{});
     reply(result);
   },error=>reply({ok:false,error:error.message}));return true;}
   if (message?.type === 'open-vault' && sender.id===chrome.runtime.id && Number.isInteger(sender.tab?.id) && (sender.frameId??0)===0 && sender.url?.startsWith('https://zone.definedgesecurities.com/')) {

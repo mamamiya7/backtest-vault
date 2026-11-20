@@ -26,7 +26,8 @@ const searchCases=['search-complete','search-original-public','search-execute','
 if(requestedCatalogue&&!['complete','delayed','empty','radar-empty','rejected','radar-rejected','execute',...searchCases].includes(requestedCatalogue))throw Error('Unknown runner catalogue case: '+requestedCatalogue);
 const reordered=x=>Array.isArray(x)?x.map(reordered):x&&typeof x==='object'?Object.fromEntries(Object.keys(x).sort().map(k=>[k,reordered(x[k])])):x;
 async function scenario(options={}){
- const {missingStart=false}=options;
+ const {missingStart=false,extendTimeout=false,declineTimeout=false,manualChangeWhileWaiting=false,recoveryMode=''}=options;
+ const timedTrial=extendTimeout||declineTimeout||manualChangeWhileWaiting;
  const {changeLocked=false,overlap=false,staleCompletion=false,rejected=false,reuseReport=false,noRunning=false,preexistingReport=false,vaultSetup=false,missingGroup=false,changedGroupIdentity=false,changedOptions=false,driftDuringRun=false,refreshParents=false,noOptionRefresh=false,emptyOptions=false,variableSet='',bridge=false,closeAfterWake=false,closeStuckAfterWake=false,closeSlowAnimation=false,closeBlockedByChild=false,groupCatalogue='',ruleCatalogue=''}=options;
  const dom=new JSDOM('<body><h1 class="header-text">Momentum Trading BackTesting<div class="tooltip">i</div></h1><div class="account-right"></div></body>',{runScripts:'outside-only',url:'https://zone.definedgesecurities.com/index.html#research'}),w=dom.window,d=w.document;
  let sourceCloseClicks=0;
@@ -34,6 +35,12 @@ async function scenario(options={}){
  Object.defineProperty(w.HTMLElement.prototype,'innerText',{get(){return this.textContent;}});
  w.Element.prototype.getClientRects=function(){return this.isConnected&&!this.closest('[hidden]')&&!this.closest('[style*="display: none"]')?[{width:100,height:20}]:[];};
  const nativeTimeout=w.setTimeout.bind(w),nativeInterval=w.setInterval.bind(w);w.setTimeout=(fn,ms)=>nativeTimeout(fn,Math.min(ms,20));w.setInterval=(fn,ms)=>nativeInterval(fn,Math.min(ms,30));
+ let timeOffset=0,timeoutControls,firstDeadline;
+ if(timedTrial){
+  w.Date.now=()=>Date.now()+timeOffset;
+  const attach=w.Element.prototype.attachShadow;
+  w.Element.prototype.attachShadow=function(options){const shadow=attach.call(this,options);if(this.id==='definedge-backtest-vault')timeoutControls=shadow;return shadow;};
+ }
  const main=d.querySelector('.account-right'),categoryLoads=[],searchMode=searchCases.includes(ruleCatalogue),exitMode=exitCases.includes(ruleCatalogue),crossRows=['search-cross-row','exit-search-execute'].includes(ruleCatalogue),ruleMenus=new Set(),ruleQueries=[],ruleSelections=[];let initialOptionsReady=false,initialSnapshot,duplicateDuringExecution=false;
  function form(container,fields){const table=d.createElement('table');for(const f of fields){const tr=d.createElement('tr'),td=d.createElement('td'),cell=d.createElement('td');td.textContent=f.label;let n;if(f.type==='select-one'){n=d.createElement('select');const choices=[f.value,...(/Allocation/.test(f.label)?['Fixed','Reinvestment']:/Rank Criteria/.test(f.label)?['Fictional alternate rank']:/Timeframe|Str \d/.test(f.label)&&f.value==='Daily'?['Weekly']:f.value==='Pre'?['My']:f.value.startsWith('Demo ')?[f.value.replace(/^Demo /,'Alternate ')]:[])];for(const value of new Set(choices)){const o=d.createElement('option');o.textContent=value;o.value='source:'+value;n.append(o);}n.value='source:'+f.value;}else {n=d.createElement('input');n.type=f.type;n.value=f.value;if(f.checked!==null)n.checked=f.checked;if(f.type==='radio')n.name=/52 Week/.test(f.label)?'reference':'volume';}n.disabled=f.disabled;cell.append(n);tr.append(td,cell);table.append(tr);}container.append(table);
   if(vaultSetup){const nodes=[...table.querySelectorAll('input,select')],stage=fields.length===52?'momentum':fields.length===12?'execution':'portfolio';const gates=stage==='momentum'?[[4,5,6,7,8,9,10],[11,12],[13,14],[15,16],[17,18],[26,27],[28,29],[30,31],[34,35,36],[37,38],[42,39,40,41],[46,43,44,45],[50,47,48,49]]:stage==='execution'?[[5,6,7],[8,9],[10,11]]:[[4,5]];for(const [gate,...children]of gates){const update=()=>{const change=()=>children.forEach(i=>nodes[i].disabled=!nodes[gate].checked);if(ruleCatalogue==='exit-search-delayed-gate'&&stage==='execution'&&gate===5&&nodes[gate].checked)nativeTimeout(change,900);else change();};nodes[gate].addEventListener('change',update);update();}
@@ -165,6 +172,7 @@ async function scenario(options={}){
   if(driftDuringRun)nativeTimeout(()=>{main.querySelectorAll('input,select')[1].value='Manual drift';},100);
   if(!overlap&&!staleCompletion&&!noRunning)done.textContent='Processing';
   if(!noRunning)cancel.textContent='Cancel BackTest';
+  if(timedTrial||recoveryMode==='strategy'&&submissions===1)return;
   if(overlap||staleCompletion||noRunning)nativeTimeout(()=>{
    guardedStates.push({stage:'old-completion',completed:w.VaultCapture.getStrategy()?.completed,portfolios});
    if(overlap)done.textContent='Processing';
@@ -172,17 +180,24 @@ async function scenario(options={}){
   nativeTimeout(()=>{cancel.textContent='BackTest';done.textContent='BackTest Completed.';p.remove();},160);
   if(staleCompletion||noRunning)nativeTimeout(()=>{guardedStates.push({stage:'unconfirmed-finish',completed:w.VaultCapture.getStrategy()?.completed,portfolios});popup('Error');},240);
  });});
+ let releaseReport;
  button(main,'Portfolio Testing',()=>{const p=popup('Portfolio Backtesting');form(p,E.fields(fixture,'portfolio'));button(p,'Backtest',()=>{portfolios++;
  if(contextVariations){submittedStageFields.portfolio.push(JSON.parse(JSON.stringify(w.VaultCapture.fields(p))));assert.equal(p.querySelector('select').value,'source:'+submittedStageFields.portfolio.at(-1)[1].value,'Allocation must select the native Fixed/Reinvestment option.');}
  if(reuseReport&&priorReport){d.body.append(priorReport);return;}
+ const openReport=()=>{
  const report=oldHiddenReport||popup('Portfolio Backtesting Report');report.hidden=false;priorReport=report;const tabs=d.createElement('div');for(const name of ['Quick Stats','Statistics','Charts','Trade Details']){const tab=d.createElement('div');tab.setAttribute('role','tab');tab.textContent=name;tab.onclick=()=>{for(const t of tabs.children)t.className='';tab.className='selected';};tabs.append(tab);}report.append(tabs);
  const panel=d.createElement('div');panel.setAttribute('role','tabpanel');panel.innerHTML='<div class="stats-card"><div class="status">Total no. of Trades</div><div class="amt">4</div></div><div class="stats-card"><div class="status">Gross Total Returns( % )</div><div class="amt">10%</div></div><table class="dropdown-table-body"><tr><td>Group</td><td>Demo universe 40</td></tr></table>'+Array.from({length:6},(_,i)=>'<svg class="highcharts-root" xmlns="http://www.w3.org/2000/svg"><title>Chart '+i+'</title><path d="M0 0 L20 10"/></svg>').join('')+'<table class="rade-result-detail"></table><span id="curPageTextEle">1</span><span id="lastPageTextEle">2</span><img src="/firstPage.png"><img src="/next.png">';report.append(panel);
  if(variableSet==='universe-timeframe'){const table=panel.querySelector('.dropdown-table-body'),scope=scopeSubmissions.at(-1);table.rows[0].cells[1].textContent=scope.group;const row=table.insertRow();row.insertCell().textContent='Timeframe';row.insertCell().textContent=scope.timeframe;}
  function page(n){panel.querySelector('#curPageTextEle').textContent=n;panel.querySelector('table.rade-result-detail').innerHTML='<tr><th>Sr #</th><th>Symbol</th><th>Qty</th></tr>'+[n*2-1,n*2].map(i=>'<tr><td>'+i+'</td><td>TEST'+i+'</td><td>'+ (i===2?0:10)+'</td></tr>').join('');}panel.querySelector('img[src$="firstPage.png"]').onclick=()=>page(1);panel.querySelector('img[src$="next.png"]').onclick=()=>page(2);page(1);
+ };
+ if(recoveryMode==='portfolio'&&portfolios===1)releaseReport=openReport;else openReport();
  });});
  const memory={},runtime={id:'test-ext',getURL:p=>'chrome-extension://test-ext/'+p},source={id:'test-ext',url:w.location.href,tab:{id:9}},dashboard={id:'test-ext',url:runtime.getURL('index.html')};let uid=0;
- const storage={get:async key=>reordered(key?{[key]:E.clone(memory[key]??null)}:E.clone(memory)),set:async data=>Object.assign(memory,E.clone(data))};const coordinator=createCoordinator({storage,runtime,uuid:()=> 'test-id-'+(++uid)});
  const listeners=[],workerListeners=[],sourceMessages=[],sourceSuccessDialogs=[];let bridgeConfigRequests=0;
+ const probe=()=>{let status;for(const fn of listeners)fn({type:'vault-runner-status'},{id:runtime.id},r=>status=r);return status;};
+ let wrongRecoverySession=false;
+ const storage={get:async key=>reordered(key?{[key]:E.clone(memory[key]??null)}:E.clone(memory)),set:async data=>Object.assign(memory,E.clone(data))};
+ const coordinator=createCoordinator({storage,runtime,clock:()=>Date.now()+timeOffset,uuid:()=> 'test-id-'+(++uid),probe:recoveryMode?async()=>wrongRecoverySession?{...probe(),session:'reloaded-document'}:probe():undefined});
  if(bridge){
   // Exercise the actual worker -> coordinator -> content-script boundary. A
   // delayed reply is valid only when its listener retained the message port.
@@ -216,12 +231,11 @@ async function scenario(options={}){
  fixture.parameters.strategy.main.fields=JSON.parse(JSON.stringify(w.VaultCapture.fields(main)));
  const bp=popup('Baseline fixture');form(bp,E.fields(fixture,'execution'));fixture.parameters.strategy.execution.fields=JSON.parse(JSON.stringify(w.VaultCapture.fields(bp)));bp.remove();const pp=popup('Baseline portfolio');form(pp,E.fields(fixture,'portfolio'));fixture.parameters.settings.fields=JSON.parse(JSON.stringify(w.VaultCapture.fields(pp)));pp.remove();
  let plan;
- if(!vaultSetup){plan=E.create({id:'runner-proof',name:'Runner proof',baseline:E.baseline(fixture),dimensions:[{key:'momentum.period.1',values:'126,180,252'}],minTrades:0});memory['experiment:'+plan.id]=plan;}
+ if(!vaultSetup){plan=E.create({id:'runner-proof',name:'Runner proof',baseline:E.baseline(fixture),dimensions:[{key:'momentum.period.1',values:timedTrial?'126':recoveryMode?'126,180':'126,180,252'}],timeoutMinutes:20,minTrades:0});memory['experiment:'+plan.id]=plan;}
  if(changeLocked)main.querySelectorAll('input')[0].value='Unexpected group';
  const runnerUIListeners=[],nativeAddListener=d.addEventListener.bind(d);d.addEventListener=(type,fn,...args)=>{if(['click','input','change'].includes(type))runnerUIListeners.push({type,fn});return nativeAddListener(type,fn,...args);};
  w.eval(fs.readFileSync(path.join(base,'runner.js'),'utf8'));d.addEventListener=nativeAddListener;
  try{for(let n=0;n<50&&!memory['runner:tab:9'];n++)await sleep(10);
-  const probe=()=>{let status;for(const fn of listeners)fn({type:'vault-runner-status'},{id:runtime.id},r=>status=r);return status;};
   assert.equal(probe().ready,true,JSON.stringify({status:probe(),sourceFailures}));assert.equal(probe().session,memory['runner:tab:9'].session);
   const blockedDialog=popup('Existing report');assert.equal(probe().ready,false);assert.match(probe().reason,/Close/);blockedDialog.remove();
   cancel.textContent='Cancel BackTest';assert.equal(probe().ready,false);assert.match(probe().reason,/already running/);cancel.textContent='BackTest';
@@ -375,6 +389,71 @@ async function scenario(options={}){
   const started=await coordinator.handle({action:'start',id:plan.id,tabId:9},dashboard);
   assert.equal(started?.ok,true,started?.error||'The runner fixture could not start the study.');
   for(const fn of listeners)fn({type:'vault-runner-wake'},{id:runtime.id},()=>{});
+  let interruptedStrategyId,interruptedPortfolioId;
+  if(recoveryMode){
+   const first=()=>memory['experiment:'+plan.id].trials[0],portfolio=recoveryMode==='portfolio',stage=portfolio?'portfolio-submitting':'strategy-submitting';
+   for(let n=0;n<200&&!(first().status===stage&&(portfolio?releaseReport:w.VaultCapture.getStrategy()?.startedAt));n++)await sleep(20);
+   assert.equal(first().status,stage);assert.equal(submissions,1);
+   interruptedStrategyId=w.VaultCapture.getStrategy().id;interruptedPortfolioId=w.VaultCapture.getPortfolio()?.id;
+   for(const listener of runnerUIListeners.filter(item=>item.type==='click'))listener.fn({isTrusted:true,target:main.querySelector('input')});
+   for(let n=0;n<100&&first().status!=='uncertain';n++)await sleep(20);
+   assert.equal(first().status,'uncertain');assert.equal(memory['run:'+first().runId],undefined);
+   if(portfolio)releaseReport();
+   const request={action:'recover',id:plan.id,trialId:first().id};
+   wrongRecoverySession=true;
+   await assert.rejects(coordinator.handle(request,dashboard),/could not verify the original submission/i);
+   assert.equal(first().status,'uncertain');assert.equal(submissions,1);assert.equal(portfolios,portfolio?1:0);
+   wrongRecoverySession=false;
+   const recovered=await Promise.allSettled([coordinator.handle(request,dashboard),coordinator.handle(request,dashboard)]);
+   assert.equal(recovered[0].value?.recovering,true);assert.equal(recovered[1].status,'rejected');
+   for(const fn of listeners)fn({type:'vault-runner-wake'},{id:runtime.id},()=>{});
+   if(!portfolio){
+    await sleep(80);
+    cancel.textContent='BackTest';done.textContent='BackTest Completed.';w.VaultCapture.popup('Momentum Trading BackTest').remove();
+   }
+  }
+  if(timedTrial){
+   const prompt=()=>[...timeoutControls.querySelectorAll('button')].find(button=>button.textContent===(extendTimeout?'Reset to 20 min':'Keep current timeout')&&!button.closest('[hidden]'));
+   for(let n=0;n<200&&!w.VaultCapture.getStrategy()?.startedAt;n++)await sleep(20);
+   const strategyId=w.VaultCapture.getStrategy()?.id;
+   assert.ok(strategyId&&w.VaultCapture.getStrategy()?.startedAt);
+   firstDeadline=E.trialDeadline(plan,memory['experiment:'+plan.id].trials[0]);
+   const advanceTo=async time=>{
+    // Refresh the real lease between clock steps as the open RZone tab would.
+    while(w.Date.now()<time){
+     timeOffset+=Math.min(60000,time-w.Date.now());
+     const sampled=w.Date.now();
+     for(let n=0;n<25&&(memory['runner:lease']?.seenAt??0)<sampled;n++)await sleep(15);
+     if(w.Date.now()<firstDeadline)assert.ok(memory['runner:lease']?.seenAt>=sampled);
+    }
+   };
+   await advanceTo(firstDeadline-130000);
+   assert.equal(prompt(),undefined,'The warning must stay hidden before the last two minutes');
+   await advanceTo(firstDeadline-115000);
+   for(let n=0;n<200&&!prompt();n++)await sleep(20);
+   const button=prompt();assert.ok(button,'RZone must show the warning before the cutoff');
+   const trustedClick=target=>{
+    for(const listener of runnerUIListeners.filter(item=>item.type==='click'))listener.fn({isTrusted:true,target});
+   };
+   const clickedAt=w.Date.now();
+   if(extendTimeout){
+    const reset=await coordinator.handle({action:'extend-timeout',id:plan.id,trialId:plan.trials[0].id,deadlineAt:firstDeadline},dashboard);
+    assert.equal(reset.ok,true);
+    trustedClick(d.querySelector('h1'));
+   }else if(manualChangeWhileWaiting)trustedClick(main.querySelector('input'));
+   else button.click();
+   if(extendTimeout){
+    for(let n=0;n<50&&!memory['experiment:'+plan.id].trials[0].execution.deadlineAt;n++)await sleep(20);
+    const newDeadline=memory['experiment:'+plan.id].trials[0].execution.deadlineAt;
+    assert.ok(newDeadline>=clickedAt+1200000&&newDeadline<=w.Date.now()+1200000,'The new deadline must be 20 minutes from the click');
+   }else if(declineTimeout)assert.equal(prompt(),undefined,'Dismissal hides the warning for the current deadline');
+   if(!manualChangeWhileWaiting)await advanceTo(firstDeadline+3000);
+   if(extendTimeout){
+    await sleep(120);assert.ok(w.Date.now()>firstDeadline);assert.equal(memory['experiment:'+plan.id].trials[0].status,'strategy-submitting');
+    assert.equal(submissions,1);assert.equal(w.VaultCapture.getStrategy()?.id,strategyId);
+    cancel.textContent='BackTest';done.textContent='BackTest Completed.';w.VaultCapture.popup('Momentum Trading BackTest').remove();
+   }
+  }
   for(let n=0;n<(crossRows||exitMode||variableSet==='universe-timeframe'?1200:600)&&!['complete','needs-review'].includes(memory['experiment:'+plan.id].status);n++)await sleep(20);
   const result=memory['experiment:'+plan.id];
   const runs=Object.entries(memory).filter(([k])=>k.startsWith('run:')).map(([,v])=>v);
@@ -382,6 +461,9 @@ async function scenario(options={}){
   else if(missingGroup||changedGroupIdentity||changedOptions||driftDuringRun){
    assert.equal(result.status,'needs-review',JSON.stringify(result.trials));assert.equal(runs.length,0);assert.equal(submissions,driftDuringRun?1:0);assert.equal(portfolios,0);
    assert.match(result.trials[0].error,missingGroup?/confirm that group/:changedGroupIdentity?/group.*(?:changed|match|identity)|(?:changed|match|identity).*group/i:changedOptions?/dropdown value is unavailable/:/read-back differs/);if(changedGroupIdentity)assert.equal(groupCommits,0,'An identically labelled but different native Group must not be committed or submitted.');
+  }
+  else if(declineTimeout||manualChangeWhileWaiting){
+   assert.equal(result.status,'needs-review');assert.match(result.trials[0].error,manualChangeWhileWaiting?/changed manually/:/timed out/);assert.equal(submissions,1);assert.equal(portfolios,0);assert.equal(runs.length,0);
   }
   else if(missingStart){
    assert.equal(result.status,'needs-review',JSON.stringify(result.trials));
@@ -397,7 +479,14 @@ async function scenario(options={}){
    if(staleCompletion||noRunning){assert.equal(guardedStates.length,2);assert.ok(guardedStates.every(s=>s.completed===false&&s.portfolios===0),'A stale completion label must never advance to portfolio testing.');}
   }
   else{
-   const expectedCount=plan.trials.length;assert.equal(result.status,'complete',JSON.stringify(result.trials.map(t=>({status:t.status,error:t.error}))));assert.equal(submissions,expectedCount);assert.equal(portfolios,expectedCount);assert.equal(runs.length,expectedCount);assert.deepEqual(runs.map(r=>E.fields(r,'momentum')[12].value),variableSet?Array(expectedCount).fill('180'):['126','180','252']);
+   const expectedCount=plan.trials.length;assert.equal(result.status,'complete',JSON.stringify(result.trials.map(t=>({status:t.status,error:t.error}))));assert.equal(submissions,expectedCount);assert.equal(portfolios,expectedCount);assert.equal(runs.length,expectedCount);assert.deepEqual(runs.map(r=>E.fields(r,'momentum')[12].value),extendTimeout?['126']:recoveryMode?['126','180']:variableSet?Array(expectedCount).fill('180'):['126','180','252']);
+   if(recoveryMode){
+    assert.deepEqual(runs.map(run=>run.id),plan.trials.map(trial=>trial.runId));
+    assert.equal(runs[0].experiment.evidence.strategySubmissionId,interruptedStrategyId);
+    if(interruptedPortfolioId)assert.equal(runs[0].experiment.evidence.portfolioSubmissionId,interruptedPortfolioId);
+    assert.deepEqual(savedBeforeNext,[true]);
+    await assert.rejects(coordinator.handle({action:'recover',id:plan.id,trialId:plan.trials[0].id},dashboard),/no longer waiting/);
+   }
    if(ruleCatalogue==='execute')assert.deepEqual(strategyNativeSubmissions,Array.from({length:3},()=>['My','Public','My','Popular'].map((category,index)=>({category:'source:'+category,rule:'rule:'+index+':'+category+':second',enabled:true}))),'Apply each cached category before resolving its exact native rule option, on every source submission.');
    if(crossRows){
     assert.ok(runs.every(r=>E.fields(r,'momentum').slice(47,51).every(f=>f.label.startsWith('Str 2 : / Publici → Str 3 : / Publici'))),'Compose both changed source categories in exact captured ancestor/child labels.');assert.equal(ruleSelections.filter(s=>[43,47].includes(s.index)).length,6);
@@ -957,7 +1046,8 @@ async function filterScenario(mode,dailySeed){
   ...['Candle','P&F','Renko'].flatMap(mainChart=>['Candle','P&F','Renko'].filter(exitChart=>mainChart!=='Candle'||exitChart!=='Candle').map(exitChart=>({variantLifecycle:{mainChart,exitChart}}))),
   ...['Absolute','ATR','ATR %'].map(mode=>({variantLifecycle:{mainChart:'Renko',exitChart:'Renko',mainMode:mode,exitMode:mode}})),
   {variantLifecycle:{mainChart:'P&F',exitChart:'Renko',failure:'stale'}},{variantLifecycle:{mainChart:'Renko',exitChart:'P&F',failure:'duplicate'}},{filterCase:'market-renko-delayed'},{filterCase:'relative-strength-pnf'},{filterCase:'relative-strength-renko'},{chartCase:'warm-slow-renko'}, {missingStart:true},
-  {variantLifecycle:{mainChart:'Candle',exitChart:'P&F',groupDelay:6500,captureTiming:true}}
+  {variantLifecycle:{mainChart:'Candle',exitChart:'P&F',groupDelay:6500,captureTiming:true}},{extendTimeout:true},{declineTimeout:true},{manualChangeWhileWaiting:true},
+  {recoveryMode:'strategy'},{recoveryMode:'portfolio'}
  ];
  if(fromCase===1&&!requestedChart&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus, rule/symbol/filter routing and deadline checks (12 cases).');}
  const selected=cases.filter(o=>(!requestedChart||o.chartCase===requestedChart)&&(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake||o.closeSlowAnimation||o.closeBlockedByChild));

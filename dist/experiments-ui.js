@@ -52,13 +52,14 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  panel.append(environment);
 
  const content=el('div');panel.append(content);
+ let timeoutDialog=null,dismissedTimeout='';
  const motion=root.VaultWorkspaceMotion?.create(panel),calendars=[];
  const clearCalendars=()=>{for(const calendar of calendars.splice(0))calendar.destroy();};
  const calendarOpen=()=>calendars.some(calendar=>calendar.button.getAttribute('aria-expanded')==='true');
  const attachCalendar=(container,fromInput,toInput,options={})=>{if(!root.VaultDateRange)return null;const calendar=root.VaultDateRange.attach({container,fromInput,toInput,...options});calendars.push(calendar);return calendar;};
  const keepSetup=()=>{if(!wizard||wizard.submitting)return;const {controls,countUpdates,fields,catalog,...draft}=wizard;if(wizard.connecting||wizard.ruleLookup)notice.textContent='';setupDrafts.set(store,structuredClone({...draft,connecting:false,warmingChart:null,loadingFilter:null,choiceCheckStatus:null,ruleLookup:null,reviewOpen:false,editorOpen:null,generation:draft.generation+1}));};
 
- const dispose=()=>{if(disposed)return;keepSetup();disposed=true;clearInterval(timer);document.removeEventListener('visibilitychange',refresh);clearCalendars();motion?.destroy();deletionDialog?.remove();deletionDialog=null;document.body.classList.remove('experiments-mode');};cleanup=dispose;
+ const dispose=()=>{if(disposed)return;keepSetup();disposed=true;clearInterval(timer);document.removeEventListener('visibilitychange',refresh);clearCalendars();motion?.destroy();deletionDialog?.remove();timeoutDialog?.remove();deletionDialog=null;document.body.classList.remove('experiments-mode');};cleanup=dispose;
 
  async function command(action,data={}){
 
@@ -86,6 +87,29 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
  }
 
  async function action(fn){try{notice.textContent='';notice.className='notice';await fn();}catch(e){notice.textContent=e.message;notice.className='notice error';}}
+
+ function syncTimeoutPrompt(){
+  if(!extension||document.visibilityState==='hidden')return;
+  const study=experiments.find(e=>['running','pausing'].includes(e.status)&&e.trials.some(t=>E.waitingForResult(t.status)));
+  const trial=study?.trials.find(t=>E.waitingForResult(t.status)),deadlineAt=trial&&E.trialDeadline(study,trial);
+  const key=trial?.id+'-'+deadlineAt;
+  if(timeoutDialog){if(timeoutDialog.dataset.timeout===key&&E.timeoutWarning(study,deadlineAt,Date.now()))return;timeoutDialog.remove();timeoutDialog=null;}
+  if(!trial||dismissedTimeout===key||!E.timeoutWarning(study,deadlineAt,Date.now())||document.querySelector('dialog[open]'))return;
+  const dialog=el('dialog',undefined,'study-delete-dialog'),title=el('h3','Give this trial more time?'),actions=el('div',undefined,'study-delete-actions'),error=el('p','','notice error');
+  const dismiss=()=>{dismissedTimeout=key;dialog.remove();if(timeoutDialog===dialog)timeoutDialog=null;};
+  title.id='trial-timeout-title';dialog.setAttribute('aria-labelledby',title.id);dialog.dataset.timeout=key;
+  dialog.oncancel=event=>{event.preventDefault();dismiss();};
+  error.setAttribute('role','alert');
+  const keep=button('Keep current timeout',dismiss),extend=button('Reset to '+study.timeoutMinutes+' min',async()=>{
+   extend.disabled=true;
+   try{await command('extend-timeout',{id:study.id,trialId:trial.id,deadlineAt});dismiss();await load();notice.textContent='Trial '+trial.ordinal+' timeout extended.';}
+   catch(failure){(dialog.isConnected?error:notice).textContent=failure.message;}
+   finally{extend.disabled=false;}
+  },'primary');
+  actions.append(keep,extend);
+  dialog.append(title,el('p',study.name+' · Trial '+trial.ordinal+' of '+study.trials.length+' is still waiting for RZone.'),error,actions);
+  timeoutDialog=dialog;panel.append(dialog);if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','');keep.focus();
+ }
 
  function deleteControl(e,compact=false){
   const b=button(compact?'Delete':'Delete study',()=>confirmDeletion(e,b),'quiet study-delete');
@@ -1000,7 +1024,23 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
   if(root.VaultResearchSession)actions.append(button('Research tools',()=>action(()=>root.VaultResearchSession.tools(e.id)),'secondary'));
   actions.append(button('Export study',()=>download('experiment-'+id+'.json',JSON.stringify({format:'definedge-backtest-vault',version:2,exportedAt:new Date().toISOString(),experiments:[e],runs:runs.filter(r=>r.id===e.baseline.id||e.trials.some(t=>t.runId===r.id))},null,2)),'quiet'),deleteControl(e));content.append(actions);
 
-  const uncertainty=e.trials.filter(t=>t.status==='uncertain');for(const t of uncertainty){const n=el('div',undefined,'experiment-review');n.append(el('strong','Trial '+t.ordinal+' needs review'),el('p',t.error));if(extension&&!sample)n.append(button('Check saved result',()=>action(async()=>{await command('reconcile',{id,trialId:t.id});await load();detail(id);})),button('Skip this trial',()=>action(async()=>{await command('skip',{id,trialId:t.id});await load();detail(id);}), 'quiet'));content.append(n);}
+  const uncertainty=e.trials.filter(t=>t.status==='uncertain');
+  for(const t of uncertainty){
+   const n=el('div',undefined,'experiment-review'),error=el('p','','notice error');
+   n.append(el('strong','Trial '+t.ordinal+' needs review'),el('p',t.error));
+   if(extension&&!sample){
+    error.setAttribute('role','alert');
+    const recover=button('Recover this trial',async()=>{
+     recover.disabled=skip.disabled=true;recover.textContent='Checking original result…';error.textContent='';
+     try{await command('recover',{id,trialId:t.id});await load();detail(id);}
+     catch(failure){error.textContent=failure.message;}
+     finally{recover.disabled=skip.disabled=false;recover.textContent='Recover this trial';}
+    },'primary');
+    const skip=button('Skip this trial',()=>action(async()=>{await command('skip',{id,trialId:t.id});await load();detail(id);}), 'quiet');
+    n.append(el('p','Keep the original RZone tab open. Vault can save the matching result and continue with queued trials without submitting this strategy again.','muted'),recover,skip,error);
+   }
+   content.append(n);
+  }
   const recent=motion?.results(e,runs,onOpen,(extension||store.demo)?run=>action(()=>newTest(run)):null);if(recent)content.append(recent);
 
   const evidence=el('section',undefined,'experiment-evidence');evidence.tabIndex=-1;evidence.append(el('h3',sample?'Sample ranking':'Results'),el('p',e.trials.some(t=>t.phase!=='discovery')?'The candidate is frozen. Review validation and holdout separately from the discovery ranking.':d.next,'muted'));
@@ -1041,9 +1081,9 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- await load();if(!alive())return;if(startNew)await action(()=>newTest());else if(baselineRun)await builder(baselineRun);else if(studyId)detail(studyId);else list();
+ await load();if(!alive())return;if(startNew)await action(()=>newTest());else if(baselineRun)await builder(baselineRun);else if(studyId)detail(studyId);else list();syncTimeoutPrompt();
 
- async function refresh(){if(!alive()){dispose();return;}if(extension&&document.visibilityState==='hidden'||refreshing||deletionDialog||calendarOpen())return;refreshing=true;try{await load();if(!alive()||deletionDialog||calendarOpen())return;if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();if(!content.contains(document.activeElement)){if(selected&&renderedDetail!==stamp(experiments.find(e=>e.id===selected)))detail(selected);else if(!selected&&!wizard&&renderedList!==listStamp())list();}}catch(error){notice.textContent=error.message;}finally{refreshing=false;}}
+ async function refresh(){if(!alive()){dispose();return;}if(extension&&document.visibilityState==='hidden'||refreshing||deletionDialog||calendarOpen())return;refreshing=true;try{await load();if(!alive()||deletionDialog||calendarOpen())return;syncTimeoutPrompt();if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();if(!content.contains(document.activeElement)){if(selected&&renderedDetail!==stamp(experiments.find(e=>e.id===selected)))detail(selected);else if(!selected&&!wizard&&renderedList!==listStamp())list();}}catch(error){notice.textContent=error.message;}finally{refreshing=false;}}
  timer=setInterval(refresh,3000);
  if(extension)document.addEventListener('visibilitychange',refresh);
 

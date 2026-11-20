@@ -14,6 +14,9 @@ const stageSnapshot=(b,s)=>({fields:fields(b,s)});
 const auxiliarySetup=b=>b.setup?.template?.stages?.momentum?.relativeStrength||b.setup?.template?.stages?.marketFilter;
 const idOK=x=>typeof x==='string'&&/^[a-zA-Z0-9_-]{1,120}$/.test(x);
 const active=['applying','strategy-submitting','strategy-complete','portfolio-submitting','capturing'];
+const waitingForResult=status=>status==='strategy-submitting'||status==='portfolio-submitting';
+const trialDeadline=(e,t)=>t.execution?.deadlineAt??Date.parse(t.execution?.claimedAt)+e.timeoutMinutes*60000;
+const timeoutWarning=(e,deadline,now)=>deadline>now&&deadline-now<=Math.min(120000,e.timeoutMinutes*15000);
 function deletionReason(e){
  if(!e)return 'Study not found.';
  if(['running','pausing'].includes(e.status)||e.trials?.some(t=>active.includes(t.status)))return 'Stop this study and wait for its current test to finish before deleting it.';
@@ -305,6 +308,6 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
  const n=e.trials.length+1;e.trials.push({id:e.id+'-t'+n,runId:e.id+'-t'+n,ordinal:n,patch:clone(t.patch),status:'queued',phase,period:clone(period),parentTrialId:t.id,events:[]});e.status='paused';journal(e,'Frozen '+phase+' candidate: trial '+t.ordinal,now);return e;
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
-const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,createValidator,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,clone};
+const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,createValidator,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,waitingForResult,trialDeadline,timeoutWarning,clone};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);

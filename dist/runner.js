@@ -4,6 +4,9 @@
 const C=window.VaultCapture,E=window.VaultExperiments,V=window.Vault,L=window.VaultSourceLayouts;
 if(!C||!E||!L||typeof chrome==='undefined'||!chrome.runtime?.sendMessage)return;
 const session=crypto.randomUUID();let active=false,configuring=false,failed=false,interrupted=false,polling=false,writing=false;
+let activeTimeout=null;
+let waitingForSource=false;
+let recovery=null;
 let lastConfig=null,optionalDay='';const optionalMenus=[];
 const localChoiceDay=(time=Date.now())=>{const day=new Date(time);return [day.getFullYear(),day.getMonth(),day.getDate()].join('-');};
 const currentChoiceDay=()=>lastConfig&&localChoiceDay(lastConfig.capturedAt)===localChoiceDay();
@@ -17,14 +20,26 @@ const onMomentum=()=>!!C.main()&&document.body.innerText.includes('Momentum Trad
 const navigation=()=>[...new Set([...document.querySelectorAll('a,button,[role="menuitem"],.gwt-MenuItem,.tool-popup .Fav-menu .scanner-name-scroll')].filter(n=>C.visible(n)&&!n.disabled&&/^Momentum Trading Back ?Testing$/i.test(V.clean(n.textContent))).map(n=>n.matches('.scanner-name-scroll')?n.closest('a')||n:n))];
 const backtestNavigation=()=>[...document.querySelectorAll('li[token="bt"]')].filter(C.visible);
 const workingPopups=()=>popups().filter(p=>!p.querySelector('.Fav-menu')||!p.closest('.tool-popup'));
-function sourceStatus(){
+function recoveryStatus(){
+ if(!recovery||active||configuring||!onMomentum()||!recovery.strategyId)return null;
+ C.monitor();
+ const strategy=C.getStrategy(),portfolio=C.getPortfolio();
+ if(strategy?.id!==recovery.strategyId||!strategy.startedAt||C.popup('Error'))return null;
+ if(C.capturedRunId()||C.pending()&&C.pendingRunId()!==recovery.trialId)return null;
+ const linked=portfolio?.strategy?.id===strategy.id;
+ const report=C.popup('Portfolio Backtesting Report');
+ if(recovery.portfolioAttempted&&(!recovery.portfolioId||!linked||portfolio.id!==recovery.portfolioId||!report&&!C.awaitingResult()))return null;
+ if(!recovery.portfolioAttempted&&(linked||report))return null;
+ return {experimentId:recovery.experimentId,trialId:recovery.trialId,strategyId:strategy.id,portfolioId:recovery.portfolioId};
+}
+function sourceStatus(includeRecovery=false){
  const main=C.main();const reason=failed?'RZone runner stopped. Refresh RZone after preserving any open report.':active?'A trial is running in RZone.':configuring?'Reading RZone setup options.':C.pending()?'Recover the pending save in RZone first.':C.running()?'A backtest is already running in RZone.':C.awaitingResult()?'An earlier source submission is still awaiting a confirmed result.':popups().length?'Close the open report or settings dialog in RZone.':!onMomentum()?'Open Momentum Trading BackTesting in RZone.':'';
  const chart=main?.querySelector('select');
- return {session,ready:!reason,capable:!failed&&!active&&!configuring&&!C.pending()&&!C.running()&&!C.awaitingResult()&&!workingPopups().length&&(onMomentum()||navigation().length===1||backtestNavigation().length===1),chart:chart?V.clean(chart.selectedOptions[0]?.textContent):'',reason};
+ return {session,ready:!reason,capable:!failed&&!active&&!configuring&&!C.pending()&&!C.running()&&!C.awaitingResult()&&!workingPopups().length&&(onMomentum()||navigation().length===1||backtestNavigation().length===1),chart:chart?V.clean(chart.selectedOptions[0]?.textContent):'',reason,...(includeRecovery?{recovery:recoveryStatus()}:{})};
 }
 chrome.runtime.onMessage.addListener((message,sender,reply)=>{
  if(sender.id!==chrome.runtime.id)return;
- if(message?.type==='vault-runner-status')reply(sourceStatus());
+ if(message?.type==='vault-runner-status')reply(sourceStatus(true));
  if(message?.type==='vault-runner-wake'){reply({ok:true});void tick();}
  if(message?.type==='vault-runner-config'){void configuration(message.changes,message).then(result=>reply({ok:true,session,...result}),error=>{if(!active&&!configuring)C.status('Could not load settings: '+error.message);reply({ok:false,error:error.message});});return true;}
  if(message?.type==='vault-runner-rule-search'){void ruleLookup(message).then(result=>reply({ok:true,session,result}),error=>reply({ok:false,error:error.message}));return true;}
@@ -989,17 +1004,56 @@ async function apply(p,e,t,stage,planned=E.expected(e,t)){
 }
 async function run(job){
  const {experiment:e,trial:t,token}=job,common={id:e.id,trialId:t.id,token};
+ const reattach=job.recovery;
+ const trace=reattach?recovery:{experimentId:e.id,trialId:t.id,strategyId:null,portfolioAttempted:false,portfolioId:null};
+ const available=reattach&&recoveryStatus();
  const checkpoint=(stage,timing)=>send({...common,action:'checkpoint',stage,...(timing?{timing}:{})});
- active=true;interrupted=false;const deadline=Date.now()+e.timeoutMinutes*60000;let continueQueue=false;
+ active=true;interrupted=false;let deadline=E.trialDeadline(e,t)||Date.now()+e.timeoutMinutes*60000,continueQueue=false;
+ const warning=document.createElement('section'),message=document.createElement('p'),extend=document.createElement('button'),dismiss=document.createElement('button');
+ warning.hidden=true;message.setAttribute('role','status');message.textContent='Trial '+t.ordinal+' is nearing its timeout. Give RZone another '+e.timeoutMinutes+' minutes?';
+ extend.type=dismiss.type='button';extend.textContent='Reset to '+e.timeoutMinutes+' min';dismiss.textContent='Keep current timeout';dismiss.className='secondary';
+ warning.append(message,extend,dismiss);C.addControl(warning);
+ let dismissedDeadline;
+ dismiss.onclick=()=>{dismissedDeadline=deadline;warning.hidden=true;};
+ extend.onclick=async()=>{
+  extend.disabled=true;
+  try{const reply=await send({...common,action:'extend-timeout',deadlineAt:deadline});deadline=Math.max(deadline,reply.deadlineAt);warning.hidden=true;C.status('Trial '+t.ordinal+' timeout extended. Waiting for RZone.');}
+  catch(error){C.status(error.message);}
+  finally{extend.disabled=false;}
+ };
+ activeTimeout={trialId:t.id,update:time=>{if(Number.isSafeInteger(time)&&time>deadline)deadline=time;}};
+ async function waitForReport(read,error){
+  waitingForSource=true;
+  try{for(;;){
+   check();
+   if(Date.now()>=deadline){
+    const current=await send({...common,action:'trial-timeout'});
+    activeTimeout.update(current.deadlineAt);
+    if(Date.now()>=deadline)throw Error(error);
+   }
+   const result=read();if(result)return result;
+   warning.hidden=deadline===dismissedDeadline||!E.timeoutWarning(e,deadline,Date.now());
+   await delay(250);
+  }}finally{waitingForSource=false;warning.hidden=true;}
+ }
  try{
-  if(C.pending())throw Error('Recover the pending manual save before starting an experiment.');
-  if(C.running())throw Error('A backtest is already running in RZone. Wait for it to finish before starting an experiment.');
-  if(C.awaitingResult())throw Error('An earlier source submission is still awaiting a confirmed result.');
-  if(popups().length)throw Error('Close existing RZone dialogs before starting. Your open report was left intact.');
+  if(reattach&&(!available||available.experimentId!==e.id||available.trialId!==t.id||available.strategyId!==reattach.strategyId||available.portfolioId!==reattach.portfolioId))throw Error('The original RZone submission changed before recovery started.');
+  recovery=trace;
+  failed=false;
+  if(C.pending()&&(!reattach||C.pendingRunId()!==t.runId))throw Error('Recover the pending manual save before starting an experiment.');
+  if(!reattach){
+   if(C.running())throw Error('A backtest is already running in RZone. Wait for it to finish before starting an experiment.');
+   if(C.awaitingResult())throw Error('An earlier source submission is still awaiting a confirmed result.');
+   if(popups().length)throw Error('Close existing RZone dialogs before starting. Your open report was left intact.');
+  }else if(popups().some(p=>!['Momentum Trading BackTest','Portfolio Backtesting','Portfolio Backtesting Report'].some(name=>C.popup(name)===p))){
+   throw Error('Close the unrelated RZone dialog before recovering this trial.');
+  }
   C.status(e.name+' · Trial '+t.ordinal+' of '+e.trials.length);
   const planned=E.expected(e,t);
   L.validate('momentum',E.fields(planned,'momentum'));
   if(L.validate('execution',E.fields(planned,'execution')).selection!=='Price')throw Error('Automatic execution currently requires Price selection.');
+  let setup,submitted;
+  if(!reattach){
   await apply(C.main(),e,t,'momentum',planned);
   const marketFields=E.fields(planned,'marketFilter');
   if(marketFields?.length){
@@ -1009,13 +1063,23 @@ async function run(job){
    const savedFilter=C.getMarketTrend?.();if(!savedFilter)throw Error('The Market Trend Filter save was not recorded.');E.verify(marketFields,savedFilter.fields);
   }
   button(C.main(),/^BackTest$/i).click();
-  const setup=await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(deadline,Date.now()+10000),'Momentum settings did not open.');
+  setup=await wait(()=>C.popup('Momentum Trading BackTest'),Math.min(deadline,Date.now()+10000),'Momentum settings did not open.');
   await apply(setup,e,t,'execution',planned);
   E.verify(E.fields(planned,'momentum'),C.fields(C.main()));
   await checkpoint('strategy-submitting'); // Persist the intent before a source side effect.
   const previous=C.getStrategy()?.id;button(setup,/^Backtest$/i).click();
-  const submitted=C.getStrategy();
+  submitted=C.getStrategy();
   if(!submitted||submitted.id===previous)throw Error('The strategy submission was not recorded.');
+  trace.strategyId=submitted.id;
+  }else{
+   setup=C.popup('Momentum Trading BackTest');
+   submitted=C.getStrategy();
+   E.verify(E.fields(planned,'momentum'),submitted.main.fields);
+   E.verify(E.fields(planned,'execution'),submitted.execution.fields);
+   const filter=E.fields(planned,'marketFilter');
+   if(filter?.length)E.verify(filter,submitted.marketTrend?.fields);
+   C.status('Recovering trial '+t.ordinal+' from its original RZone submission…');
+  }
   const readSubmission=()=>{
    C.monitor();
    const strategy=C.getStrategy();
@@ -1024,22 +1088,29 @@ async function run(job){
   };
   const startDeadline=Math.min(deadline,Date.now()+60000);
   await wait(()=>readSubmission()?.startedAt,startDeadline,'Definedge did not confirm that the strategy started. Check RZone for a result before retrying.');
-  const completed=await wait(()=>{
+  const completed=await waitForReport(()=>{
    const strategy=readSubmission();
    return strategy?.completed&&strategy.startedAt&&strategy.completedAt?strategy:null;
-  },deadline,'Definedge started the strategy, but Vault could not confirm completion before the trial timed out.');
+  },'Definedge started the strategy, but Vault could not confirm completion before the trial timed out.');
+  let portfolio=C.popup('Portfolio Backtesting'),submittedPortfolio;
+  if(reattach?.portfolioId)submittedPortfolio=C.getPortfolio();
+  else{
   await checkpoint('strategy-complete');
   if(C.visible(setup))await close(setup);
-  button(C.main(),/^Portfolio Testing$/i).click();
-  const portfolio=await wait(()=>C.popup('Portfolio Backtesting'),Math.min(deadline,Date.now()+10000),'Portfolio settings did not open.');
+  if(!portfolio)button(C.main(),/^Portfolio Testing$/i).click();
+  portfolio=await wait(()=>C.popup('Portfolio Backtesting'),Math.min(deadline,Date.now()+10000),'Portfolio settings did not open.');
   C.status('Trial '+t.ordinal+' of '+e.trials.length+' · Applying portfolio settings…');
   await apply(portfolio,e,t,'portfolio',planned);
   E.verify(E.fields(planned,'momentum'),C.fields(C.main()));
   await checkpoint('portfolio-submitting');
-  const previousPortfolio=C.getPortfolio()?.id;button(portfolio,/^Backtest$/i).click();
-  const submittedPortfolio=C.getPortfolio();
+  const portfolioButton=button(portfolio,/^Backtest$/i),previousPortfolio=C.getPortfolio()?.id;
+  trace.portfolioAttempted=true;
+  portfolioButton.click();
+  submittedPortfolio=C.getPortfolio();
   if(!submittedPortfolio||submittedPortfolio.id===previousPortfolio||submittedPortfolio.strategy?.id!==completed.id)throw Error('The portfolio submission was not linked to this trial.');
-  const report=await wait(()=>C.popup('Portfolio Backtesting Report'),deadline,'Portfolio report did not arrive.');
+  trace.portfolioId=submittedPortfolio.id;
+  }
+  const report=await waitForReport(()=>C.popup('Portfolio Backtesting Report'),'Portfolio report did not arrive.');
   C.monitor();
   // Read the report while the worker records capture intent. The archive
   // write still waits for the accepted checkpoint and final source checks.
@@ -1049,6 +1120,7 @@ async function run(job){
    Object.assign(timing,result.timing,{ack:Math.round(performance.now()-captureStarted)});
    return null;
   },error=>error);
+  if(C.pending()){const error=await captureReady;if(error)throw error;}
   const experiment={id:e.id,trialId:t.id,phase:t.phase};
   await C.capture({strict:true,runId:t.runId,name:e.name+' · '+t.phase+' '+t.ordinal,submission:{strategyId:completed.id,portfolioId:submittedPortfolio.id},experiment,
    beforeSave:async()=>{const error=await captureReady;if(error)throw error;},
@@ -1070,12 +1142,27 @@ async function run(job){
   C.status('Confirming the saved trial…');
   const saved=await checkpoint('saved',timing);
   continueQueue=saved.status==='running';
+  recovery=null;
   C.status('Trial '+t.ordinal+' saved. Experiment queue will continue in this tab.');
  }catch(error){failed=true;C.status('Experiment stopped: '+error.message);try{await send({...common,action:'fail',error:error.message});}catch{/* Durable lease prevents replay if the worker is unreachable. */}}
- finally{active=false;if(continueQueue&&!interrupted)void tick();}
+ finally{warning.remove();activeTimeout=null;active=false;if(continueQueue&&!interrupted)void tick();}
 }
-for(const type of ['click','input','change'])document.addEventListener(type,event=>{if(!writing&&event.isTrusted&&!C.host.contains(event.target)){for(const [container,stage]of [[C.main(),'momentum'],[C.popup('Momentum Trading BackTest'),'execution'],[C.popup('Market Trend Filter'),'marketFilter']]){if(!container)continue;const nodes=inputs(container),rows=stageRows(stage,container);if(['input','change'].includes(type)){selectedRules.delete(event.target);for(const row of rows)if(event.target===nodes[row.parentIndex])selectedRules.delete(nodes[row.childIndex]);}if(type==='click'&&event.target.closest?.('.ind-list li[sbid]'))for(const row of rows)if(ruleSearch(nodes[row.childIndex]))selectedRules.delete(nodes[row.childIndex]);}if(active||configuring)interrupted=true;}},true);
-async function tick(){if(polling)return;polling=true;try{const r=await send({action:'hello',...sourceStatus(),failed});if(r.id&&!active&&!configuring&&!failed){const job=await send({action:'claim',id:r.id});if(job.trial)void run(job);}}catch{/* Reload invalidates the document; do not keep sending or submit again. */failed=true;}finally{polling=false;}}
+const sourceControl='button,a,input,select,textarea,label,summary,[onclick],[contenteditable],[tabindex],[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],.ind-list li[sbid]';
+for(const type of ['click','input','change'])document.addEventListener(type,event=>{
+ const target=event.target;
+ if(writing||!event.isTrusted||C.host.contains(target))return;
+ // While Definedge is computing, ordinary page clicks can focus the tab
+ // without altering a trial. Keep guarding source controls and value changes.
+ if(type==='click'&&waitingForSource&&!target.closest?.(sourceControl))return;
+ for(const [container,stage]of [[C.main(),'momentum'],[C.popup('Momentum Trading BackTest'),'execution'],[C.popup('Market Trend Filter'),'marketFilter']]){
+  if(!container)continue;
+  const nodes=inputs(container),rows=stageRows(stage,container);
+  if(type!=='click'){selectedRules.delete(target);for(const row of rows)if(target===nodes[row.parentIndex])selectedRules.delete(nodes[row.childIndex]);}
+  if(type==='click'&&target.closest?.('.ind-list li[sbid]'))for(const row of rows)if(ruleSearch(nodes[row.childIndex]))selectedRules.delete(nodes[row.childIndex]);
+ }
+ if(active||configuring)interrupted=true;
+},true);
+async function tick(){if(polling)return;polling=true;try{const r=await send({action:'hello',...sourceStatus(),failed});if(activeTimeout&&r.timeout?.trialId===activeTimeout.trialId)activeTimeout.update(r.timeout.deadlineAt);if(r.id&&!active&&!configuring&&(!failed||r.recovery)){const job=await send({action:'claim',id:r.id});if(job.trial)void run(job);}}catch{/* Reload invalidates the document; do not keep sending or submit again. */failed=true;}finally{polling=false;}}
 window.VaultRunner={get active(){return active;},apply};
 const timer=setInterval(tick,3000);void tick();window.addEventListener('pagehide',()=>{clearInterval(timer);interrupted=true;},{once:true});
 })();

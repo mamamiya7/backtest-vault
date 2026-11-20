@@ -285,8 +285,11 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
    if(l?.tabId===sender.tab.id&&l.session===m.session&&!m.failed&&['running','pausing'].includes(owned?.status)&&E.active.includes(trial?.status)){
     l.seenAt=clock();await storage.set({'runner:lease':l});
    }
-   const mine=Object.entries(state).find(([key,e])=>key.startsWith('experiment:')&&e.status==='running'&&e.owner?.tabId===sender.tab.id&&e.owner.session===m.session)?.[1];
-   return {ok:true,id:mine?.id||null};
+   const recovery=l?.recoveryPending&&l.tabId===sender.tab.id&&l.session===m.session&&E.active.includes(trial?.status)&&['running','pausing'].includes(owned?.status);
+   const mine=recovery?owned:Object.entries(state).find(([key,e])=>key.startsWith('experiment:')&&e.status==='running'&&e.owner?.tabId===sender.tab.id&&e.owner.session===m.session)?.[1];
+   const timeout=trial&&l.tabId===sender.tab.id&&l.session===m.session&&E.waitingForResult(trial.status)
+    ?{trialId:trial.id,deadlineAt:E.trialDeadline(owned,trial)}:undefined;
+   return {ok:true,id:mine?.id||null,...(timeout?{timeout}:{}),...(recovery?{recovery:true}:{})};
   }
   if(dashboard&&m.action==='list'){
    if(m.passive===true){
@@ -327,7 +330,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
    const lease=await reviewLease(),studies=await collection('experiment:');
    if(lease||studies.some(x=>['running','pausing'].includes(x.status))){
     const interrupted=lease&&studies.find(e=>e.id===lease.experimentId&&e.status==='needs-review');
-    if(interrupted)throw Error('An interrupted test needs review. Open "'+interrupted.name+'" in My studies, then choose Check saved result or Skip this trial before reconnecting.');
+    if(interrupted)throw Error('An interrupted test needs review. Open "'+interrupted.name+'" in My studies, then choose Recover this trial or Skip this trial before reconnecting.');
     throw Error('Finish or pause the current tests in My studies before changing the RZone setup.');
    }
    if(m.action==='open-source'){
@@ -428,9 +431,25 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
    await storage.remove('experiment:'+current.id);return {ok:true,deleted:true};
   }
   const commandStarted=clock();
-  const readsLease=source&&['checkpoint','fail'].includes(m.action);
+  const timeoutCommand=m.action==='extend-timeout'||m.action==='trial-timeout';
+  const readsLease=timeoutCommand||source&&['checkpoint','fail'].includes(m.action);
   const [e,lease]=await Promise.all([get('experiment:'+m.id),readsLease?get('runner:lease'):null]);
   if(!e)throw Error('Experiment not found.');validateStudy(e);
+  if(timeoutCommand){
+   const t=e.trials.find(t=>t.id===m.trialId);
+   if(!t||!['running','pausing'].includes(e.status)||!E.waitingForResult(t.status)||lease?.experimentId!==e.id||lease.trialId!==t.id||lease.session!==e.owner?.session||lease.tabId!==e.owner?.tabId||clock()-lease.seenAt>=90000)throw Error('This trial is no longer waiting for an RZone result.');
+   if(source&&(sender.tab.id!==lease.tabId||m.session!==lease.session||m.token!==lease.token))throw Error('Trial ownership changed.');
+   const deadlineAt=E.trialDeadline(e,t);
+   if(m.action==='trial-timeout')return {ok:true,deadlineAt};
+   // Either surface may extend. A second click for the same deadline is a no-op.
+   if(m.deadlineAt===t.execution.previousDeadlineAt&&Number.isSafeInteger(m.deadlineAt))return {ok:true,deadlineAt};
+   if(m.deadlineAt!==deadlineAt||!E.timeoutWarning(e,deadlineAt,received))throw Error('The timeout extension window has closed.');
+   t.execution.previousDeadlineAt=deadlineAt;
+   t.execution.deadlineAt=Math.max(deadlineAt,received+e.timeoutMinutes*60000);
+   E.journal(e,'Extended timeout for trial '+t.ordinal,new Date(clock()).toISOString());
+   await put(e);
+   return {ok:true,deadlineAt:t.execution.deadlineAt};
+  }
   if(dashboard){
    if(m.action==='start'){
     if(await reviewLease())throw Error('A trial still owns the source tab. Finish or review it first.');
@@ -447,13 +466,35 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
    if(m.action==='skip'){
     const t=e.trials.find(t=>t.id===m.trialId);if(!t||t.status!=='uncertain')throw Error('Only an interrupted trial can be skipped.');
     const l=await get('runner:lease');if(l?.experimentId===e.id&&clock()-l.seenAt<90000)throw Error('Wait for the interrupted source session to disconnect before skipping.');
-    if(account?.enabled){if(await get('run:'+t.runId))throw Error('A saved result exists. Check saved result before releasing this run.');await account.settle(t.runId,'released');}
+    if(account?.enabled){if(await get('run:'+t.runId))throw Error('A saved result exists. Choose Recover this trial to link it.');await account.settle(t.runId,'released');}
     t.status='skipped';E.journal(e,'User skipped interrupted trial '+t.ordinal);e.status='paused';delete e.owner;await storage.set({['experiment:'+e.id]:e,...(l?.experimentId===e.id?{'runner:lease':null}:{})});return {ok:true};
    }
-   if(m.action==='reconcile'){
+   if(m.action==='reconcile'||m.action==='recover'){
     const lease=await get('runner:lease');if(lease&&lease.experimentId!==e.id)throw Error('Another experiment owns the source tab.');
-    const t=e.trials.find(t=>t.id===m.trialId),r=t&&await get('run:'+t.runId);if(!t||t.status!=='uncertain'||!r)throw Error('No durable result is available to reconcile.');
-    validateCapture(e,t,r);if(account?.enabled)await account.settle(t.runId,'saved');t.status='saved';t.error=null;e.status='paused';delete e.owner;E.journal(e,'Recovered saved result for trial '+t.ordinal);await storage.set({['experiment:'+e.id]:e,'runner:lease':null});return {ok:true};
+    const t=e.trials.find(t=>t.id===m.trialId);
+    if(!t||t.status!=='uncertain')throw Error('This trial is no longer waiting for recovery.');
+    const r=await get('run:'+t.runId);
+    if(!r){
+     if(m.action==='reconcile')throw Error('No durable result is available to reconcile.');
+     if(e.demo||e.status!=='needs-review'||e.trials.some(other=>other!==t&&(E.active.includes(other.status)||other.status==='uncertain')))throw Error('Resolve the other interrupted trial before continuing.');
+     if((await collection('experiment:')).some(other=>other.id!==e.id&&['running','pausing'].includes(other.status)))throw Error('Another experiment is running.');
+     const tabId=e.owner?.tabId,session=t.execution?.sourceSession;
+     if(!Number.isInteger(tabId)||!session||e.owner.session!==session||lease&&(lease.trialId!==t.id||lease.tabId!==tabId||lease.session!==session))throw Error('Vault lost the original RZone page. Keep that page open during future trials.');
+     let source;try{source=await probe?.(tabId);}catch{/* Missing or disconnected source. */}
+     const receipt=source?.recovery,portfolioRecorded=t.events.some(event=>event.status==='portfolio-submitting');
+     if(source?.session!==session||receipt?.experimentId!==e.id||receipt?.trialId!==t.id||!receipt.strategyId||receipt.portfolioId&&!portfolioRecorded||!t.events.some(event=>event.status==='strategy-submitting')){
+      throw Error('Vault could not verify the original submission. If its report is still open, save a copy from RZone before closing the tab.');
+     }
+     t.status=receipt.portfolioId?'portfolio-submitting':'strategy-submitting';
+     t.error=null;t.execution.deadlineAt=clock()+e.timeoutMinutes*60000;
+     e.status='running';E.journal(e,'Recovering original RZone submission for trial '+t.ordinal,new Date(clock()).toISOString());
+     await storage.set({['experiment:'+e.id]:e,'runner:lease':{experimentId:e.id,trialId:t.id,token:uuid(),tabId,session,seenAt:clock(),recoveryPending:true,recovery:{strategyId:receipt.strategyId,portfolioId:receipt.portfolioId??null}}});
+     return {ok:true,tabId,recovering:true};
+    }
+    validateCapture(e,t,r);if(account?.enabled)await account.settle(t.runId,'saved');
+    t.status='saved';t.error=null;
+    e.status=e.trials.every(trial=>['saved','skipped'].includes(trial.status))?'complete':e.trials.some(trial=>trial.status==='uncertain')?'needs-review':'paused';
+    delete e.owner;E.journal(e,'Recovered saved result for trial '+t.ordinal);await storage.set({['experiment:'+e.id]:e,'runner:lease':null});return {ok:true};
    }
    if(m.action==='validate'){
     if(account?.enabled)await account.requireFeature('reuse');
@@ -464,7 +505,15 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
   }
   if(e.owner?.tabId!==sender.tab.id||e.owner?.session!==m.session)throw Error('This source tab does not own the experiment.');
   if(m.action==='claim'){
-   if(e.status!=='running'||await reviewLease())return {ok:true,trial:null};
+   const existing=await reviewLease();
+   if(existing?.recoveryPending&&existing.experimentId===e.id&&existing.tabId===sender.tab.id&&existing.session===m.session&&clock()-existing.seenAt<90000&&['running','pausing'].includes(e.status)){
+    const trial=e.trials.find(t=>t.id===existing.trialId);
+    if(trial&&E.waitingForResult(trial.status)){
+     existing.recoveryPending=false;await storage.set({'runner:lease':existing});
+     return {ok:true,experiment:e,trial,token:existing.token,recovery:existing.recovery};
+    }
+   }
+   if(e.status!=='running'||existing)return {ok:true,trial:null};
    const interrupted=e.trials.find(t=>E.active.includes(t.status));if(interrupted){interrupted.status='uncertain';interrupted.error='The active trial lost its saved ownership record. Review the source result before continuing.';e.status='needs-review';E.journal(e,interrupted.error);await put(e);return {ok:true,trial:null};}
    const evidence=e.mode==='adaptive'?(await Promise.all(e.trials.filter(t=>t.phase==='discovery'&&t.status==='saved').map(t=>get('run:'+t.runId)))).filter(Boolean):[];const t=E.nextTrial(e,evidence);if(!t){e.status='complete';delete e.owner;E.journal(e,'Stage complete');await put(e);return {ok:true,trial:null};}
    // Never overwrite an existing record under a queued trial's ID. This can
@@ -481,6 +530,7 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
   if(m.action==='fail'){t.status='uncertain';t.error=String(m.error||'Interrupted').slice(0,1000);e.status='needs-review';E.journal(e,'Trial '+t.ordinal+': '+t.error);await put(e);return {ok:true};}
   if(m.action==='checkpoint'){
    if(!['running','pausing'].includes(e.status))throw Error('Experiment is paused for review.');
+   if(l.recovery&&m.stage==='capturing'&&await get('run:'+t.runId))throw Error('A result was already saved. Recover this trial again to link it.');
    if(m.stage==='saved'){validateCapture(e,t,await get('run:'+t.runId));if(account?.enabled)await account.settle(t.runId,'saved');}
    if(m.stage==='saved'&&m.timing){
     const keys=['Quick Stats','Statistics','Charts','Trade Details','details','checkpoint','write','close','ack','queue','prepare','journal'];
