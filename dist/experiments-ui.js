@@ -1177,7 +1177,7 @@ async function render({target,store,runs,onOpen:openSaved,onExit,onNotice,table,
 
  }
 
- await load();if(!alive())return;if(startNew)await action(()=>newTest());else if(baselineRun)await action(async()=>{try{await builder(baselineRun);}catch(error){list();throw error;}});else if(studyId)detail(studyId);else list();syncTimeoutPrompt();
+ await load();if(!alive())return;if(startNew)await action(()=>newTest());else if(baselineRun){try{await builder(baselineRun);}catch(error){list();throw error;}}else if(studyId)detail(studyId);else list();syncTimeoutPrompt();
 
  async function refresh(){if(!alive()){dispose();return;}if(extension&&document.visibilityState==='hidden'||refreshing||deletionDialog||calendarOpen())return;refreshing=true;try{await load();if(!alive()||deletionDialog||calendarOpen())return;syncTimeoutPrompt();if(wizard&&!wizard.connecting)setupSourceValid();if(content.querySelector('[data-rzone]'))refreshSource();if(!content.contains(document.activeElement)){if(selected&&renderedDetail!==stamp(experiments.find(e=>e.id===selected)))detail(selected);else if(!selected&&!wizard&&renderedList!==listStamp())list();}}catch(error){notice.textContent=error.message;}finally{refreshing=false;}}
  timer=setInterval(refresh,3000);
