@@ -211,6 +211,16 @@ function editorStages(t){
  }
  return out;
 }
+function momentumProjection(t,from,to){
+ const current=t.stages.momentum,off=current.fields.length===to.count?current:current.withoutRelativeStrength;
+ const positions=Array.from({length:from.rsIndex+1},(_,index)=>[index]);
+ if(to.relativeStrength){
+  for(let index=from.rsIndex+1;index<from.count;index++)positions.push([index]);
+ }else if(from.variant){
+  [from.sizeIndex,from.modeIndex,...from.priceIndices].forEach((index,n)=>positions.push([index,off?.fields[[to.sizeIndex,to.modeIndex,...to.priceIndices][n]].label]));
+ }
+ return positions;
+}
 function descriptorForFields(input,stage,expected){
  const t=template(input);if(stage==='portfolio')return clone(t.stages.portfolio);const target=L.stage(stage,expected),editing=editorStages(t);let descriptor=clone(editing[stage]);if(!descriptor)throw Error('Load the '+stage+' settings before running.');
  let fields,mapping;
@@ -220,11 +230,10 @@ function descriptorForFields(input,stage,expected){
   for(const key of singles)if(Number.isInteger(from[key])&&Number.isInteger(projected[key]))mapping.set(from[key],projected[key]);
   for(const key of ['priceIndices','methodIndices','methodValueIndices','exitPriceIndices'])from[key].forEach((index,n)=>{if(Number.isInteger(projected[key][n]))mapping.set(index,projected[key][n]);});
   if(projected.rows[0])for(const key of ['parentIndex','childIndex','gateIndex'])mapping.set(from.rows[0][key],projected.rows[0][key]);
- }else if(stage==='momentum'&&t.stages.momentum.relativeStrength){
+ }else if(stage==='momentum'&&(t.stages.momentum.relativeStrength||L.stage(stage,descriptor.fields).relativeStrength)){
   const from=L.main(descriptor.fields[0].value,true);descriptor.fields[from.rsIndex].checked=true;mapping=new Map();fields=[];
   const push=(index,label)=>{const field=descriptor.fields[index],next=fields.length;mapping.set(index,next);fields.push({...field,index:next,...(label?{label}:{})});};
-  for(let index=0;index<=from.rsIndex;index++)push(index);
-  if(target.relativeStrength){for(let index=from.rsIndex+1;index<descriptor.fields.length;index++)push(index);}else if(from.variant){const off=t.stages.momentum.fields.length===target.count?t.stages.momentum:t.stages.momentum.withoutRelativeStrength;if(!off)throw Error('Read the Relative Strength off settings.');[from.sizeIndex,from.modeIndex,...from.priceIndices].forEach((index,n)=>push(index,off.fields[[target.sizeIndex,target.modeIndex,...target.priceIndices][n]].label));}
+  for(const [index,label] of momentumProjection(t,from,target))push(index,label);
   fields[target.rsIndex].checked=target.relativeStrength;
  }else return descriptor;
  descriptor.fields=fields;descriptor.options=Object.fromEntries(Object.entries(descriptor.options||{}).filter(([index])=>mapping.has(Number(index))).map(([index,options])=>[mapping.get(Number(index)),options]));
@@ -234,8 +243,12 @@ function descriptorForFields(input,stage,expected){
 }
 function activeField(field,config){return (!field.enabledBy||config[field.enabledBy]===true)&&(!field.activeWhen||field.activeWhen.every(condition=>condition.values.includes(config[condition.key])));}
 function availableRule(field,value){return typeof value==='string'&&!!value.trim()&&!/^\s*--|select.*(?:system|rule|radar)/i.test(value)&&field.options.some(option=>option.value===value&&!option.disabled);}
+function momentumEditorLayout(t){
+ const momentum=t.stages.momentum,observed=L.stage('momentum',momentum.fields);
+ return momentum.relativeStrength?L.main(observed.chart,true):observed;
+}
 function fieldsForUI(input,config={}){
- const source=template(input),t={...source,stages:editorStages(source)},groups=[],m=t.stages.momentum.fields,x=t.stages.execution.fields,p=t.stages.portfolio.fields,main=L.main(m[0].value,!!source.stages.momentum.relativeStrength||L.stage('momentum',source.stages.momentum.fields).relativeStrength),execution=L.stage('execution',x);
+ const source=template(input),t={...source,stages:editorStages(source)},groups=[],m=t.stages.momentum.fields,x=t.stages.execution.fields,p=t.stages.portfolio.fields,main=momentumEditorLayout(source),execution=L.stage('execution',x);
  const group=(stage,key,title)=>{const g={stage,key:stage+'.'+key,title,fields:[]};groups.push(g);return g;};
  const add=(g,key,label,index,type,extra={})=>{
   const f=t.stages[g.stage].fields[index],d={key:g.stage+'.'+key,label,stage:g.stage,index,type,value:type==='boolean'?f.checked:type==='number'?V.number(f.value):f.value,...extra};
@@ -360,9 +373,13 @@ function configFromRun(run,input){
  const fields=savedRunFields(run),t=template(input),context=savedRunContext(run).config,current=defaults(t);
  if((run.demo===true)!==t.demo)throw Error('Real and fictional saved settings cannot be mixed.');
  for(const key of ['momentum.chart','execution.chart','momentum.brick.mode','execution.brick.mode','marketFilter.chart','marketFilter.brick.mode','marketFilter.exit.brick.mode'])if(owns(context,key)&&context[key]!==current[key])throw Error('Load the saved '+(key.startsWith('momentum.')?'Momentum':'Backtest')+' chart settings before using this run.');
- const config={...current},covered=Object.fromEntries(Object.keys(fields).map(stage=>[stage,new Set()])),editor=editorStages(t);
+ const config={...current},covered=Object.fromEntries(Object.keys(fields).map(stage=>[stage,new Set()]));
+ const editorLayout=momentumEditorLayout(t),savedLayout=L.stage('momentum',fields.momentum);
+ if(savedLayout.relativeStrength&&!t.stages.momentum.relativeStrength)throw Error('Search RZone for the saved Relative Strength choices before copying this run.');
+ if(fields.marketFilter&&!t.stages.marketFilter)throw Error('Search RZone for the saved Market Trend choices before copying this run.');
+ const momentumIndices=new Map(momentumProjection(t,editorLayout,savedLayout).map(([index],savedIndex)=>[index,savedIndex]));
  const indexMap=(stage,index)=>{
-  if(stage==='momentum'){const a=L.main(editor.momentum.fields[0].value,!!t.stages.momentum.relativeStrength),b=L.stage('momentum',fields.momentum);if(index<=a.rsIndex)return index;if(a.variant){for(const key of ['sizeIndex','modeIndex'])if(index===a[key])return b[key];for(const [n,value]of a.priceIndices.entries())if(index===value)return b.priceIndices[n];}return b.relativeStrength?index:null;}
+  if(stage==='momentum')return momentumIndices.get(index)??null;
   if(stage==='marketFilter'){if(!fields.marketFilter)return null;const a=L.marketFilter(t.stages.marketFilter.fields),b=L.marketFilter(fields.marketFilter);for(const key of ['chartIndex','sizeIndex','modeIndex','indexModeIndex','rsModeIndex','indexMarketIndex','indexSymbolIndex','numeratorMarketIndex','numeratorSymbolIndex','denominatorMarketIndex','denominatorSymbolIndex','actionIndex','targetGateIndex','targetValueIndex','stopGateIndex','stopValueIndex','exitSizeIndex','exitModeIndex'])if(a[key]===index)return b[key];for(const key of ['priceIndices','methodIndices','methodValueIndices','exitPriceIndices']){const n=a[key].indexOf(index);if(n!==-1)return b[key][n]??null;}for(const key of ['gateIndex','parentIndex','childIndex'])if(a.rows[0]?.[key]===index)return b.rows[0]?.[key]??null;throw Error('Unknown saved market trend setting.');}
   return index;
  };
@@ -418,11 +435,15 @@ function validateCombination(config,input,preparedFields){
  for(const prefix of ['marketFilter.','marketFilter.exit.']){const a=fields.find(field=>field.key===prefix+'price.close-only');if(a&&activeField(a,config)&&Number(config[a.key])+Number(config[prefix+'price.high-low'])!==1)throw Error('Choose exactly one market trend price mode.');}
  return config;
 }
-function configToBaseline(config,input,{id='vault-setup',name='New strategy',demo}={}){
+function configToBaseline(config,input,options){
+ return buildBaseline(config,input,options);
+}
+function buildBaseline(config,input,{id='vault-setup',name='New strategy',demo}={},legacy=false){
  const t=template(input),values=validateConfig(config,t);
  if(!idOK(id)||typeof name!=='string'||!name.trim()||name.length>120)throw Error('Give this setup a short name.');
  if(demo!==undefined&&demo!==t.demo)throw Error('Real and fictional setup cannot be mixed.');
  const editing=editorStages(t),p=parameters({stages:editing});if(editing.marketFilter)p.strategy.marketTrend={fields:clone(editing.marketFilter.fields)};
+ const momentum=t.stages.momentum,observedMomentum=L.stage('momentum',momentum.fields);
  const get=stage=>stage==='momentum'?p.strategy.main.fields:stage==='execution'?p.strategy.execution.fields:stage==='marketFilter'?p.strategy.marketTrend.fields:p.settings.fields;
  const descriptors=fieldsForUI(t,values).flatMap(g=>g.fields);
  for(const d of descriptors){const f=get(d.stage),v=values[d.key];if(d.indices){for(const [n,i]of d.indices.entries())f[i].checked=(d.radioValues?d.radioValues[n]:String(i))===v;}else if(d.type==='boolean')f[d.index].checked=v;else{f[d.index].value=String(v);if(d.nativeType)f[d.index].type=d.nativeType;}}
@@ -433,13 +454,20 @@ function configToBaseline(config,input,{id='vault-setup',name='New strategy',dem
  }
  // Source disablement is evidence of visibility, rather than a user setting.
  for(const d of descriptors)if(d.enabledBy&&d.index!==undefined&&!(d.stage==='marketFilter'&&(/\.market$/.test(d.key)||['marketFilter.target','marketFilter.stop'].includes(d.key))))get(d.stage)[d.index].disabled=!activeField(d,values);
- if(t.stages.momentum.relativeStrength&&!values['momentum.rs']){const full=get('momentum'),on=L.main(full[0].value,true),offSource=t.stages.momentum.fields.length===L.main(full[0].value).count?t.stages.momentum:t.stages.momentum.withoutRelativeStrength;if(!offSource)throw Error('Read the Relative Strength off settings before switching it off.');const off=L.stage('momentum',offSource.fields),projected=full.slice(0,on.rsIndex+1);if(on.variant)for(const [n,index]of [on.sizeIndex,on.modeIndex,...on.priceIndices].entries())projected.push({...full[index],label:offSource.fields[[off.sizeIndex,off.modeIndex,...off.priceIndices][n]].label});p.strategy.main.fields=projected.map((field,index)=>({...field,index}));}
+ if(!values['momentum.rs']&&(momentum.relativeStrength||observedMomentum.relativeStrength&&!legacy)){
+  const full=get('momentum'),on=L.main(full[0].value,true),off=L.main(full[0].value);
+  p.strategy.main.fields=momentumProjection(t,on,off).map(([source,label],index)=>({...full[source],index,...(label?{label}:{})}));
+ }
  if(editing.marketFilter){if(values['momentum.market-filter']){const full=get('marketFilter'),observed=L.marketFilter(t.stages.marketFilter.fields);full[observed.indexModeIndex].checked=true;full[observed.rsModeIndex].checked=false;full[observed.actionIndex].value=t.stages.marketFilter.fields[observed.actionIndex].value;p.strategy.marketTrend.fields=L.projectMarketFilter(full,{mode:values['marketFilter.mode'],action:values['marketFilter.action']});}else delete p.strategy.marketTrend;}
  return {id,name:name.trim(),demo:t.demo,origin:'vault-setup',setupVersion:1,parameters:p,setup:{version:1,template:t,config:values}};
 }
 function validateBaseline(b){
  if(!b||b.origin!=='vault-setup'||b.setupVersion!==1||b.setup?.version!==1||!idOK(b.id)||typeof b.demo!=='boolean')throw Error('Invalid Vault setup baseline.');
- const rebuilt=configToBaseline(b.setup.config,b.setup.template,{id:b.id,name:b.name,demo:b.demo});
+ const options={id:b.id,name:b.name,demo:b.demo};
+ let rebuilt=configToBaseline(b.setup.config,b.setup.template,options);
+ // Keep previously exported drafts readable so they can be edited in place.
+ const momentum=rebuilt.setup.template.stages.momentum;
+ if(!same(b.parameters,rebuilt.parameters)&&!momentum.relativeStrength&&!rebuilt.setup.config['momentum.rs']&&L.stage('momentum',momentum.fields).relativeStrength)rebuilt=buildBaseline(b.setup.config,b.setup.template,options,true);
  if(!same(b.parameters,rebuilt.parameters)||!same(b.setup,rebuilt.setup)||Object.keys(b).some(k=>!['id','name','demo','origin','setupVersion','parameters','setup'].includes(k)))throw Error('Vault setup settings or source template were altered.');
  return b;
 }

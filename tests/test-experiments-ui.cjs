@@ -284,7 +284,7 @@ async function sourceWorkbenchTests(){
   await render();click('New test');assert.match(d.querySelector('.setup-builder').textContent,/Connect to RZone/);assert.doesNotMatch(d.querySelector('.setup-builder').textContent,/Save a run/);await tick();assert.equal(commands.filter(m=>m.action==='configure').length,1,'A single ready source loads choices automatically');currentJourney(d,'setup');
   assert.ok(d.querySelector('.source-workbench'));assert.equal(d.querySelector('.setup-steps'),null,'The source-shaped form has no wizard steps');assert.equal(d.querySelectorAll('.research-quad .research-enabled-value').length,4);assert.equal(d.querySelectorAll('.research-quad [data-source-field$=".weight"]').length,4);assert.equal(d.querySelectorAll('.research-entry-rule').length,3);assert.ok([...d.querySelectorAll('[data-setup-field]')].every(n=>n.closest('.source-main-form')),'Every setting remains in the one setup form');
   for(const key of ['momentum.chart','momentum.market','momentum.group','momentum.timeframe','momentum.period.1','momentum.ema.1','execution.from','execution.to','portfolio.capital','portfolio.max-open','portfolio.allocation'])assert.equal(d.querySelector('[data-setup-field="'+key+'"]').closest('details'),null,'Primary setting stays visible: '+key);
-  assert.equal(d.querySelector('.source-more-settings'),null,'Primary strategy controls are directly visible');assert.deepEqual([...d.querySelectorAll('[data-setup-section]')].map(n=>n.dataset.setupSection),['setup','portfolio','main','entry','exit']);
+  assert.equal(d.querySelector('.source-more-settings'),null,'Primary strategy controls are directly visible');assert.deepEqual([...d.querySelectorAll('[data-setup-section]')].map(n=>n.dataset.setupSection),['setup','portfolio','entry','exit','main']);
   const emptyRule=d.querySelector('[data-setup-field="momentum.strategy.1.rule"]');assert.equal(emptyRule.tagName,'SELECT');assert.equal(emptyRule.options[0].disabled,true);assert.equal(emptyRule.options[0].value,'');assert.equal(emptyRule.options[0].textContent,'No choices available');
   const chart=d.querySelector('[data-setup-field="momentum.chart"]');assert.equal(chart.disabled,false);assert.ok([...chart.options].every(o=>!o.disabled),'Observed chart choices are available for setup inspection');assert.equal(d.querySelector('[data-setup-field="momentum.rs"]').disabled,true);
   for(const key of ['momentum.group','momentum.timeframe'])assert.ok(d.querySelector('[data-variation-for="'+key+'"]'),'Observed universe and timeframe choices can vary: '+key);assert.ok(d.querySelector('[data-variation-for="momentum.period.1"]'));assert.equal(d.querySelector('[data-variation-for="momentum.period.1.enabled"]'),null,'Boolean test choices are part of the state selector');assert.equal(d.querySelector('[data-setup-field="momentum.period.1.enabled"]').tagName,'SELECT');
@@ -621,14 +621,15 @@ async function localReviewTests(){
  w.structuredClone=structuredClone;w.setInterval=()=>1;w.clearInterval=()=>{};
  for(const file of ['core.js','presentation.js','intelligence.js','demo.js','source-layouts.js','setup.js','experiments.js','date-range.js','workspace-motion.js','experiments-ui.js'])w.eval(fs.readFileSync(path.join(base,file),'utf8'));
  const fixture=require('./fixtures/filter-setup.cjs'),templates=['Candle','P&F','Renko'].map(chart=>({...fixture({chart}),demo:false,session:'saved-document'})),commands=[],studies=[];
+ let startFails=true;
  const renko=templates[2].stages.momentum.relativeStrength,ruleIndex=renko.fields.length-1,placeholder='-- Select Predefined System --';
  renko.fields[ruleIndex].value=placeholder;renko.options[ruleIndex].unshift(placeholder);
  w.chrome={runtime:{sendMessage:async m=>{
   commands.push(m);
-  if(m.action==='list')return {ok:true,localSetup:true,experiments:studies,tabs:[{id:9,session:'current-document',capable:true,ready:true}]};
+  if(m.action==='list')return {ok:true,localSetup:true,experiments:studies,tabs:[]};
   if(m.action==='setup-library')return {ok:true,templates,nseBenchmarkSeeded:31};
-  if(m.action==='create'){const experiment=w.VaultExperiments.create({...m.plan,id:'local-test'});studies.push(experiment);return {ok:true,experiment};}
-  if(m.action==='start')return {ok:true};
+  if(m.action==='create'){const experiment=w.VaultExperiments.create({...m.plan,id:'local-test'});studies[0]=experiment;return {ok:true,experiment};}
+  if(m.action==='start')return startFails?{ok:false,error:'RZone is temporarily unavailable.'}:{ok:true,tabId:9};
   throw Error('Unexpected RZone request '+m.action);
  }}};
  const store={demo:false,all:async()=>[],allBenchmarks:async()=>[]},field=key=>d.querySelector('[data-setup-field="'+key+'"]');
@@ -657,7 +658,59 @@ async function localReviewTests(){
   assert.equal(commands[0].passive,true);
   [...d.querySelectorAll('button')].find(button=>button.textContent==='Run 1 test').click();await tick();
   assert.deepEqual(commands.filter(m=>['create','start'].includes(m.action)).map(m=>m.action),['create','start']);
-  assert.equal(commands.find(m=>m.action==='start').tabId,9);
+  assert.equal(commands.find(m=>m.action==='start').autoSelect,true);
+  currentJourney(d,'setup');
+  assert.match(d.querySelector('.setup-backtest-dialog .notice.error').textContent,/temporarily unavailable/);
+  assert.equal(d.querySelector('.setup-backtest-dialog').open,true);
+  assert.equal([...d.querySelectorAll('.setup-backtest-dialog button')].find(button=>button.textContent==='Open RZone').hidden,false);
+  assert.equal(field('momentum.chart').value,'Candle');
+  startFails=false;
+  [...d.querySelectorAll('button')].find(button=>button.textContent==='Run 1 test').click();await tick();
+  assert.equal(commands.filter(m=>m.action==='create').at(-1).draftId,'local-test');
+  currentJourney(d,'run');
+  [...d.querySelectorAll('button')].find(button=>button.textContent==='Edit setup').click();await tick();
+  currentJourney(d,'setup');
+  assert.equal(field('momentum.chart').value,'Candle');
+ }finally{w.VaultExperimentsUI.dispose();dom.window.close();}
+}
+async function localExitChartLookupTests(){
+ const dom=new JSDOM('<main></main>',{runScripts:'outside-only',url:'chrome-extension://test-extension/index.html'}),w=dom.window,d=w.document;
+ w.structuredClone=structuredClone;w.setInterval=()=>1;w.clearInterval=()=>{};
+ for(const file of files.filter(file=>!['storage.js','dashboard.js'].includes(file)))w.eval(fs.readFileSync(path.join(base,file),'utf8'));
+ const template=(momentumChart,executionChart)=>({...w.VaultSetup.demoTemplate({momentumChart,executionChart}),demo:false,session:'source-document'});
+ const original=template('P&F','Candle'),searched=template('Candle','P&F'),commands=[];
+ searched.stages.execution.fields[w.VaultSourceLayouts.execution('P&F').rows[0].gateIndex].checked=true;
+ w.chrome={runtime:{sendMessage:async m=>{
+  commands.push(m);
+  if(m.action==='list')return {ok:true,localSetup:true,experiments:[],tabs:[{id:9,session:'source-document',capable:true,ready:true}]};
+  if(m.action==='setup-library')return {ok:true,templates:[original]};
+  assert.equal(m.action,'configure');assert.deepEqual(structuredClone(m.changes),{execution:{3:'P&F'}});
+  return {ok:true,source:searched};
+ }}};
+ const store={demo:false,all:async()=>[],allBenchmarks:async()=>[]},field=key=>d.querySelector('[data-setup-field="'+key+'"]');
+ const change=(key,value)=>{const n=field(key);n.value=value;n.dispatchEvent(new w.Event('change',{bubbles:true}));};
+ const click=name=>{const n=[...d.querySelectorAll('button')].find(b=>b.textContent===name);assert.ok(n,name);n.click();};
+ try{
+  await w.VaultExperimentsUI.render({target:d.querySelector('main'),store,runs:[],onOpen:()=>{},onExit:()=>{},table:()=>d.createElement('table'),download:()=>{},startNew:true});
+  assert.equal(field('momentum.chart').closest('[data-setup-section]').dataset.setupSection,'entry');
+  assert.equal(field('execution.chart').closest('[data-setup-section]').dataset.setupSection,'exit');
+  change('portfolio.max-open','25');change('momentum.box.size','0.6');change('execution.exit.enabled','false');
+  change('execution.chart','P&F');
+  assert.equal(field('execution.chart').value,'Candle');
+  assert.match(d.querySelector('#exit-chart-lookup').textContent,/needs P&F exit choices/);
+  assert.equal(reviewButton(d).disabled,true);assert.deepEqual(commands.map(m=>m.action),['list','setup-library']);
+  click('Keep Candle exit');assert.equal(reviewButton(d).disabled,false);
+  change('execution.chart','P&F');click('Search RZone for P&F exit choices');await tick();
+  assert.equal(field('execution.chart').value,'P&F');assert.equal(field('momentum.chart').value,'P&F');
+  assert.equal(field('momentum.box.size').value,'0.6');assert.equal(field('portfolio.max-open').value,'25');
+  assert.ok(['false',false].includes(field('execution.exit.enabled').tagName==='SELECT'?field('execution.exit.enabled').value:field('execution.exit.enabled').checked));
+  assert.equal(d.querySelector('#exit-chart-lookup'),null);
+  change('execution.chart','Candle');change('execution.chart','P&F');
+  assert.equal(field('execution.chart').value,'P&F');
+  change('momentum.chart','Renko');
+  assert.match(d.querySelector('#entry-chart-lookup').textContent,/needs Renko entry choices/);
+  assert.equal(reviewButton(d).disabled,true);click('Keep P&F entry');review(d);
+  assert.deepEqual(commands.map(m=>m.action),['list','setup-library','configure']);
  }finally{w.VaultExperimentsUI.dispose();dom.window.close();}
 }
 async function optionalFilterControlsTests(){
@@ -819,7 +872,7 @@ async function viewerClarityTests(){
  }
  finally{w.VaultExperimentsUI.dispose();dom.window.close();}
 }
-(async()=>{await savedRunReuseTests();await studyTimestampsAndTrialReuseTests();await savedRunChartContextTests();await savedRunChartContextTests(true);await journeyStateTests();await journeyDraftTests();await numericEditorModeTests();await overlappingViewTests();await studyDeletionTests();await studyRefreshTests();await studyDeletePendingPollTests();await sourceWorkbenchTests();await chartChoicesTests();await dailyCacheUiTests();await failedWarmChoiceUiTests();await demoChartChoicesTests();await chartSharedDraftTests();await booleanSelectorTests();await connectionDeadlineTests();await sourcePickerTests();await groupCatalogueTests();await strategyCatalogueTests();await searchRuleTests();await searchRuleTests('execution');await exitSearchFeedbackTests();await inlineExecutionAndRadarTests();await radarAndUniverseTimeframeTests();await optionalFilterControlsTests();await localReviewTests();await unifiedSymbolSearchTests();await optionalLoadRecoveryTests();await filterContextAndSavedReuseTests();await lowerSettingsVariationTests();await conditionGroupTests();await settingsOnlyResultTests();await viewerClarityTests();const a=app();let real;try{await tick();assert.match(a.d.querySelector('#detail').textContent,/One setup\. All your test results together\./);assert.match(a.d.querySelector('.experiment-environment').textContent,/Sample workspace.*no RZone backtests run/);
+(async()=>{await savedRunReuseTests();await studyTimestampsAndTrialReuseTests();await savedRunChartContextTests();await savedRunChartContextTests(true);await journeyStateTests();await journeyDraftTests();await numericEditorModeTests();await overlappingViewTests();await studyDeletionTests();await studyRefreshTests();await studyDeletePendingPollTests();await sourceWorkbenchTests();await chartChoicesTests();await dailyCacheUiTests();await failedWarmChoiceUiTests();await demoChartChoicesTests();await chartSharedDraftTests();await booleanSelectorTests();await connectionDeadlineTests();await sourcePickerTests();await groupCatalogueTests();await strategyCatalogueTests();await searchRuleTests();await searchRuleTests('execution');await exitSearchFeedbackTests();await inlineExecutionAndRadarTests();await radarAndUniverseTimeframeTests();await optionalFilterControlsTests();await localReviewTests();await localExitChartLookupTests();await unifiedSymbolSearchTests();await optionalLoadRecoveryTests();await filterContextAndSavedReuseTests();await lowerSettingsVariationTests();await conditionGroupTests();await settingsOnlyResultTests();await viewerClarityTests();const a=app();let real;try{await tick();assert.match(a.d.querySelector('#detail').textContent,/One setup\. All your test results together\./);assert.match(a.d.querySelector('.experiment-environment').textContent,/Sample workspace.*no RZone backtests run/);
  const prepareCopiedSamples=()=>{a.click('Use a saved run');assert.ok([...a.d.querySelectorAll('label')].some(n=>n.textContent.includes('Saved run')),'Saved runs are selected before their full input form is opened');a.click('Use these settings');currentJourney(a.d,'setup');const editor=a.d.querySelector('[data-variation-for="momentum.period.1"]');editor.querySelector('button').click();const values=editor.querySelector('input[aria-label="Period 1 test values"]');values.value='126,180,252';values.dispatchEvent(new a.w.Event('input'));a.click('Done');assert.equal(reviewButton(a.d).textContent,'Review 3 tests');review(a.d);assert.match(a.d.querySelector('.experiment-preview').textContent,/3 planned tests/);a.click('Generate 3 sample results');};prepareCopiedSamples();
  await tick();assert.equal((await a.w.VaultStore.allExperiments()).length,1);assert.match(a.d.querySelector('.experiment-hero').textContent,/SAMPLE DATA.*No RZone backtests were submitted/);assert.ok(![...a.d.querySelectorAll('button')].some(b=>/^Run [\d,]+ tests?$/.test(b.textContent)));await tick(650);a.click('Stop sample generation');await tick(1000);
  let e=(await a.w.VaultStore.allExperiments())[0];assert.equal(e.status,'paused');assert.ok(e.trials.some(t=>t.status==='saved'));a.click('Generate sample results');await tick(1600);e=(await a.w.VaultStore.allExperiments())[0];assert.equal(e.status,'complete');assert.equal(e.trials.filter(t=>t.status==='saved').length,3);assert.match(a.d.querySelector('.experiment-evidence').textContent,/Trial/);assert.equal(a.d.querySelector('.experiment-hero h3').textContent,'Sample results ready');assert.equal(a.d.querySelector('.experiment-evidence h3').textContent,'Sample ranking');assert.equal(a.d.querySelector('.experiment-hero [role=progressbar]').getAttribute('aria-valuenow'),'3');assert.equal(a.d.querySelector('.experiment-hero [role=progressbar]').getAttribute('aria-valuemax'),'3');assert.match(a.d.querySelector('.experiment-hero [role=progressbar]').getAttribute('aria-valuetext'),/3 of 3 sample results/);assert.equal(a.durable(),0);

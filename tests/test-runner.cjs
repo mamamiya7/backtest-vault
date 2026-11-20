@@ -17,6 +17,7 @@ async function withFixtureTime(work){
 function installFixtureTime(w){if(fixtureTime){w.Date=Date;w.setTimeout=setTimeout;w.clearTimeout=clearTimeout;w.setInterval=setInterval;w.clearInterval=clearInterval;}}
 const requestedCatalogue=process.argv.find(argument=>argument.startsWith('--catalogue-case='))?.slice('--catalogue-case='.length);
 const requestedChart=process.argv.find(argument=>argument.startsWith('--chart-case='))?.slice('--chart-case='.length);
+const requestedFilter=process.argv.find(argument=>argument.startsWith('--filter-case='))?.slice('--filter-case='.length);
 const fromCase=Number(process.argv.find(argument=>argument.startsWith('--from-case='))?.slice('--from-case='.length)||1);
 const toCaseArgument=process.argv.find(argument=>argument.startsWith('--to-case='))?.slice('--to-case='.length),toCase=toCaseArgument===undefined?Infinity:Number(toCaseArgument);
 if(!Number.isInteger(fromCase)||fromCase<1)throw Error('Runner starting case must be a positive integer.');
@@ -948,6 +949,16 @@ async function filterScenario(mode,dailySeed){
  const request=data=>new Promise(resolve=>{for(const fn of listeners)fn(data,{id:runtime.id},resolve);});
  const statusProbe=d.createElement('span');w.VaultCapture.addControl(statusProbe);const hostStatus=()=>statusProbe.nextElementSibling.textContent;
  try{
+  if(variantRS){
+   const initial=fields(main),filterTemplate=structuredClone(sourceTemplate);
+   delete filterTemplate.stages.momentum.relativeStrength;delete filterTemplate.stages.momentum.withoutRelativeStrength;
+   const result=await request({type:'vault-runner-config',loadFilter:'relativeStrength',filterTemplate});
+   assert.equal(result.ok,true,result.error);
+   assert.equal(S.template(result.config).stages.momentum.relativeStrength.fields[0].value,rsChart);
+   assert.deepEqual(fields(main),initial);
+   assert.equal(selectionIDs(),originalSelectionIDs);
+   assert.equal(submissions,0);assert.equal(filterSaves,0);
+  }
   if(dailySeed){nodes(main)[12].value='444';const at=L.marketFilter(filterState).methodValueIndices[0],fullAt=L.marketFilter(filterFull).methodValueIndices[0];filterState[at].value='27';filterFull[fullAt].value='27';}
   for(let n=0;n<30&&!memory['runner:tab:9'];n++)await sleep(10);const initial=JSON.stringify(fields(main)),loaded=await request({type:'vault-runner-config',...(dailySeed?{cachedChoices:dailySeed.records}:{})});assert.equal(loaded.ok,true,loaded.error);assert.equal(JSON.stringify(fields(main)),initial);assert.equal(submissions,0);let template=loaded.config;const readerResponses=[loaded];
   if(mode==='rs-warm'){const warm=await request({type:'vault-runner-config',warmChart:'Candle',cachedChoices:[loaded.choiceCache]});assert.equal(warm.ok,true,warm.error);readerResponses.push(warm);assert.equal(warm.config.stages.momentum.fields.length,52,'Primary daily coverage uses the RS-off Candle shape.');assert.equal(warm.choiceCache.stages.momentum.context.relativeStrength,false);assert.equal(warm.config.stages.execution.fields[4].value,'Price');assert.equal(JSON.stringify(fields(main)),initial,'Warming the same chart restores the originally enabled Relative Strength fields exactly.');assert.equal(selectionIDs(),originalSelectionIDs);assert.equal(filterSaves,0);assert.equal(submissions,0);}
@@ -1049,8 +1060,8 @@ async function filterScenario(mode,dailySeed){
   {variantLifecycle:{mainChart:'Candle',exitChart:'P&F',groupDelay:6500,captureTiming:true}},{extendTimeout:true},{declineTimeout:true},{manualChangeWhileWaiting:true},
   {recoveryMode:'strategy'},{recoveryMode:'portfolio'}
  ];
- if(fromCase===1&&!requestedChart&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus, rule/symbol/filter routing and deadline checks (12 cases).');}
- const selected=cases.filter(o=>(!requestedChart||o.chartCase===requestedChart)&&(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake||o.closeSlowAnimation||o.closeBlockedByChild));
+ if(fromCase===1&&!requestedChart&&!requestedFilter&&!requestedCatalogue&&!process.argv.includes('--variations')&&!process.argv.includes('--readiness')){await backgroundFocusChecks();console.log('PASS: background focus, rule/symbol/filter routing and deadline checks (12 cases).');}
+ const selected=cases.filter(o=>(!requestedChart||o.chartCase===requestedChart)&&(!requestedFilter||o.filterCase===requestedFilter)&&(!requestedCatalogue||o.ruleCatalogue===requestedCatalogue)&&(!process.argv.includes('--readiness')||readinessCases.includes(o.groupCatalogue))&&(!process.argv.includes('--catalogues')||o.ruleCatalogue)&&(!process.argv.includes('--groups')||o.groupCatalogue)&&(!process.argv.includes('--setup')||o.vaultSetup)&&(!process.argv.includes('--variations')||o.variableSet)&&(!process.argv.includes('--bridge')||o.bridge)&&(!process.argv.includes('--close')||o.closeAfterWake||o.closeStuckAfterWake||o.closeSlowAnimation||o.closeBlockedByChild));
  if(fromCase>selected.length)throw Error('Runner starting case exceeds the selected scenarios.');
  if(toCase!==Infinity&&toCase>selected.length)throw Error('Runner ending case exceeds the selected scenarios.');
  const lastCase=Math.min(toCase,selected.length);

@@ -430,3 +430,26 @@ console.log('PASS: Relative Strength and independent market trend chart/mode/act
  }
 }
 console.log('PASS: P&F/Renko RS category label projection, legacy daily catalogue hydration, immutable construction/price values and strict dependency evidence.');
+{
+ const L=require('../dist/source-layouts.js'),F=require('./fixtures/filter-setup.cjs');
+ for(const chart of L.charts){
+ const source=F({chart}),momentum=source.stages.momentum.relativeStrength;
+ source.stages.momentum=momentum;
+ const t=S.template(source),config={...S.defaults(t),'momentum.rs':false},b=S.configToBaseline(config,t);
+ const fields=b.parameters.strategy.main.fields,layout=L.stage('momentum',fields);
+ assert.equal(layout.chart,chart);
+ assert.equal(layout.relativeStrength,false);
+ assert.equal(S.descriptorForFields(t,'momentum',fields).fields.length,layout.count);
+ if(layout.variant)assert.equal(fields[layout.sizeIndex].value,momentum.fields[L.main(chart,true).sizeIndex].value);
+ const report={...clone(fixture),parameters:clone(b.parameters)};
+ const restored=S.configFromRun(report,t);
+ assert.deepEqual(restored,config,'An RS-off report must reuse every setting with a standalone RS-on template for '+chart);
+ assert.equal(E.verifySettings(S.configToBaseline(restored,t),report),true);
+ const legacy=structuredClone(b);
+ const from=L.main(chart,true);
+ const migrated=new Map(fields.slice(0,layout.rsIndex+1).map(f=>[f.index,f]));
+ [from.sizeIndex,from.modeIndex,...from.priceIndices].forEach((index,n)=>{if(index!==null)migrated.set(index,fields[[layout.sizeIndex,layout.modeIndex,...layout.priceIndices][n]]);});
+ legacy.parameters.strategy.main.fields=momentum.fields.map((f,index)=>({...migrated.get(index)||f,index}));
+ assert.deepEqual(S.validateBaseline(legacy),legacy);
+ }
+}

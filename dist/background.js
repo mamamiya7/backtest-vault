@@ -39,8 +39,19 @@ async function configure(tabId,changes={},lookup,choiceOptions={}){
  try{return await Promise.race([work(),new Promise((_,reject)=>{timeout=setTimeout(()=>reject(Error(message)),60000);})]);}finally{live=false;clearTimeout(timeout);}
 }
 async function openSource(knownTabs){
- for(const tab of [...knownTabs].sort((a,b)=>b.seenAt-a.seenAt)){
+ const byRecency=[...knownTabs].sort((a,b)=>b.seenAt-a.seenAt);
+ for(const tab of byRecency){
   try{const status=await probe(tab.id);if(status?.session===tab.session){await chrome.tabs.update(tab.id,{active:true});return {tabId:tab.id};}}catch{/* Closed/reloaded tabs cannot be reused. */}
+ }
+ // Chrome can hide the URL of a tab whose content script was disconnected
+ // by an extension reload. Reopen the registered tab for manual recovery.
+ for(const {id} of byRecency){
+  try{
+   const tab=await chrome.tabs.get(id),url=tab.pendingUrl||tab.url;
+   if(!url||url.startsWith('https://zone.definedgesecurities.com/')){
+    await chrome.tabs.update(id,{active:true});return {tabId:id};
+   }
+  }catch{/* The user may have closed the tab. */}
  }
  const tab=await chrome.tabs.create({url:'https://zone.definedgesecurities.com/index.html#research'});return {tabId:tab.id};
 }

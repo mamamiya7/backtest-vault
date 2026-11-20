@@ -308,6 +308,7 @@ function validation(e,trialId,period,phase='validation',now=new Date().toISOStri
  const n=e.trials.length+1;e.trials.push({id:e.id+'-t'+n,runId:e.id+'-t'+n,ordinal:n,patch:clone(t.patch),status:'queued',phase,period:clone(period),parentTrialId:t.id,events:[]});e.status='paused';journal(e,'Frozen '+phase+' candidate: trial '+t.ordinal,now);return e;
 }
 function restored(e){validate(e);const x=clone(e);x.status='paused';delete x.owner;for(const t of x.trials)if(active.includes(t.status)){t.status='uncertain';t.error='Interrupted before backup. Review this trial before continuing.';}journal(x,'Imported paused; source tab must be selected again.');return x;}
-const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,createValidator,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,waitingForResult,trialDeadline,timeoutWarning,clone};
+const editableDraft=e=>e?.status==='draft'&&!e.demo&&!e.owner&&e.baseline?.origin==='vault-setup'&&e.trials.length>0&&e.trials.every(t=>t.status==='queued'&&!t.execution&&!t.events.length);
+const api={baseline,catalog,catalogFromSetup,fields,stageSnapshot,values,dateRange,dimensions,combos,create,expected,trialPeriod,researchEnd,verify,verifySettings,verifyEvidence,validate,createValidator,journal,transition,result,decisions,nextTrial,validation,restored,deletionReason,active,waitingForResult,trialDeadline,timeoutWarning,clone,editableDraft};
 if(typeof module!=='undefined')module.exports=api;root.VaultExperiments=api;
 })(typeof window!=='undefined'?window:globalThis);

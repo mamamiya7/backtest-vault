@@ -1,5 +1,14 @@
 # Changelog
 
+## Setup and RZone connection fixes — 2026-11-20
+
+- Place entry and exit conditions directly after Portfolio. Reuse saved chart choices independently for entry and exit.
+- Use **Edit setup** to return from Run tests before the study starts. Retrying the edited plan keeps the original study instead of creating a duplicate.
+- Check the RZone connection when Run is pressed. Review shows progress and explains how to reconnect before retrying.
+- Restore saved Candlestick, P&F and Renko settings across different Relative Strength layouts. Turning Relative Strength off removes its extra controls from the planned test.
+- Show **Load Relative Strength choices** beneath the toggle when choices are missing. It loads the benchmark and rule for the draft’s chart, with progress and errors next to the button.
+- Verified in Chrome that a P&F study started and saved, its settings opened locally in Review, and the Relative Strength lookup populated the copied setup.
+
 ## Application development update — 2026-11-20
 
 - Reset the current trial’s 20-minute timeout from Vault or RZone while the original calculation continues. Passive clicks in RZone no longer interrupt the wait.

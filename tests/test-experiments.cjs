@@ -62,7 +62,21 @@ async function coordinatorTests(){
  const call=(action,data={},sender=dashboard)=>c.handle({action,...data},sender);
  await assert.rejects(call('list',{}, {...dashboard,url:'https://evil.invalid'}),/cannot control/);
  const {experiment:plan}=await call('create',{plan:{...config,baseline:real}});const id=plan.id;
- await call('hello',{session:'session-1',ready:true,chart:'Candle'},source);await call('start',{id,tabId:7});
+ await call('hello',{session:'session-1',ready:true,chart:'Candle'},source);
+ time+=120001;
+ let online=false,probes=0;
+ c=createCoordinator({storage,runtime,clock:()=>time,probe:async tabId=>{
+  assert.equal(tabId,7);probes++;
+  if(!online)throw Error('Stale RZone document');
+  return {session:'session-1',ready:true,chart:'Candle'};
+ }});
+ assert.equal((await call('list',{passive:true})).tabs.length,0);
+ assert.equal(probes,0,'Setup and Review should not query RZone');
+ await assert.rejects(call('start',{id,autoSelect:true}),/refresh its tab/);
+ assert.equal(memory['experiment:'+id].trials[0].status,'queued');
+ online=true;
+ assert.equal((await call('start',{id,autoSelect:true})).tabId,7);
+ assert.equal(probes,2,'Each explicit Run probes the source once');
  const [a,other]=await Promise.all([call('claim',{id,session:'session-1'},source),call('claim',{id,session:'session-1'},source)]);assert.ok(a.trial);assert.equal(other.trial,null);
  const args={id,session:'session-1',token:a.token,trialId:a.trial.id};
  await assert.rejects(call('checkpoint',{...args,stage:'saved'},source),/durable capture/);
@@ -277,6 +291,25 @@ async function decisionTests(){
   const before=w.VaultExperiments.nextTrial({...plan,mode:'adaptive'},runs);const holdoutLeak=clone(runs[0]);holdoutLeak.id='unrelated';holdoutLeak.quickStats[0].value='999999%';assert.equal(w.VaultExperiments.nextTrial({...plan,mode:'adaptive'},[...runs,holdoutLeak]).id,before.id);
   w.VaultExperiments.validate(plan);
  }finally{dom.window.close();}
+}
+async function setupLibraryCoverageTests(){
+ const S=require('../dist/setup.js'),L=require('../dist/source-layouts.js');
+ const make=(momentumChart,executionChart,momentumBrickMode)=>({...S.demoTemplate({momentumChart,executionChart,momentumBrickMode}),demo:false});
+ const candleExits=Array.from({length:14},(_,n)=>{
+  const template=make('P&F','Candle');
+  template.stages.momentum.fields[L.main('P&F').modeIndex].value=String(n+2);
+  return template;
+ });
+ for(const mode of ['Absolute','Percent','ATR','ATR %'])candleExits.push(make('Renko','Candle',mode));
+ candleExits.push(make('Candle','Candle'));
+ const olderExit=make('Candle','P&F'),recorded=[...candleExits,olderExit],memory=Object.fromEntries(recorded.map((template,n)=>['experiment:fixture-'+n,{createdAt:new Date((recorded.length-n)*1000).toISOString(),baseline:{setup:{template}}}]));
+ const storage={get:async key=>key?{[key]:clone(memory[key]??null)}:clone(memory),set:async()=>{throw Error('Library reads must never change saved settings.');}};
+ const runtime={id:'library-fixture',getURL:name=>'chrome-extension://library-fixture/'+name};
+ const coordinator=createCoordinator({storage,runtime,probe:async()=>{throw Error('Library reads must never contact RZone.');}});
+ const result=await coordinator.handle({action:'setup-library'},{id:runtime.id,url:runtime.getURL('index.html')});
+ assert.ok(result.templates.some(t=>t.stages.execution.fields[3].value==='P&F'),'Older P&F exit choices survive many newer Candle-exit profiles');
+ assert.equal(result.templates.filter(t=>t.stages.momentum.fields[0].value==='P&F').length,1,'P&F reversal values share a layout');
+ assert.equal(result.templates.filter(t=>t.stages.momentum.fields[0].value==='Renko').length,4,'Renko construction modes keep separate layouts');
 }
 async function setupBridgeTests(){
  const S=require('../dist/setup.js'),memory={},runtime={id:'setup-extension',getURL:p=>'chrome-extension://setup-extension/'+p};
@@ -599,4 +632,4 @@ function chartVariationTests(){
  }
  for(const stage of ['momentum','execution']){const template=S.demoTemplate({momentumChart:'Renko',executionChart:'Renko',momentumBrickMode:'ATR',executionBrickMode:'ATR %'}),baseline=S.configToBaseline(S.defaults(template),template),descriptor=E.catalog(baseline).find(f=>f.key===stage+'.brick.size');assert.equal(descriptor.integer,true);assert.throws(()=>E.create({id:'fractional-atr',name:'ATR must be whole',baseline,dimensions:[{key:descriptor.key,values:[14,14.5]}]}),/whole numbers/);}
 }
-(async()=>{setupVariationTests();setupCachedCategoryTests();setupContextVariationTests();universeTimeframeTests();filterVariationTests();pairedPeriodTests();chartVariationTests();await coordinatorTests();await refreshedSourceRecoveryTests();await deletionTests();await decisionTests();await setupBridgeTests();await ruleSearchBridgeTests();await symbolSearchBridgeTests();console.log('PASS: independent chart contexts, all universe/timeframe/filter combinations, exact variant trial settings, paired test periods and legacy date variations, matched decisions, frozen forward stages, immutable archives, authorized rule/symbol lookups and guarded study deletion with preserved results.');})().catch(e=>{console.error(e);process.exitCode=1;});
+(async()=>{setupVariationTests();setupCachedCategoryTests();setupContextVariationTests();universeTimeframeTests();filterVariationTests();pairedPeriodTests();chartVariationTests();await coordinatorTests();await refreshedSourceRecoveryTests();await deletionTests();await decisionTests();await setupLibraryCoverageTests();await setupBridgeTests();await ruleSearchBridgeTests();await symbolSearchBridgeTests();console.log('PASS: independent chart contexts, all universe/timeframe/filter combinations, exact variant trial settings, paired test periods and legacy date variations, matched decisions, frozen forward stages, immutable archives, authorized rule/symbol lookups and guarded study deletion with preserved results.');})().catch(e=>{console.error(e);process.exitCode=1;});

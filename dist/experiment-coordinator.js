@@ -260,15 +260,29 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
   const planned=E.expected(e,t);E.verifySettings(planned,r);
   E.verifyEvidence(e,t,r);
  }
- function setupProfileKey(template){
-  const {momentum,execution,marketFilter}=template.stages;
-  return JSON.stringify([
-   ...[['momentum',momentum],['execution',execution],...(marketFilter?[['marketFilter',marketFilter]]:[])].map(([stage,descriptor])=>{
-    const fields=descriptor.fields,layout=L.stage(stage,fields);
-    return [layout.chart,fields[layout.modeIndex]?.value,fields[layout.exitModeIndex]?.value];
-   }),
-   !!momentum.relativeStrength
-  ]);
+ function setupProfiles(sources){
+  const profiles=[],covered=new Set();
+  for(const source of sources){
+   if(!source||source.demo)continue;
+   try{
+    const template=S.template(source),contexts=[];
+    for(const stage of cacheStages){
+     const descriptor=template.stages[stage];if(!descriptor)continue;
+     const fields=descriptor.fields,layout=L.stage(stage,fields);
+     const context=[stage,layout.chart];
+     if(layout.chart==='Renko')context.push(fields[layout.modeIndex]?.value,fields[layout.exitModeIndex]?.value);
+     if(stage==='momentum')context.push(fields[layout.marketIndex]?.value,!!descriptor.relativeStrength);
+     if(stage==='execution')context.push(layout.selection);
+     if(stage==='marketFilter')context.push(layout.hasExit);
+     contexts.push(JSON.stringify(context));
+    }
+    // Entry and exit choices are independently reusable. A different P&F
+    // reversal uses the same controls and menus and must not evict an exit chart.
+    if(contexts.every(context=>covered.has(context)))continue;
+    contexts.forEach(context=>covered.add(context));profiles.push(template);
+   }catch{/* Invalid old templates remain in the original research archive. */}
+  }
+  return profiles;
  }
  async function execute(m,sender,received){
   const source=sender.id===runtime.id&&sender.tab&&(sender.frameId===undefined||sender.frameId===0)&&new URL(sender.url||'https://invalid/').origin==='https://zone.definedgesecurities.com';
@@ -301,16 +315,8 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
   }
   if(dashboard&&m.action==='setup-library'){
    const profiles=await get('runner:setup-profiles'),archives=(await collection('experiment:')).slice().sort((a,b)=>String(b.createdAt).localeCompare(String(a.createdAt)));
-   const choices=await readChoiceCache(null,false),queries=await benchmarkQueries(),templates=[],keys=new Set();
-   for(const source of [...(Array.isArray(profiles)?profiles:[]),...archives.map(e=>e.baseline?.setup?.template)]){
-    if(!source||source.demo)continue;
-    try{
-     const template=S.template(source),key=setupProfileKey(template);
-     if(keys.has(key))continue;
-     keys.add(key);templates.push(enrichSymbolChoices(template,choices,queries));
-     if(templates.length===18)break;
-    }catch{/* Archived templates that cannot describe the current editor remain saved as research. */}
-   }
+   const choices=await readChoiceCache(null,false),queries=await benchmarkQueries();
+   const templates=setupProfiles([...(Array.isArray(profiles)?profiles:[]),...archives.map(e=>e.baseline?.setup?.template)]).map(template=>enrichSymbolChoices(template,choices,queries));
    return {ok:true,templates,nseBenchmarkSeeded:queries.seeded};
   }
   if(dashboard&&m.action==='lookup-symbol-local'){
@@ -322,8 +328,12 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
   }
   if(dashboard&&m.action==='create'){
    if(m.reuse&&account?.enabled)await account.requireFeature('reuse');
-   const e=E.create({...m.plan,id:uuid()});if(e.demo)throw Error('Fictional experiments cannot control RZone.');
-   if(await get('experiment:'+e.id))throw Error('Experiment ID already exists.');await put(e);return {ok:true,experiment:e};
+   const key=m.draftId&&'experiment:'+m.draftId,existing=key&&await get(key);
+   if(m.draftId&&(!E.editableDraft(existing)||(await Promise.all(existing.trials.map(t=>get('run:'+t.runId)))).some(Boolean)))throw Error('This study has already started. Open it in My studies to continue.');
+   const e=E.create({...m.plan,id:existing?.id||uuid(),...(existing?{now:existing.createdAt}:{})});if(e.demo)throw Error('Fictional experiments cannot control RZone.');
+   if(!existing&&await get('experiment:'+e.id))throw Error('Experiment ID already exists.');
+   if(existing)e.revision=existing.revision+1;
+   await put(e);return {ok:true,experiment:e};
   }
   if(dashboard&&['configure','lookup-rule','lookup-symbol','open-source'].includes(m.action)){
    await reviewSourceOwners(m.action==='open-source'?undefined:m.tabId);
@@ -392,6 +402,12 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
    for(const values of Object.values(changes))if(!values||typeof values!=='object'||Array.isArray(values)||Object.keys(values).length>10||Object.entries(values).some(([index,value])=>!/^\d{1,2}$/.test(index)||typeof value!=='string'||value.length>2000))throw Error('Invalid source choices request.');
    if(m.includeRelativeStrength!==undefined&&(m.includeRelativeStrength!==true||!L.charts.includes(changes.momentum?.[0])||m.loadFilter||m.warmChart))throw Error('Invalid Relative Strength chart refresh.');
    if(m.recheckAllChoices!==undefined&&typeof m.recheckAllChoices!=='boolean'||m.warmChart!==undefined&&!L.charts.includes(m.warmChart)||m.loadFilter!==undefined&&!['relativeStrength','marketFilter'].includes(m.loadFilter)||m.warmChart&&(Object.keys(changes).length||m.loadFilter))throw Error('Invalid source choice refresh.');
+   let filterTemplate;
+   if(m.filterTemplate!==undefined){
+    if(m.loadFilter!=='relativeStrength'||Object.keys(changes).length||m.recheckAllChoices)throw Error('Invalid Relative Strength lookup.');
+    filterTemplate=S.template(m.filterTemplate);
+    if(filterTemplate.demo)throw Error('A sample setup cannot search RZone.');
+   }
    const cache=await readChoiceCache(tab,m.recheckAllChoices===true),benchmarkCache=await benchmarkQueries(),symbols=cachedSymbolChoices(benchmarkCache);
    if(m.warmChart){
     if(cache.warmInterruptedChart)throw Error('Automatic choices check stopped earlier today. Use Recheck all choices to retry it.');
@@ -399,19 +415,18 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
     // or worker restart must not begin the same day's background pass again.
     await storage.set({[dailyKey]:{version:L.version,cacheVersion:cacheSchema,day:cache.day,records:cache.records,warmInterruptedChart:m.warmChart}});
    }
-   const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(symbols.length?{cachedSymbols:symbols}:{}),...(m.includeRelativeStrength?{includeRelativeStrength:true}:{}),...(m.warmChart?{warmChart:m.warmChart}:{}),...(m.loadFilter?{loadFilter:m.loadFilter}:{})};
+   const options={cachedChoices:cache.records.map(r=>r.payload),forceChoices:m.recheckAllChoices===true,...(symbols.length?{cachedSymbols:symbols}:{}),...(m.includeRelativeStrength?{includeRelativeStrength:true}:{}),...(m.warmChart?{warmChart:m.warmChart}:{}),...(m.loadFilter?{loadFilter:m.loadFilter}:{}),...(filterTemplate?{filterTemplate}:{})};
    const r=await configure(tab.id,changes,undefined,options);
    if(!r?.ok)throw Error(r?.error||'RZone setup could not be read.');
    if(r.session!==tab.session||r.config?.session!==tab.session)throw Error('RZone reloaded while connecting. Connect again.');
    const template=S.template(r.config),routes=lookupRoutes(template,tab.session);try{await storage.set({[lookupKey(tab)]:routes});}catch{/* The form can still load; an unrecorded filter search must reconnect. */}
    try{
-    const key=setupProfileKey(template),saved=await get('runner:setup-profiles');
-    const profiles=Array.isArray(saved)?saved.filter(candidate=>setupProfileKey(candidate)!==key):[];
-    await storage.set({'runner:setup-profiles':[template,...profiles].slice(0,12)});
+    const saved=await get('runner:setup-profiles');
+    await storage.set({'runner:setup-profiles':setupProfiles([template,...(Array.isArray(saved)?saved:[])])});
    }catch{/* The current source reading remains available in Vault. */}
    // All menu metadata stays local for this calendar day, across source tabs.
    // Current settings come from this fresh response, never from stored menus.
-   const choiceCache=await retainChoices(tab,cache,r);
+   const choiceCache=filterTemplate&&!r.choiceCache?undefined:await retainChoices(tab,cache,r);
    const source=enrichSymbolChoices(r.config,await readChoiceCache(tab,false),benchmarkCache);
    return {ok:true,source:{...source,choiceCache,nseBenchmarkSeeded:benchmarkCache.seeded}};
   }
@@ -455,12 +470,19 @@ function createCoordinator({storage,runtime,probe,configure,openSource,account,t
     if(await reviewLease())throw Error('A trial still owns the source tab. Finish or review it first.');
     if((await collection('experiment:')).some(x=>x.id!==e.id&&['running','pausing'].includes(x.status)))throw Error('Another experiment is running.');
     if(!['draft','paused'].includes(e.status)||e.trials.some(t=>t.status==='uncertain'))throw Error('Review interrupted trials before resuming.');
-    const tab=await sourceStatus(await get('runner:tab:'+m.tabId));if(!tab?.ready)throw Error(tab?.reason||'RZone is not responding. Open its Momentum BackTesting page with the updated extension, then try again.');
+    let tab;
+    if(m.autoSelect===true&&!m.tabId){
+     const candidates=(await Promise.all((await collection('runner:tab:')).map(sourceStatus))).filter(Boolean);
+     const ready=candidates.filter(candidate=>candidate.ready);
+     if(ready.length>1)throw Error('More than one RZone tab is ready. Choose which tab to use, then retry.');
+     tab=ready[0]||(candidates.length===1?candidates[0]:null);
+    }else tab=await sourceStatus(await get('runner:tab:'+m.tabId));
+    if(!tab?.ready)throw Error(tab?.reason||'RZone is not responding. Open RZone and refresh its tab if it is idle, then return here and retry.');
     if(e.demo||!e.trials.some(t=>t.status==='queued'))throw Error('There are no queued real trials.');
     if(account?.enabled){for(const trial of e.trials.filter(t=>t.status==='saved')){const saved=await get('run:'+trial.runId);validateCapture(e,trial,saved);await account.settle(trial.runId,'saved');}await account.start(e.trials.filter(t=>t.status==='queued').length);}
     L.validate('momentum',E.fields(e.baseline,'momentum'));
     if(L.validate('execution',E.fields(e.baseline,'execution')).selection!=='Price')throw Error('Automatic execution currently requires Price selection.');
-    e.owner={tabId:tab.id,session:tab.session};e.status='running';E.journal(e,'Started on selected RZone tab');await put(e);return {ok:true};
+    e.owner={tabId:tab.id,session:tab.session};e.status='running';E.journal(e,'Started on selected RZone tab');await put(e);return {ok:true,tabId:tab.id};
    }
    if(m.action==='pause'){if(['running','pausing'].includes(e.status)){e.status=(await get('runner:lease'))?.experimentId===e.id?'pausing':'paused';if(e.status==='paused')delete e.owner;E.journal(e,'Stop after current trial requested');await put(e);}return {ok:true};}
    if(m.action==='skip'){
